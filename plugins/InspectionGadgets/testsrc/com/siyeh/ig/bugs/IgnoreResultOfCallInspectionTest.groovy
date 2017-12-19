@@ -250,4 +250,47 @@ class Test {
   }
 }"""
   }
+
+  void testPattern() {
+    doTest """
+import java.util.regex.Pattern;
+import java.util.Set;
+
+class Test {
+  void test(Set<String> names) {
+    names.forEach(Pattern::/*Result of 'Pattern.compile()' is ignored*/compile/**/);
+  }
+}
+"""
+  }
+
+  void testPatternCaught() {
+    doTest """
+import java.util.regex.*;
+import java.util.Set;
+
+class Test {
+  void test(Set<String> names) {
+    try {
+      names.forEach(Pattern::compile);
+    }
+    catch (PatternSyntaxException e) {
+      throw new RuntimeException("Pattern error", e);
+    }
+  }
+}
+"""
+  }
+
+  void testOptionalOrElseThrow() {
+    doTest """
+import java.util.Optional;
+
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
+class Test {
+  void test(Optional<String> opt) {
+    opt.orElseThrow(RuntimeException::new);
+  }
+}"""
+  }
 }

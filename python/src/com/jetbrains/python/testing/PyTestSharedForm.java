@@ -16,9 +16,8 @@
 package com.jetbrains.python.testing;
 
 import com.google.common.collect.ObjectArrays;
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
+import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
@@ -34,6 +33,10 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.util.ThreeState;
 import com.jetbrains.PySymbolFieldWithBrowseButton;
+import com.jetbrains.extenstions.ContextAnchor;
+import com.jetbrains.extenstions.ModuleBasedContextAnchor;
+import com.jetbrains.extenstions.ProjectSdkContextAnchor;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.run.AbstractPyCommonOptionsForm;
 import com.jetbrains.python.run.PyCommonOptionsFormFactory;
@@ -61,6 +64,11 @@ public final class PyTestSharedForm implements SimplePropertiesProvider {
    * Regex to convert additionalArgumentNames to "Additional Argument Names"
    */
   private static final Pattern CAPITAL_LETTER = Pattern.compile("(?=\\p{Upper})");
+  private static final FileChooserDescriptor FILE_CHOOSER_DESCRIPTOR =
+    new FileChooserDescriptor(true, true, false, false, false, false)
+      .withFileFilter(file -> file.isDirectory() || file.getName().endsWith(PyNames.DOT_PY));
+
+
   private JPanel myPanel;
   /**
    * Panel for test targets
@@ -112,12 +120,13 @@ public final class PyTestSharedForm implements SimplePropertiesProvider {
                            @NotNull final PyAbstractTestConfiguration configuration) {
     myPathTarget = new TextFieldWithBrowseButton();
     final Project project = configuration.getProject();
-    myPathTarget.addBrowseFolderListener(new TextBrowseFolderListener(FileChooserDescriptorFactory.createSingleFolderDescriptor()));
+    myPathTarget.addBrowseFolderListener(new TextBrowseFolderListener(FILE_CHOOSER_DESCRIPTOR));
     final TypeEvalContext context = TypeEvalContext.userInitiated(project, null);
     final ThreeState testClassRequired = configuration.isTestClassRequired();
 
 
-    myPythonTarget = new PySymbolFieldWithBrowseButton(module != null ? module : ModuleManager.getInstance(project).getModules()[0],
+    ContextAnchor contentAnchor = (module != null ? new ModuleBasedContextAnchor(module) : new ProjectSdkContextAnchor(project, configuration.getSdk()));
+    myPythonTarget = new PySymbolFieldWithBrowseButton(contentAnchor,
                                                        element -> {
                                                          if (element instanceof PsiDirectory) {
                                                            // Folder is always accepted because we can't be sure

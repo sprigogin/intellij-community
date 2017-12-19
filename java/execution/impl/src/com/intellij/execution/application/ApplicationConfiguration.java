@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.execution.application;
 
@@ -62,6 +50,7 @@ public class ApplicationConfiguration extends ModuleBasedConfiguration<JavaRunCo
   public boolean ALTERNATIVE_JRE_PATH_ENABLED;
   public String ALTERNATIVE_JRE_PATH;
   public boolean ENABLE_SWING_INSPECTOR;
+  public boolean INCLUDE_PROVIDED_SCOPE = false;
 
   private ShortenCommandLine myShortenCommandLine = null;
 
@@ -235,17 +224,24 @@ public class ApplicationConfiguration extends ModuleBasedConfiguration<JavaRunCo
     ALTERNATIVE_JRE_PATH = path;
   }
 
+  public boolean isProvidedScopeIncluded() {
+    return INCLUDE_PROVIDED_SCOPE;
+  }
+
+  public void setIncludeProvidedScope(boolean value) {
+    INCLUDE_PROVIDED_SCOPE = value;
+  }
+
   @Override
   public Collection<Module> getValidModules() {
     return JavaRunConfigurationModule.getModulesForClass(getProject(), MAIN_CLASS_NAME);
   }
 
   @Override
-  public void readExternal(final Element element) {
+  public void readExternal(@NotNull final Element element) {
     super.readExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().readExternal(this, element);
     DefaultJDOMExternalizer.readExternal(this, element);
-    readModule(element);
     EnvironmentVariablesComponent.readExternal(element, getEnvs());
     setShortenCommandLine(ShortenCommandLine.readShortenClasspathMethod(element));
   }
@@ -292,7 +288,7 @@ public class ApplicationConfiguration extends ModuleBasedConfiguration<JavaRunCo
       final String jreHome = myConfiguration.ALTERNATIVE_JRE_PATH_ENABLED ? myConfiguration.ALTERNATIVE_JRE_PATH : null;
       if (module.getModule() != null) {
         DumbService.getInstance(module.getProject()).runWithAlternativeResolveEnabled(() -> {
-          int classPathType = JavaParametersUtil.getClasspathType(module, myConfiguration.MAIN_CLASS_NAME, false);
+          int classPathType = JavaParametersUtil.getClasspathType(module, myConfiguration.MAIN_CLASS_NAME, false, myConfiguration.isProvidedScopeIncluded());
           JavaParametersUtil.configureModule(module, params, classPathType, jreHome);
         });
       }

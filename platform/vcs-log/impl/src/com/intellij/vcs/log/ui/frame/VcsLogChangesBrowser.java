@@ -16,6 +16,7 @@
 package com.intellij.vcs.log.ui.frame;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.project.Project;
@@ -23,16 +24,16 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.actions.diff.ChangeDiffRequestProducer;
 import com.intellij.openapi.vcs.changes.committed.CommittedChangesTreeBrowser;
 import com.intellij.openapi.vcs.changes.ui.*;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.SideBorder;
-import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.ui.UI;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.CommitId;
@@ -46,6 +47,7 @@ import com.intellij.vcs.log.impl.MergedChange;
 import com.intellij.vcs.log.impl.MergedChangeDiffRequestProvider;
 import com.intellij.vcs.log.impl.VcsLogUiProperties;
 import com.intellij.vcs.log.ui.VcsLogActionPlaces;
+import com.intellij.vcs.log.util.VcsLogUiUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -67,6 +69,7 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
 
   @NotNull private final VcsLogUiProperties.PropertiesChangeListener myListener;
 
+  @NotNull private final Set<VirtualFile> myRoots = ContainerUtil.newHashSet();
   @NotNull private final List<Change> myChanges = ContainerUtil.newArrayList();
   @NotNull private final Map<CommitId, Set<Change>> myChangesToParents = ContainerUtil.newHashMap();
 
@@ -106,14 +109,15 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
   @Override
   protected List<AnAction> createToolbarActions() {
     List<AnAction> result = new ArrayList<>(super.createToolbarActions());
-    result.add(ActionManager.getInstance().getAction("Vcs.RepositoryChangesBrowserToolbar"));
-    result.add(ActionManager.getInstance().getAction(VcsLogActionPlaces.VCS_LOG_QUICK_CHANGE_VIEW_SETTINGS_ACTION));
+    ActionGroup group = (ActionGroup)ActionManager.getInstance().getAction(VcsLogActionPlaces.CHANGES_BROWSER_ACTION_GROUP);
+    Collections.addAll(result, group.getChildren(null));
     return result;
   }
 
   public void resetSelectedDetails() {
     myChanges.clear();
     myChangesToParents.clear();
+    myRoots.clear();
     myViewer.setEmptyText("");
     myViewer.rebuildTree();
   }
@@ -121,6 +125,9 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
   public void setSelectedDetails(@NotNull List<VcsFullCommitDetails> detailsList) {
     myChanges.clear();
     myChangesToParents.clear();
+    myRoots.clear();
+
+    myRoots.addAll(ContainerUtil.map(detailsList, detail -> detail.getRoot()));
 
     if (detailsList.isEmpty()) {
       myViewer.setEmptyText("No commits selected");
@@ -138,7 +145,7 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
 
       if (myChanges.isEmpty() && detail.getParents().size() > 1) {
         myViewer.getEmptyText().setText("No merged conflicts.").
-          appendSecondaryText("Show changes to parents", getLinkAttributes(),
+          appendSecondaryText("Show changes to parents", VcsLogUiUtil.getLinkAttributes(),
                               e -> myUiProperties.set(SHOW_CHANGES_FROM_PARENTS, true));
       }
       else {
@@ -157,12 +164,6 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
     }
 
     myViewer.rebuildTree();
-  }
-
-  @NotNull
-  private static SimpleTextAttributes getLinkAttributes() {
-    return new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN,
-                                    UI.getColor("link.foreground"));
   }
 
   @NotNull
@@ -200,12 +201,23 @@ class VcsLogChangesBrowser extends ChangesBrowserBase implements Disposable {
   @Override
   public Object getData(@NotNull String dataId) {
     if (VcsDataKeys.VCS.is(dataId)) {
-      List<Change> selectedChanges = VcsTreeModelData.selected(myViewer).userObjects(Change.class);
-      Set<AbstractVcs> abstractVcs = ChangesUtil.getAffectedVcses(selectedChanges, myProject);
-      if (abstractVcs.size() == 1) return notNull(getFirstItem(abstractVcs)).getKeyInstanceMethod();
-      return null;
+      AbstractVcs vcs = getVcs();
+      if (vcs == null) return null;
+      return vcs.getKeyInstanceMethod();
     }
     return super.getData(dataId);
+  }
+
+  @Nullable
+  private AbstractVcs getVcs() {
+    List<AbstractVcs> allVcs = ContainerUtil.mapNotNull(myRoots, root -> ProjectLevelVcsManager.getInstance(myProject).getVcsFor(root));
+    if (allVcs.size() == 1) return notNull(getFirstItem(allVcs));
+
+    List<Change> selectedChanges = VcsTreeModelData.selected(myViewer).userObjects(Change.class);
+    Set<AbstractVcs> selectedVcs = ChangesUtil.getAffectedVcses(selectedChanges, myProject);
+    if (selectedVcs.size() == 1) return notNull(getFirstItem(selectedVcs));
+    
+    return null;
   }
 
   @Nullable

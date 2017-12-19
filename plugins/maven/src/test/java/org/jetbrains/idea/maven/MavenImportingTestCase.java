@@ -30,6 +30,7 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
 import com.intellij.openapi.util.AsyncResult;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
@@ -510,7 +511,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   protected void executeGoal(String relativePath, String goal) {
     VirtualFile dir = myProjectRoot.findFileByRelativePath(relativePath);
 
-    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), Arrays.asList(goal), Collections.emptyList());
+    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), (String)null, Arrays.asList(goal), Collections.emptyList());
     MavenRunnerSettings rs = new MavenRunnerSettings();
     MavenExecutor e = new MavenExternalExecutor(myProject, rp, getMavenGeneralSettings(), rs, new SoutMavenConsole());
 
@@ -518,6 +519,9 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void removeFromLocalRepository(String relativePath) {
+    if (SystemInfo.isWindows) {
+      MavenServerManager.getInstance().shutdown(true);
+    }
     FileUtil.delete(new File(getRepositoryPath(), relativePath));
   }
 
@@ -539,24 +543,18 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   protected static AtomicInteger configConfirmationForYesAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(new TestDialog() {
-      @Override
-      public int show(String message) {
-        counter.set(counter.get() + 1);
-        return 0;
-      }
+    Messages.setTestDialog(message -> {
+      counter.getAndIncrement();
+      return Messages.YES;
     });
     return counter;
   }
 
   protected static AtomicInteger configConfirmationForNoAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(new TestDialog() {
-      @Override
-      public int show(String message) {
-        counter.set(counter.get() + 1);
-        return 1;
-      }
+    Messages.setTestDialog(message -> {
+      counter.getAndIncrement();
+      return Messages.NO;
     });
     return counter;
   }

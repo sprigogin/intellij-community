@@ -32,6 +32,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiMethodUtil;
 import com.intellij.ui.EditorTextFieldWithBrowseButton;
 import com.intellij.ui.PanelWithAnchor;
+import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -50,6 +51,7 @@ public class ApplicationConfigurable extends SettingsEditor<ApplicationConfigura
   private final ConfigurationModuleSelector myModuleSelector;
   private JrePathEditor myJrePathEditor;
   private JCheckBox myShowSwingInspectorCheckbox;
+  private LabeledComponent<JBCheckBox> myIncludeProvidedDeps;
   private final JreVersionDetector myVersionDetector;
   private final Project myProject;
   private JComponent myAnchor;
@@ -68,8 +70,9 @@ public class ApplicationConfigurable extends SettingsEditor<ApplicationConfigura
     myVersionDetector = new JreVersionDetector();
 
     myShortenClasspathModeCombo.setComponent(new ShortenCommandLineModeCombo(myProject, myJrePathEditor, myModule.getComponent()));
+    myIncludeProvidedDeps.setComponent(new JBCheckBox(ExecutionBundle.message("application.configuration.include.provided.scope")));
     myAnchor = UIUtil.mergeComponentsWithAnchor(myMainClass, myCommonProgramParameters, myJrePathEditor, myModule,
-                                                myShortenClasspathModeCombo);
+                                                myShortenClasspathModeCombo, myIncludeProvidedDeps);
   }
 
   public void applyEditorTo(@NotNull final ApplicationConfiguration configuration) throws ConfigurationException {
@@ -82,6 +85,7 @@ public class ApplicationConfigurable extends SettingsEditor<ApplicationConfigura
     configuration.ALTERNATIVE_JRE_PATH_ENABLED = myJrePathEditor.isAlternativeJreSelected();
     configuration.ENABLE_SWING_INSPECTOR = (myVersionDetector.isJre50Configured(configuration) || myVersionDetector.isModuleJre50Configured(configuration)) && myShowSwingInspectorCheckbox.isSelected();
     configuration.setShortenCommandLine((ShortenCommandLine)myShortenClasspathModeCombo.getComponent().getSelectedItem());
+    configuration.setIncludeProvidedScope(myIncludeProvidedDeps.getComponent().isSelected());
 
     updateShowSwingInspector(configuration);
   }
@@ -92,6 +96,7 @@ public class ApplicationConfigurable extends SettingsEditor<ApplicationConfigura
     getMainClassField().setText(configuration.MAIN_CLASS_NAME != null ? configuration.MAIN_CLASS_NAME.replaceAll("\\$", "\\.") : "");
     myJrePathEditor.setPathOrName(configuration.ALTERNATIVE_JRE_PATH, configuration.ALTERNATIVE_JRE_PATH_ENABLED);
     myShortenClasspathModeCombo.getComponent().setSelectedItem(configuration.getShortenCommandLine());
+    myIncludeProvidedDeps.getComponent().setSelected(configuration.isProvidedScopeIncluded());
 
     updateShowSwingInspector(configuration);
   }

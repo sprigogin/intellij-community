@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.externalSystem.service.execution;
 
@@ -21,6 +9,8 @@ import com.intellij.build.events.impl.FailureResultImpl;
 import com.intellij.build.events.impl.FinishBuildEventImpl;
 import com.intellij.build.events.impl.StartBuildEventImpl;
 import com.intellij.build.events.impl.SuccessResultImpl;
+import com.intellij.build.output.BuildOutputInstantReaderImpl;
+import com.intellij.build.output.BuildOutputParser;
 import com.intellij.diagnostic.logging.LogConfigurationPanel;
 import com.intellij.execution.*;
 import com.intellij.execution.configurations.*;
@@ -58,6 +48,7 @@ import com.intellij.openapi.externalSystem.model.task.event.ExternalSystemTaskEx
 import com.intellij.openapi.externalSystem.service.internal.ExternalSystemExecuteTaskTask;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
@@ -68,10 +59,10 @@ import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ExceptionUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.net.NetUtils;
 import com.intellij.util.text.CharArrayUtil;
@@ -87,6 +78,7 @@ import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 
 import static com.intellij.openapi.externalSystem.util.ExternalSystemUtil.convert;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemUtil.getConsoleManagerFor;
@@ -132,7 +124,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
     Element e = element.getChild(ExternalSystemTaskExecutionSettings.TAG_NAME);
     if (e != null) {
@@ -142,7 +134,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
     element.addContent(XmlSerializer.serialize(mySettings, new SerializationFilter() {
       @Override
@@ -170,7 +162,8 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
   @Override
   public SettingsEditor<ExternalSystemRunConfiguration> getConfigurationEditor() {
     SettingsEditorGroup<ExternalSystemRunConfiguration> group = new SettingsEditorGroup<>();
-    group.addEditor(ExecutionBundle.message("run.configuration.configuration.tab.title"), new ExternalSystemRunConfigurationEditor(getProject(), mySettings.getExternalSystemId()));
+    group.addEditor(ExecutionBundle.message("run.configuration.configuration.tab.title"),
+                    new ExternalSystemRunConfigurationEditor(getProject(), mySettings.getExternalSystemId()));
     JavaRunConfigurationExtensionManager.getInstance().appendEditors(this, group);
     group.addEditor(ExecutionBundle.message("logs.tab.title"), new LogConfigurationPanel<>());
     return group;
@@ -197,7 +190,9 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
       VirtualFile file = VfsUtil.findFileByIoFile(new File(mySettings.getExternalProjectPath()), false);
       if (file != null) {
         Module module = DirectoryIndex.getInstance(getProject()).getInfoForFile(file).getModule();
-        scope = SearchScopeProvider.createSearchScope(ContainerUtil.ar(module));
+        if (module != null) {
+          scope = SearchScopeProvider.createSearchScope(ContainerUtil.ar(module));
+        }
       }
     }
     return scope;
@@ -260,7 +255,8 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
       String jvmAgentSetup;
       if (myDebugPort > 0) {
         jvmAgentSetup = "-agentlib:jdwp=transport=dt_socket,server=n,suspend=y,address=" + myDebugPort;
-      } else {
+      }
+      else {
         ParametersList parametersList = extensionsJP.getVMParametersList();
         final ParametersList data = myEnv.getUserData(ExternalSystemTaskExecutionSettings.JVM_AGENT_SETUP_KEY);
         if (data != null) {
@@ -281,7 +277,14 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
       final ExternalSystemExecuteTaskTask task = new ExternalSystemExecuteTaskTask(myProject, mySettings, jvmAgentSetup);
       copyUserDataTo(task);
 
-      final ExternalSystemProcessHandler processHandler = new ExternalSystemProcessHandler(task);
+      final String executionName = StringUtil.isNotEmpty(mySettings.getExecutionName())
+                                   ? mySettings.getExecutionName()
+                                   : StringUtil.isNotEmpty(myConfiguration.getName())
+                                     ? myConfiguration.getName() : AbstractExternalSystemTaskConfigurationType.generateName(
+                                     myProject, mySettings.getExternalSystemId(), mySettings.getExternalProjectPath(),
+                                     mySettings.getTaskNames(), mySettings.getExecutionName(), ": ", "");
+
+      final ExternalSystemProcessHandler processHandler = new ExternalSystemProcessHandler(task, executionName);
       final ExternalSystemExecutionConsoleManager<ExternalSystemRunConfiguration, ExecutionConsole, ProcessHandler>
         consoleManager = getConsoleManagerFor(task);
 
@@ -298,27 +301,31 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
         restartActions = consoleManager.getRestartActions(consoleView);
       }
       Class<? extends BuildProgressListener> progressListenerClazz = task.getUserData(PROGRESS_LISTENER_KEY);
-      final BuildProgressListener progressListener = progressListenerClazz != null
-                                                     ? ServiceManager.getService(myProject, progressListenerClazz)
-                                                     : myDebugPort > 0
-                                                       ? ServiceManager.getService(myProject, DebugTasksViewManager.class)
-                                                       : ServiceManager.getService(myProject, RunTasksViewManager.class);
+      final BuildProgressListener progressListener =
+        progressListenerClazz != null ? ServiceManager.getService(myProject, progressListenerClazz)
+                                      : createBuildView(task.getId(), executionName, task.getExternalProjectPath(), consoleView);
 
-      final String executionName = StringUtil.isNotEmpty(mySettings.getExecutionName())
-                                   ? mySettings.getExecutionName()
-                                   : StringUtil.isNotEmpty(myConfiguration.getName())
-                                     ? myConfiguration.getName() : AbstractExternalSystemTaskConfigurationType.generateName(
-                                     myProject, mySettings.getExternalSystemId(), mySettings.getExternalProjectPath(),
-                                     mySettings.getTaskNames(), mySettings.getExecutionName(), ": ", "");
+      List<BuildOutputParser> buildOutputParsers = new SmartList<>();
+      for (ExternalSystemOutputParserProvider outputParserProvider : ExternalSystemOutputParserProvider.EP_NAME.getExtensions()) {
+        if (task.getExternalSystemId().equals(outputParserProvider.getExternalSystemId())) {
+          buildOutputParsers.addAll(outputParserProvider.getBuildOutputParsers(task));
+        }
+      }
 
-      JavaRunConfigurationExtensionManager.getInstance().attachExtensionsToProcess(myConfiguration, processHandler, myEnv.getRunnerSettings());
+      //noinspection IOResourceOpenedButNotSafelyClosed
+      final BuildOutputInstantReaderImpl buildOutputInstantReader =
+        progressListener == null || buildOutputParsers.isEmpty() ? null :
+        new BuildOutputInstantReaderImpl(task.getId(), progressListener, buildOutputParsers);
+
+      JavaRunConfigurationExtensionManager.getInstance()
+        .attachExtensionsToProcess(myConfiguration, processHandler, myEnv.getRunnerSettings());
 
       ApplicationManager.getApplication().executeOnPooledThread(() -> {
         final String startDateTime = DateFormatUtil.formatTimeWithSeconds(System.currentTimeMillis());
         final String greeting;
         if (mySettings.getTaskNames().size() > 1) {
           greeting = ExternalSystemBundle
-            .message("run.text.starting.multiple.task", startDateTime, mySettings.toString()) + "\n";
+                       .message("run.text.starting.multiple.task", startDateTime, mySettings.toString()) + "\n";
         }
         else {
           greeting =
@@ -359,13 +366,18 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
             else {
               processHandler.notifyTextAvailable(text, stdOut ? ProcessOutputTypes.STDOUT : ProcessOutputTypes.STDERR);
             }
+            if (buildOutputInstantReader != null) {
+              buildOutputInstantReader.append(text);
+            }
           }
 
           @Override
           public void onFailure(@NotNull ExternalSystemTaskId id, @NotNull Exception e) {
             if (progressListener != null) {
+              FailureResultImpl failureResult =
+                ExternalSystemUtil.createFailureResult(executionName + " failed", e, id.getProjectSystemId(), myProject);
               progressListener.onEvent(new FinishBuildEventImpl(
-                id, null, System.currentTimeMillis(), "failed", new FailureResultImpl(e)));
+                id, null, System.currentTimeMillis(), "failed", failureResult));
             }
             String exceptionMessage = ExceptionUtil.getMessage(e);
             String text = exceptionMessage == null ? e.toString() : exceptionMessage;
@@ -404,18 +416,46 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
             processHandler.notifyTextAvailable(farewell + "\n", ProcessOutputTypes.SYSTEM);
             foldGreetingOrFarewell(consoleView, farewell, false);
             processHandler.notifyProcessTerminated(0);
+            if (buildOutputInstantReader != null) {
+              buildOutputInstantReader.close();
+            }
           }
         };
         task.execute(ArrayUtil.prepend(taskListener, ExternalSystemTaskNotificationListener.EP_NAME.getExtensions()));
       });
-      return new DefaultExecutionResult(consoleView, processHandler);
+      ExecutionConsole executionConsole = progressListener instanceof ExecutionConsole ? (ExecutionConsole)progressListener : consoleView;
+      AnAction[] actions = AnAction.EMPTY_ARRAY;
+      if (executionConsole instanceof BuildView) {
+        actions = ((BuildView)executionConsole).getSwitchActions();
+      }
+      DefaultExecutionResult executionResult = new DefaultExecutionResult(executionConsole, processHandler, actions);
+      executionResult.setRestartActions(restartActions);
+      return executionResult;
+    }
+
+    private BuildProgressListener createBuildView(ExternalSystemTaskId id,
+                                                  String executionName,
+                                                  String workingDir,
+                                                  ExecutionConsole executionConsole) {
+      BuildDescriptor buildDescriptor = new DefaultBuildDescriptor(id, executionName, workingDir, System.currentTimeMillis());
+      return new BuildView(myProject, executionConsole, buildDescriptor, "build.toolwindow.run.selection.state",
+                           new ViewManager() {
+                             @Override
+                             public boolean isConsoleEnabledByDefault() {
+                               return true;
+                             }
+
+                             @Override
+                             public boolean isBuildContentView() {
+                               return false;
+                             }
+                           });
     }
 
     public void setContentDescriptor(@Nullable RunContentDescriptor contentDescriptor) {
       myContentDescriptor = contentDescriptor;
       if (contentDescriptor != null) {
         contentDescriptor.setExecutionId(myEnv.getExecutionId());
-        contentDescriptor.setContentToolWindowId(ToolWindowId.BUILD);
         contentDescriptor.setAutoFocusContent(true);
         RunnerAndConfigurationSettings settings = myEnv.getRunnerAndConfigurationSettings();
         if (settings != null) {
@@ -451,7 +491,7 @@ public class ExternalSystemRunConfiguration extends LocatableConfigurationBase i
     }
     if (consoleViewImpl != null) {
       consoleViewImpl.performWhenNoDeferredOutput(() -> {
-        if(!ApplicationManager.getApplication().isDispatchThread()) return;
+        if (!ApplicationManager.getApplication().isDispatchThread()) return;
 
         Document document = consoleViewImpl.getEditor().getDocument();
         int line = isGreeting ? 0 : document.getLineCount() - 2;

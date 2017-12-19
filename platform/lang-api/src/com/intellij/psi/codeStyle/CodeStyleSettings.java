@@ -35,6 +35,22 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+/**
+ * <p>
+ * A container for global, language and custom code style settings and indent options. Global options are default options for multiple
+ * languages and language-independent settings. Global (default) options which may be overwritten by a specific language can be retrieved
+ * using {@code getDefault...()} methods. Use {@link #getCommonSettings(Language)} to retrieve code style options for a language. Some
+ * languages may have specific options which are stored in a class derived from {@link CustomCodeStyleSettings}.
+ * Use {@link #getCustomSettings(Class)} to access them. For indent options use one of {@code getIndentOptions(...)} methods. In most cases
+ * you need {@link #getIndentOptionsByFile(PsiFile)}.
+ * </p>
+ * <p>
+ * Consider also using an utility {@link com.intellij.application.options.CodeStyle} class which encapsulates the above methods where possible.
+ * </p>
+ *
+ * <b>Note:</b> A direct use of any non-final public fields from {@code CodeStyleSettings} class is strongly discouraged. These fields,
+ * as well as the inheritance from {@code CommonCodeStyleSettings}, are left only for backwards compatibility and may be removed in the future.
+ */
 public class CodeStyleSettings extends CommonCodeStyleSettings
   implements Cloneable, JDOMExternalizable, ImportsLayoutSettings, CodeStyleConstraints {
   public static final int CURR_VERSION = 173;
@@ -568,33 +584,116 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
 
 // region HTML formatting options (legacy)
 
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_KEEP_WHITESPACES;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public int HTML_ATTRIBUTE_WRAP = WRAP_AS_NEEDED;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public int HTML_TEXT_WRAP = WRAP_AS_NEEDED;
-
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_KEEP_LINE_BREAKS = true;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_KEEP_LINE_BREAKS_IN_TEXT = true;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public int HTML_KEEP_BLANK_LINES = 2;
-
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_ALIGN_ATTRIBUTES = true;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_ALIGN_TEXT;
-
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_SPACE_AROUND_EQUALITY_IN_ATTRINUTE;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_SPACE_AFTER_TAG_NAME;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_SPACE_INSIDE_EMPTY_TAG;
-
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_ELEMENTS_TO_INSERT_NEW_LINE_BEFORE = "body,div,p,form,h1,h2,h3";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_ELEMENTS_TO_REMOVE_NEW_LINE_BEFORE = "br";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_DO_NOT_INDENT_CHILDREN_OF = "html,body,thead,tbody,tfoot";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public int HTML_DO_NOT_ALIGN_CHILDREN_OF_MIN_LINES;
-
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_KEEP_WHITESPACES_INSIDE = "span,pre,textarea";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_INLINE_ELEMENTS =
     "a,abbr,acronym,b,basefont,bdo,big,br,cite,cite,code,dfn,em,font,i,img,input,kbd,label,q,s,samp,select,span,strike,strong,sub,sup,textarea,tt,u,var";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   @NonNls public String HTML_DONT_ADD_BREAKS_IF_INLINE_CONTENT = "title,h1,h2,h3,h4,h5,h6,p";
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public QuoteStyle HTML_QUOTE_STYLE = QuoteStyle.Double;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public boolean HTML_ENFORCE_QUOTES = false;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public HtmlTagNewLineStyle HTML_NEWLINE_BEFORE_FIRST_ATTRIBUTE = HtmlTagNewLineStyle.Never;
+  /**
+   * @deprecated Use HtmlCodeStyleSettings
+   */
+  @Deprecated
   public HtmlTagNewLineStyle HTML_NEWLINE_AFTER_LAST_ATTRIBUTE = HtmlTagNewLineStyle.Never;
 
 // endregion
@@ -1249,6 +1348,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   public boolean equals(Object obj) {
     if (!(obj instanceof CodeStyleSettings)) return false;
     if (!ReflectionUtil.comparePublicNonFinalFields(this, obj)) return false;
+    if (!mySoftMargins.equals(((CodeStyleSettings)obj).mySoftMargins)) return false;
     if (!OTHER_INDENT_OPTIONS.equals(((CodeStyleSettings)obj).OTHER_INDENT_OPTIONS)) return false;
     if (!myCommonSettingsManager.equals(((CodeStyleSettings)obj).myCommonSettingsManager)) return false;
     for (CustomCodeStyleSettings customSettings : myCustomSettings.values()) {

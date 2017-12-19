@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.usages.impl;
 
@@ -25,6 +13,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.util.ProgressWrapper;
@@ -38,6 +27,7 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Factory;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -48,6 +38,7 @@ import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.impl.PsiDocumentManagerBase;
 import com.intellij.ui.*;
+import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.ui.components.JBTabbedPane;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.treeStructure.Tree;
@@ -147,7 +138,7 @@ public class UsageViewImpl implements UsageView {
     }
     return o1.toString().compareTo(o2.toString());
   };
-  @NonNls private static final String HELP_ID = "ideaInterface.find";
+  @NonNls public static final String HELP_ID = "ideaInterface.find";
   private UsageContextPanel myCurrentUsageContextPanel;
   private List<UsageContextPanel.Provider> myUsageContextPanelProviders;
   private UsageContextPanel.Provider myCurrentUsageContextProvider;
@@ -167,6 +158,7 @@ public class UsageViewImpl implements UsageView {
   private boolean expandingAll;
   private final UsageViewTreeCellRenderer myUsageViewTreeCellRenderer;
   private Usage myOriginUsage;
+  @Nullable private Runnable myRerunActivity;
 
   public UsageViewImpl(@NotNull final Project project,
                        @NotNull UsageViewPresentation presentation,
@@ -548,7 +540,9 @@ public class UsageViewImpl implements UsageView {
         }
       });
       tabbedPane.setBorder(IdeBorderFactory.createBorder(SideBorder.LEFT));
-      myPreviewSplitter.setSecondComponent(tabbedPane);
+      JBPanelWithEmptyText panel = new JBPanelWithEmptyText(new BorderLayout());
+      panel.add(tabbedPane, BorderLayout.CENTER);
+      myPreviewSplitter.setSecondComponent(panel);
     }
     else {
       myPreviewSplitter.setProportion(1);
@@ -790,8 +784,7 @@ public class UsageViewImpl implements UsageView {
       actionsManager.createPrevOccurenceAction(myRootPanel),
       actionsManager.createNextOccurenceAction(myRootPanel),
       actionsManager.installAutoscrollToSourceHandler(myProject, myTree, new MyAutoScrollToSourceOptionProvider()),
-      actionsManager.createExportToTextFileAction(myTextFileExporter),
-      actionsManager.createHelpAction(HELP_ID)
+      actionsManager.createExportToTextFileAction(myTextFileExporter)
     };
   }
 
@@ -813,12 +806,21 @@ public class UsageViewImpl implements UsageView {
     if (description == null) {
       description = "Show find usages settings dialog";
     }
-    return new AnAction("Settings...", description, AllIcons.General.ProjectSettings) {
+    String finalDescription = description;
+    return new EmptyAction.MyDelegatingAction(ActionManager.getInstance().getAction("FindInPath")) {
       {
         KeyboardShortcut shortcut = configurableUsageTarget == null ? getShowUsagesWithSettingsShortcut() : configurableUsageTarget.getShortcut();
         if (shortcut != null) {
           registerCustomShortcutSet(new CustomShortcutSet(shortcut), getComponent());
         }
+      }
+
+      @Override
+      public void update(AnActionEvent e) {
+        super.update(e);
+        e.getPresentation().setText("Settings...");
+        e.getPresentation().setDescription(finalDescription);
+        e.getPresentation().setIcon(AllIcons.General.ProjectSettings);
       }
 
       @Override
@@ -828,6 +830,14 @@ public class UsageViewImpl implements UsageView {
 
       @Override
       public void actionPerformed(AnActionEvent e) {
+        Component data = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
+        if (data instanceof EditorComponentImpl) {
+          String toFind = ((EditorComponentImpl)data).getSelectedText();
+          if (!StringUtil.isEmpty(toFind)) {
+            super.actionPerformed(e);//call myDelegate (namely, FindInPathAction)
+            return;
+          }
+        }
         FindManager.getInstance(getProject()).showSettingsAndFindUsages(myTargets);
       }
     };
@@ -1047,8 +1057,13 @@ public class UsageViewImpl implements UsageView {
   @SuppressWarnings("WeakerAccess") // used in rider
   protected void doReRun() {
     myChangesDetected = false;
-    com.intellij.usages.UsageViewManager.getInstance(getProject()).
-      searchAndShowUsages(myTargets, myUsageSearcherFactory, true, false, myPresentation, null);
+    if (myRerunActivity != null) {
+      myRerunActivity.run();
+    }
+    else {
+      com.intellij.usages.UsageViewManager.getInstance(getProject()).
+        searchAndShowUsages(myTargets, myUsageSearcherFactory, true, false, myPresentation, null);
+    }
   }
 
   private void reset() {
@@ -1102,7 +1117,7 @@ public class UsageViewImpl implements UsageView {
   public void removeUsagesBulk(@NotNull Collection<Usage> usages) {
     int selectionRow = myTree.getMinSelectionRow();
     Set<UsageNode> nodes = usagesToNodes(usages.stream()).collect(Collectors.toSet());
-    usages.forEach(u -> myUsageNodes.remove(u));
+    usages.forEach(myUsageNodes::remove);
 
     if (!nodes.isEmpty() && !myPresentation.isDetachedMode()) {
       UIUtil.invokeLaterIfNeeded(() -> {
@@ -1318,6 +1333,11 @@ public class UsageViewImpl implements UsageView {
       myTree.expandPath(usagePath.getParentPath());
       TreeUtil.selectPath(myTree, usagePath);
     }
+  }
+
+  @Override
+  public void setReRunActivity(@NotNull Runnable runnable) {
+    myRerunActivity = runnable;
   }
 
   @Override
@@ -1890,7 +1910,7 @@ public class UsageViewImpl implements UsageView {
   }
 
   @TestOnly
-  String getNodeText(@NotNull TreeNode node) {
+  public String getNodeText(@NotNull TreeNode node) {
     return myUsageViewTreeCellRenderer.getPlainTextForNode(node);
   }
 

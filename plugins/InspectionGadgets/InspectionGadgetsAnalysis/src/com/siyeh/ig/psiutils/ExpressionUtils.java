@@ -17,6 +17,7 @@ package com.siyeh.ig.psiutils;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.NullableNotNullManager;
+import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -32,12 +33,13 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
+
+import static com.intellij.util.ObjectUtils.tryCast;
 
 public class ExpressionUtils {
   @NonNls static final Set<String> convertableBoxedClassNames = new HashSet<>(3);
@@ -181,19 +183,6 @@ public class ExpressionUtils {
       return TypeUtils.typeEquals(CommonClassNames.JAVA_LANG_STRING, type);
     }
     return false;
-  }
-
-  @Nullable
-  public static String getLiteralString(@Nullable PsiExpression expression) {
-    final PsiLiteralExpression literal = getLiteral(expression);
-    if (literal == null) {
-      return null;
-    }
-    final Object value = literal.getValue();
-    if (value == null) {
-      return null;
-    }
-    return value.toString();
   }
 
   @Nullable
@@ -562,20 +551,14 @@ public class ExpressionUtils {
         if (expressions.length < 2 || !expression.equals(ParenthesesUtils.stripParentheses(expressions[1]))) {
           return true;
         }
-        if (!isCallToMethodIn(methodCallExpression, "java.lang.StringBuilder", "java.lang.StringBuffer")) {
-          return true;
-        }
+        return !isCallToMethodIn(methodCallExpression, "java.lang.StringBuilder", "java.lang.StringBuffer");
       } else if ("append".equals(name)) {
         if (expressions.length < 1 || !expression.equals(ParenthesesUtils.stripParentheses(expressions[0]))) {
           return true;
         }
-        if (!isCallToMethodIn(methodCallExpression, "java.lang.StringBuilder", "java.lang.StringBuffer")) {
-          return true;
-        }
+        return !isCallToMethodIn(methodCallExpression, "java.lang.StringBuilder", "java.lang.StringBuffer");
       } else if ("print".equals(name) || "println".equals(name)) {
-        if (!isCallToMethodIn(methodCallExpression, "java.io.PrintStream", "java.io.PrintWriter")) {
-          return true;
-        }
+        return !isCallToMethodIn(methodCallExpression, "java.io.PrintStream", "java.io.PrintWriter");
       } else if ("trace".equals(name) || "debug".equals(name) || "info".equals(name) || "warn".equals(name) || "error".equals(name)) {
         if (!isCallToMethodIn(methodCallExpression, "org.slf4j.Logger")) {
           return true;
@@ -839,14 +822,15 @@ public class ExpressionUtils {
         final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)grandParent;
         final PsiMethod method = methodCallExpression.resolveMethod();
         if (method != null &&
-            AnnotationUtil.isAnnotated(method, Collections.singletonList("java.lang.invoke.MethodHandle.PolymorphicSignature"))) {
+            AnnotationUtil.isAnnotated(method, CommonClassNames.JAVA_LANG_INVOKE_MH_POLYMORPHIC, 0)) {
           return false;
         }
       }
     }
     final PsiType expressionType = expression.getType();
     if (PsiPrimitiveType.getUnboxedType(expressionType) != null && parent instanceof PsiUnaryExpression) {
-      return true;
+      final IElementType sign = ((PsiUnaryExpression)parent).getOperationTokenType();
+      return sign == JavaTokenType.PLUSPLUS || sign == JavaTokenType.MINUSMINUS;
     }
     if (expressionType == null || expressionType.equals(PsiType.VOID) || !TypeConversionUtil.isPrimitiveAndNotNull(expressionType)) {
       return false;
@@ -1127,5 +1111,47 @@ public class ExpressionUtils {
   @Contract("null -> false")
   public static boolean isNewObject(@Nullable PsiExpression expression) {
     return expression != null && nonStructuralChildren(expression).allMatch(PsiNewExpression.class::isInstance);
+  }
+
+  public static boolean isEffectivelyUnqualified(PsiReferenceExpression refExpression) {
+    PsiExpression qualifier = refExpression.getQualifierExpression();
+    if (qualifier == null) {
+      return true;
+    }
+    if (qualifier instanceof PsiThisExpression || qualifier instanceof PsiSuperExpression) {
+      final PsiJavaCodeReferenceElement thisQualifier = ((PsiQualifiedExpression)qualifier).getQualifier();
+      if (thisQualifier == null) return true;
+      final PsiClass innerMostClass = PsiTreeUtil.getParentOfType(refExpression, PsiClass.class);
+      return innerMostClass == thisQualifier.resolve();
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether diff-expression represents a difference between from-expression and to-expression
+   *
+   * @param from from-expression
+   * @param to   to-expression
+   * @param diff diff-expression
+   * @return true if diff = to - from
+   */
+  public static boolean isDifference(@NotNull PsiExpression from, @NotNull PsiExpression to, @NotNull PsiExpression diff) {
+    diff = PsiUtil.skipParenthesizedExprDown(diff);
+    if (diff == null) return false;
+    if (isZero(from) && PsiEquivalenceUtil.areElementsEquivalent(to, diff)) return true;
+    if (diff instanceof PsiBinaryExpression && ((PsiBinaryExpression)diff).getOperationTokenType().equals(JavaTokenType.MINUS)) {
+      PsiExpression left = ((PsiBinaryExpression)diff).getLOperand();
+      PsiExpression right = ((PsiBinaryExpression)diff).getROperand();
+      if (right != null && PsiEquivalenceUtil.areElementsEquivalent(to, left) && PsiEquivalenceUtil.areElementsEquivalent(from, right)) {
+        return true;
+      }
+    }
+    Integer fromConstant = tryCast(computeConstantExpression(from), Integer.class);
+    if (fromConstant == null) return false;
+    Integer toConstant = tryCast(computeConstantExpression(to), Integer.class);
+    if (toConstant == null) return false;
+    Integer diffConstant = tryCast(computeConstantExpression(diff), Integer.class);
+    if (diffConstant == null) return false;
+    return diffConstant == toConstant - fromConstant;
   }
 }
