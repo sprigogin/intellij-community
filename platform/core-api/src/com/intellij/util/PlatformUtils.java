@@ -120,10 +120,6 @@ public class PlatformUtils {
     return is(GOIDE_PREFIX);
   }
 
-  public static boolean isAndroidStudio() {
-    return is(ANDROID_STUDIO_PREFIX);
-  }
-
   public static boolean isCommunityEdition() {
     return isIdeaCommunity() || isPyCharmCommunity();
   }
