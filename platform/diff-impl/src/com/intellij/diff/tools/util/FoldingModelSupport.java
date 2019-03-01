@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.util;
 
 import com.intellij.diff.tools.util.base.TextDiffViewerUtil;
@@ -38,20 +24,16 @@ import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import gnu.trove.TIntFunction;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.intellij.diff.util.DiffUtil.getLineCount;
-import static com.intellij.util.ArrayUtil.toObjectArray;
 
 /**
  * This class allows to add custom foldings to hide unchanged regions in diff.
@@ -86,8 +68,11 @@ public class FoldingModelSupport {
       if (myCount > 1) {
         myEditors[i].getFoldingModel().addListener(new MyFoldingListener(i), disposable);
       }
-      myEditors[i].getGutterComponentEx().setLineNumberConvertor(getLineConvertor(i));
     }
+  }
+
+  public int getCount() {
+    return myCount;
   }
 
   //
@@ -128,7 +113,7 @@ public class FoldingModelSupport {
 
     @NotNull private final int[] myLineCount;
 
-    public FoldingBuilder(@Nullable UserDataHolder context,
+    FoldingBuilder(@Nullable UserDataHolder context,
                           @NotNull Settings settings) {
       FoldingCache cache = context != null ? context.getUserData(CACHE_KEY) : null;
       myExpandSuggester = new ExpandSuggester(cache, settings.defaultExpanded);
@@ -184,7 +169,7 @@ public class FoldingModelSupport {
       }
 
       if (result.size() > 0) {
-        FoldedBlock[] block = toObjectArray(result, FoldedBlock.class);
+        FoldedBlock[] block = result.toArray(new FoldedBlock[0]);
         for (FoldedBlock folding : block) {
           folding.installHighlighter(block);
         }
@@ -220,7 +205,10 @@ public class FoldingModelSupport {
     final int endOffset = document.getLineEndOffset(end - 1);
 
     FoldRegion value = editor.getFoldingModel().addFoldRegion(startOffset, endOffset, PLACEHOLDER);
-    if (value != null) value.setExpanded(expanded);
+    if (value != null) {
+      value.setExpanded(expanded);
+      value.setInnerHighlightersMuted(true);
+    }
     return value;
   }
 
@@ -267,7 +255,7 @@ public class FoldingModelSupport {
 
   private class MyDocumentListener implements DocumentListener {
     @Override
-    public void documentChanged(DocumentEvent e) {
+    public void documentChanged(@NotNull DocumentEvent e) {
       if (StringUtil.indexOf(e.getOldFragment(), '\n') != -1 ||
           StringUtil.indexOf(e.getNewFragment(), '\n') != -1) {
         for (int i = 0; i < myCount; i++) {
@@ -280,7 +268,7 @@ public class FoldingModelSupport {
   }
 
   @NotNull
-  protected TIntFunction getLineConvertor(final int index) {
+  public TIntFunction getLineConvertor(final int index) {
     return value -> {
       updateLineNumbers(false);
       for (FoldedBlock folding : getFoldedBlocks()) { // TODO: avoid full scan - it could slowdown painting
@@ -332,9 +320,9 @@ public class FoldingModelSupport {
 
   private class MyFoldingListener implements FoldingListener {
     private final int myIndex;
-    @NotNull Set<FoldRegion> myModifiedRegions = new HashSet<>();
+    @NotNull private final Set<FoldRegion> myModifiedRegions = new HashSet<>();
 
-    public MyFoldingListener(int index) {
+    MyFoldingListener(int index) {
       myIndex = index;
     }
 
@@ -427,7 +415,7 @@ public class FoldingModelSupport {
     private final int[] myIndex = new int[myCount];
     private final boolean myDefault;
 
-    public ExpandSuggester(@Nullable FoldingCache cache, boolean defaultValue) {
+    ExpandSuggester(@Nullable FoldingCache cache, boolean defaultValue) {
       myCache = cache;
       myDefault = defaultValue;
     }
@@ -527,7 +515,7 @@ public class FoldingModelSupport {
     public final boolean expandByDefault;
     @NotNull public final List<FoldedRangeState>[] ranges;
 
-    public FoldingCache(@NotNull List<FoldedRangeState>[] ranges, boolean expandByDefault) {
+    FoldingCache(@NotNull List<FoldedRangeState>[] ranges, boolean expandByDefault) {
       this.ranges = ranges;
       this.expandByDefault = expandByDefault;
     }
@@ -537,7 +525,7 @@ public class FoldingModelSupport {
     @Nullable public final LineRange expanded;
     @Nullable public final LineRange collapsed;
 
-    public FoldedRangeState(@Nullable LineRange expanded, @Nullable LineRange collapsed) {
+    FoldedRangeState(@Nullable LineRange expanded, @Nullable LineRange collapsed) {
       assert expanded != null || collapsed != null;
 
       this.expanded = expanded;
@@ -684,7 +672,7 @@ public class FoldingModelSupport {
 
   @Nullable
   @Contract("null, _ -> null; !null, _ -> !null")
-  protected static <T, V> Iterator<V> map(@Nullable final List<T> list, @NotNull final Function<T, V> mapping) {
+  protected static <T, V> Iterator<V> map(@Nullable final List<T> list, @NotNull final Function<? super T, ? extends V> mapping) {
     if (list == null) return null;
     final Iterator<T> it = list.iterator();
     return new Iterator<V>() {

@@ -18,11 +18,12 @@ package com.intellij.java.propertyBased;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.propertyBased.FilePsiMutation;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Objects;
 
 class DeleteSecondArgument extends FilePsiMutation {
-  DeleteSecondArgument(PsiFile file) {
+  DeleteSecondArgument(@NotNull PsiFile file) {
     super(file);
   }
 
@@ -33,7 +34,7 @@ class DeleteSecondArgument extends FilePsiMutation {
       .filter(PsiElement::isValid)
       .map(PsiCall::getArgumentList)
       .filter(Objects::nonNull)
-      .filter(argList -> argList.getExpressions().length > 1)
+      .filter(argList -> argList.getExpressionCount() > 1)
       .limit(20)
       .forEach(argList -> {
         if (!argList.isValid()) return;

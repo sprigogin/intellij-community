@@ -28,7 +28,6 @@ import java.util.Arrays;
 
 /**
  * @author Denis Zhdanov
- * @since 11/18/10 7:42 PM
  */
 public class FoldingProcessingOnDocumentModificationTest extends AbstractEditorTest {
   
@@ -82,12 +81,7 @@ public class FoldingProcessingOnDocumentModificationTest extends AbstractEditorT
     executeAction(IdeActions.ACTION_COLLAPSE_ALL_REGIONS);
     checkFoldingState("[FoldRegion +(25:33), placeholder='{}']");
 
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() {
-        myEditor.getDocument().insertString(0, "/*");
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> myEditor.getDocument().insertString(0, "/*"));
 
     checkFoldingState("[FoldRegion -(0:37), placeholder='/.../', FoldRegion +(27:35), placeholder='{}']");
 
@@ -106,12 +100,7 @@ public class FoldingProcessingOnDocumentModificationTest extends AbstractEditorT
     executeAction(IdeActions.ACTION_COLLAPSE_ALL_REGIONS);
     checkFoldingState("[FoldRegion +(25:33), placeholder='{}']");
 
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() {
-        myEditor.getDocument().insertString(0, "/*");
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> myEditor.getDocument().insertString(0, "/*"));
 
     checkFoldingState("[FoldRegion -(0:37), placeholder='/.../', FoldRegion +(27:35), placeholder='{}']");
 

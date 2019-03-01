@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.gradle.build;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -27,7 +13,6 @@ import org.jetbrains.jps.gradle.model.artifacts.JpsGradleArtifactExtension;
 import org.jetbrains.jps.gradle.model.impl.artifacts.GradleArtifactExtensionProperties;
 import org.jetbrains.jps.incremental.BuildTask;
 import org.jetbrains.jps.incremental.CompileContext;
-import org.jetbrains.jps.incremental.ProjectBuildException;
 import org.jetbrains.jps.model.artifact.JpsArtifact;
 import org.jetbrains.jps.model.artifact.elements.JpsArtifactRootElement;
 
@@ -39,7 +24,6 @@ import java.util.jar.JarFile;
 
 /**
  * @author Vladislav.Soroka
- * @since 10/12/2016
  */
 public class GradleArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
   @NotNull
@@ -60,19 +44,17 @@ public class GradleArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
 
   @Nullable
   private static JpsGradleArtifactExtension getArtifactExtension(JpsArtifact artifact, ArtifactBuildPhase buildPhase) {
-    switch (buildPhase) {
-      case PRE_PROCESSING:
-        return JpsGradleExtensionService.getArtifactExtension(artifact);
-      default:
-        return null;
+    if (buildPhase == ArtifactBuildPhase.PRE_PROCESSING) {
+      return JpsGradleExtensionService.getArtifactExtension(artifact);
     }
+    return null;
   }
 
   private abstract static class GradleGenerationBuildTask extends BuildTask {
     protected final JpsArtifact myArtifact;
     protected final GradleArtifactExtensionProperties myProperties;
 
-    public GradleGenerationBuildTask(@NotNull JpsArtifact artifact, @NotNull GradleArtifactExtensionProperties properties) {
+    GradleGenerationBuildTask(@NotNull JpsArtifact artifact, @NotNull GradleArtifactExtensionProperties properties) {
       myArtifact = artifact;
       myProperties = properties;
     }
@@ -81,13 +63,13 @@ public class GradleArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
   private static class GradleManifestGenerationBuildTask extends GradleGenerationBuildTask {
     private static final Logger LOG = Logger.getInstance(GradleManifestGenerationBuildTask.class);
 
-    public GradleManifestGenerationBuildTask(@NotNull JpsArtifact artifact,
+    GradleManifestGenerationBuildTask(@NotNull JpsArtifact artifact,
                                              @NotNull GradleArtifactExtensionProperties properties) {
       super(artifact, properties);
     }
 
     @Override
-    public void build(final CompileContext context) throws ProjectBuildException {
+    public void build(final CompileContext context) {
       if (myProperties.manifest != null) {
         try {
           File output = new File(myArtifact.getOutputPath(), JarFile.MANIFEST_NAME);
@@ -104,13 +86,13 @@ public class GradleArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
   private static class GradleAdditionalFilesGenerationBuildTask extends GradleGenerationBuildTask {
     private static final Logger LOG = Logger.getInstance(GradleAdditionalFilesGenerationBuildTask.class);
 
-    public GradleAdditionalFilesGenerationBuildTask(@NotNull JpsArtifact artifact,
+    GradleAdditionalFilesGenerationBuildTask(@NotNull JpsArtifact artifact,
                                                     @NotNull GradleArtifactExtensionProperties properties) {
       super(artifact, properties);
     }
 
     @Override
-    public void build(final CompileContext context) throws ProjectBuildException {
+    public void build(final CompileContext context) {
       if (myProperties.additionalFiles != null) {
         for (Map.Entry<String, String> entry : myProperties.additionalFiles.entrySet()) {
           try {

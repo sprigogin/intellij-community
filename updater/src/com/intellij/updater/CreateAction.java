@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -50,7 +37,7 @@ public class CreateAction extends PatchAction {
   private static void writeLinkInfo(File file, OutputStream out) throws IOException {
     String target = Utils.readLink(file);
     if (target.isEmpty()) throw new IOException("Invalid link: " + file);
-    byte[] bytes = target.getBytes("UTF-8");
+    byte[] bytes = target.getBytes(StandardCharsets.UTF_8);
     out.write(bytes.length);
     out.write(bytes);
   }
@@ -127,13 +114,10 @@ public class CreateAction extends PatchAction {
     int length = in.read();
     if (length <= 0) throw new IOException("Stream format error");
     byte[] bytes = Utils.readBytes(in, length);
-    return new String(bytes, "UTF-8");
+    return new String(bytes, StandardCharsets.UTF_8);
   }
 
-  protected void doBackup(File toFile, File backupFile) {
-    // do nothing
-  }
-
+  @Override
   protected void doRevert(File toFile, File backupFile) throws IOException {
     Utils.delete(toFile);
   }

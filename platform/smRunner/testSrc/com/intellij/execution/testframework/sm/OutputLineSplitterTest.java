@@ -21,7 +21,7 @@ import com.intellij.execution.testframework.sm.runner.OutputLineSplitter;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.LightPlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.hamcrest.CoreMatchers.*;
 
-public class OutputLineSplitterTest extends PlatformTestCase {
+public class OutputLineSplitterTest extends LightPlatformTestCase {
   private static final List<Key> ALL_TYPES = Arrays.asList(ProcessOutputTypes.STDERR, ProcessOutputTypes.STDOUT, ProcessOutputTypes.SYSTEM);
   private static final List<Key> ALL_STDOUT_KEYS = Arrays.asList(
     new ProcessOutputType(OutputLineSplitterTest.class + ".RED", (ProcessOutputType)ProcessOutputTypes.STDOUT),
@@ -236,7 +236,7 @@ public class OutputLineSplitterTest extends PlatformTestCase {
   }
 
   public void testPerformanceWithLotsOfFragments() {
-    PlatformTestUtil.startPerformanceTest("Flushing lot's of fragments", 5, mySplitter::flush)
+    PlatformTestUtil.startPerformanceTest("Flushing lot's of fragments", 10, mySplitter::flush)
       .setup(() -> {
         for (int i = 0; i < 10_000; i++) {
           mySplitter.process("some string without slash n appending in raw, attempt: " + i + "; ", ProcessOutputTypes.STDOUT);

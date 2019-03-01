@@ -14,7 +14,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Map;
 
 public abstract class AbstractNamingConventionMerger<T extends PsiNameIdentifierOwner> extends InspectionElementsMergerBase {
-  private AbstractNamingConventionInspection<T> myNewInspection;
+  private final AbstractNamingConventionInspection<T> myNewInspection;
 
   public AbstractNamingConventionMerger(AbstractNamingConventionInspection<T> inspection) {
     myNewInspection = inspection;
@@ -33,7 +33,7 @@ public abstract class AbstractNamingConventionMerger<T extends PsiNameIdentifier
   }
 
   @Override
-  protected boolean areSettingsMerged(Map<String, Element> inspectionsSettings, Element inspectionElement) {
+  protected boolean areSettingsMerged(@NotNull Map<String, Element> inspectionsSettings, @NotNull Element inspectionElement) {
     final Element merge = merge(inspectionsSettings, false);
     if (merge != null) {
       myNewInspection.readSettings(merge);
@@ -45,11 +45,9 @@ public abstract class AbstractNamingConventionMerger<T extends PsiNameIdentifier
   }
 
   @Override
-  protected Element wrapElement(String sourceToolName, Element sourceElement, Element toolElement) {
+  protected Element wrapElement(@NotNull String sourceToolName, @NotNull Element sourceElement, @NotNull Element toolElement) {
     Element element = new Element("extension").setAttribute("name", sourceToolName);
-    if (sourceElement != null) {
-      element.setAttribute("enabled", ObjectUtils.notNull(sourceElement.getAttributeValue("enabled"), "false"));
-    }
+    element.setAttribute("enabled", ObjectUtils.notNull(sourceElement.getAttributeValue("enabled"), "false"));
     toolElement.addContent(element);
     return element;
   }

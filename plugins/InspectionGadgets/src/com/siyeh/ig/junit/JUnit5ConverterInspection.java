@@ -5,7 +5,7 @@ import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.codeInsight.intention.impl.AddOnDemandStaticImportAction;
 import com.intellij.codeInspection.*;
-import com.intellij.codeInspection.actions.CleanupInspectionIntention;
+import com.intellij.codeInspection.actions.CleanupInspectionUtil;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
@@ -163,9 +163,9 @@ public class JUnit5ConverterInspection extends BaseInspection {
     private static class MyJUnit5MigrationProcessor extends MigrationProcessor {
 
       private final Project myProject;
-      private final Set<PsiFile> myFiles;
+      private final Set<? extends PsiFile> myFiles;
 
-      public MyJUnit5MigrationProcessor(Project project, MigrationMap migrationMap, Set<PsiFile> files) {
+      MyJUnit5MigrationProcessor(Project project, MigrationMap migrationMap, Set<? extends PsiFile> files) {
         super(project, migrationMap, GlobalSearchScope.filesWithoutLibrariesScope(project, ContainerUtil.map(files, file -> file.getVirtualFile())));
         setPrepareSuccessfulSwingThreadCallback(EmptyRunnable.INSTANCE);
         myProject = project;
@@ -200,7 +200,7 @@ public class JUnit5ConverterInspection extends BaseInspection {
       protected UsageInfo[] findUsages() {
         UsageInfo[] usages = super.findUsages();
         InspectionManager inspectionManager = InspectionManager.getInstance(myProject);
-        GlobalInspectionContext globalContext = inspectionManager.createNewGlobalContext(false);
+        GlobalInspectionContext globalContext = inspectionManager.createNewGlobalContext();
         LocalInspectionToolWrapper assertionsConverter = new LocalInspectionToolWrapper(new JUnit5AssertionsConverterInspection("JUnit4"));
 
         Stream<ProblemDescriptor> stream = myFiles.stream().flatMap(file -> InspectionEngine.runInspectionOnFile(file, assertionsConverter, globalContext).stream());
@@ -225,8 +225,8 @@ public class JUnit5ConverterInspection extends BaseInspection {
             migrateUsages.add(usage);
           }
         }
-        super.performRefactoring(migrateUsages.toArray(new UsageInfo[migrateUsages.size()]));
-        CleanupInspectionIntention.applyFixes(myProject, "Convert Assertions", descriptions, JUnit5AssertionsConverterInspection.ReplaceObsoleteAssertsFix.class, false);
+        super.performRefactoring(migrateUsages.toArray(UsageInfo.EMPTY_ARRAY));
+        CleanupInspectionUtil.getInstance().applyFixes(myProject, "Convert Assertions", descriptions, JUnit5AssertionsConverterInspection.ReplaceObsoleteAssertsFix.class, false);
       }
 
       @Override
@@ -274,7 +274,7 @@ public class JUnit5ConverterInspection extends BaseInspection {
   private static class MyDescriptionBasedUsageInfo extends UsageInfo {
     private final ProblemDescriptor myDescriptor;
 
-    public MyDescriptionBasedUsageInfo(ProblemDescriptor descriptor) {
+    MyDescriptionBasedUsageInfo(ProblemDescriptor descriptor) {
       super(descriptor.getPsiElement());
       myDescriptor = descriptor;
     }

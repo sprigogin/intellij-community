@@ -22,7 +22,7 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
   }
 
   public void testDecoratorsPy3K() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   // PY-19130
@@ -66,7 +66,7 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
   }
   
   public void testPy1268() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
   
   public void testInstanceMethodAsLambda() {
@@ -141,7 +141,7 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
   }
 
   public void testPy3k() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   @NotNull
@@ -275,6 +275,20 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
+  // PY-26007
+  public void testInitializingCollectionsNamedTupleInheritor() {
+    doTestByText("from collections import namedtuple\n" +
+                 "\n" +
+                 "nt = namedtuple(\"nt\", \"f1 f2\")\n" +
+                 "\n" +
+                 "class mynt(nt):\n" +
+                 "    def __new__(cls, p1):\n" +
+                 "        # expected: explicit namedtuple's __init__ and __new__ are not supported yet\n" +
+                 "        return nt.__new__(cls, p1, <warning descr=\"Unexpected argument\">10</warning>)\n" +
+                 "\n" +
+                 "mynt(1)");
+  }
+
   // PY-22971
   public void testOverloadsAndImplementationInClass() {
     runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
@@ -316,6 +330,50 @@ public class PyArgumentListInspectionTest extends PyInspectionTestCase {
 
   // PY-26023
   public void testAbstractMethod() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  }
+
+  // PY-27148
+  public void testCollectionsNamedTupleReplace() {
+    doTest();
+  }
+
+  // PY-27148
+  public void testTypingNamedTupleReplace() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-27398
+  public void testInitializingDataclass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-28957
+  public void testDataclassesReplace() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  public void testInitializingImportedTypingNamedTupleInheritor() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-29929
+  public void testInitializingImportedDataclass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-25497
+  public void testObjectMethodInPossiblyInheritanceChain() {
+    doTest();
+  }
+
+  // PY-28127
+  public void testInitializingTypeVar() {
+    doTest();
+  }
+
+  // PY-30182
+  public void testAnotherMethodIsWrappedIntoStatic() {
+    doMultiFileTest();
   }
 }

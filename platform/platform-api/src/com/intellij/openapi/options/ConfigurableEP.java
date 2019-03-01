@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options;
 
 import com.intellij.AbstractBundle;
@@ -8,6 +6,7 @@ import com.intellij.CommonBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.AbstractExtensionPointBean;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.AtomicNotNullLazyValue;
@@ -56,10 +55,17 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   public String bundle;
 
   public String getDisplayName() {
-    if (displayName != null) return displayName;
-    LOG.assertTrue(bundle != null, "Bundle missed for " + instanceClass);
-    final ResourceBundle resourceBundle = AbstractBundle.getResourceBundle(bundle, myPluginDescriptor.getPluginClassLoader());
-    return displayName = CommonBundle.message(resourceBundle, key);
+    if (displayName == null) {
+      if (bundle != null) {
+        ResourceBundle resourceBundle = AbstractBundle.getResourceBundle(bundle, myPluginDescriptor.getPluginClassLoader());
+        displayName = CommonBundle.message(resourceBundle, key);
+      }
+      else {
+        displayName = providerClass != null ? providerClass : instanceClass != null ? instanceClass : implementationClass;
+        LOG.warn("Bundle missed for " + displayName);
+      }
+    }
+    return displayName;
   }
 
   /**
@@ -173,7 +179,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   public boolean nonDefaultProject;
 
   public boolean isAvailable() {
-    return !nonDefaultProject || !(myProject != null  && myProject.isDefault());
+    return !nonDefaultProject || !(myProject != null && myProject.isDefault());
   }
 
   /**
@@ -208,7 +214,10 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   @Attribute("provider")
   public String providerClass;
 
-  private final AtomicNotNullLazyValue<ObjectProducer> myProducer;
+  @Attribute("treeRenderer")
+  public String treeRendererClass;
+
+  private final AtomicNotNullLazyValue<ObjectProducer> myProducer = AtomicNotNullLazyValue.createValue(this::createProducer);
   private PicoContainer myPicoContainer;
   private Project myProject;
 
@@ -217,14 +226,13 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   }
 
   @SuppressWarnings("UnusedDeclaration")
-  public ConfigurableEP(Project project) {
+  public ConfigurableEP(@NotNull Project project) {
     this(project.getPicoContainer(), project);
   }
 
-  protected ConfigurableEP(PicoContainer picoContainer, @Nullable Project project) {
+  protected ConfigurableEP(@NotNull PicoContainer picoContainer, @Nullable Project project) {
     myProject = project;
     myPicoContainer = picoContainer;
-    myProducer = AtomicNotNullLazyValue.createValue(this::createProducer);
   }
 
   @NotNull
@@ -254,6 +262,23 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
       @SuppressWarnings("unchecked")
       T configurable = (T)producer.createElement();
       return configurable;
+    }
+    return null;
+  }
+
+  @Nullable
+  public ConfigurableTreeRenderer createTreeRenderer() {
+    if (treeRendererClass == null) {
+      return null;
+    }
+    try {
+      return instantiate(findClass(treeRendererClass), myPicoContainer);
+    }
+    catch (ProcessCanceledException exception) {
+      throw exception;
+    }
+    catch (AssertionError | LinkageError | Exception e) {
+      LOG.error(e);
     }
     return null;
   }
@@ -326,10 +351,13 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
     @Override
     protected Object createElement() {
       try {
-        return instantiate(myType, myContainer, true);
+        return instantiate(myType, myContainer);
       }
       catch (ProcessCanceledException exception) {
         throw exception;
+      }
+      catch (ExtensionNotApplicableException ignore) {
+        return null;
       }
       catch (AssertionError | LinkageError | Exception e) {
         LOG.error(e);
@@ -342,6 +370,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
       return myType != null;
     }
 
+    @Override
     protected Class<?> getType() {
       return myType;
     }

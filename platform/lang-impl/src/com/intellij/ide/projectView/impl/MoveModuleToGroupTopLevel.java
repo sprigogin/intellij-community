@@ -31,7 +31,7 @@ import java.util.*;
 
 public class MoveModuleToGroupTopLevel extends ActionGroup {
   @Override
-  public void update(AnActionEvent e){
+  public void update(@NotNull AnActionEvent e){
     final DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     final Module[] modules = LangDataKeys.MODULE_CONTEXT_ARRAY.getData(dataContext);
@@ -59,7 +59,7 @@ public class MoveModuleToGroupTopLevel extends ActionGroup {
     for (String name : topLevelGroupNames) {
       result.add(new MoveModuleToGroup(new ModuleGroup(Collections.singletonList(name))));
     }
-    return result.toArray(new AnAction[result.size()]);
+    return result.toArray(AnAction.EMPTY_ARRAY);
   }
 
   private static Collection<String> getTopLevelGroupNames(ModuleGrouper grouper) {

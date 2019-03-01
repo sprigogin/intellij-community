@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.openapi.util.SystemInfo;
@@ -20,6 +6,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,7 +47,7 @@ public class PathEnvironmentVariableUtil {
    */
   @Nullable
   public static File findInPath(@NotNull String fileBaseName, @Nullable FileFilter filter) {
-    return findInPath(fileBaseName, EnvironmentUtil.getValue(PATH), filter);
+    return findInPath(fileBaseName, getPathVariableValue(), filter);
   }
 
   /**
@@ -79,19 +66,6 @@ public class PathEnvironmentVariableUtil {
   }
 
   /**
-   * Finds an executable file with the specified base name, that is located in a directory
-   * listed in an original PATH environment variable.
-   * Original PATH environment variable value is a value returned by {@code System.getenv("PATH")}.
-   *
-   * @param fileBaseName file base name
-   * @return {@link File} instance or null if not found
-   */
-  private static File findInOriginalPath(@NotNull String fileBaseName) {
-    List<File> exeFiles = findExeFilesInPath(true, null, System.getenv(PATH), fileBaseName);
-    return ContainerUtil.getFirstItem(exeFiles);
-  }
-
-  /**
    * Finds all executable files with the specified base name, that are located in directories
    * from PATH environment variable.
    *
@@ -105,7 +79,7 @@ public class PathEnvironmentVariableUtil {
 
   @NotNull
   public static List<File> findAllExeFilesInPath(@NotNull String fileBaseName, @Nullable FileFilter filter) {
-    return findExeFilesInPath(false, filter, EnvironmentUtil.getValue(PATH), fileBaseName);
+    return findExeFilesInPath(false, filter, getPathVariableValue(), fileBaseName);
   }
 
   @NotNull
@@ -142,40 +116,6 @@ public class PathEnvironmentVariableUtil {
     return StringUtil.split(pathEnvVarValue, File.pathSeparator, true, true);
   }
 
-  /**
-   * Alters the passed in exe path to increase probability of exe file success finding when
-   * spawning an external process. Modifications are performed iff the passed in exe path is
-   * a basename (i.e. it doesn't contain slashes). E.g. "java", "git" or "node".
-   * <p>
-   * The motivation behind this modification is as follows. When exe path is a basename,
-   * {@link ProcessBuilder#start} searches for the executable file in the original PATH
-   * environment variable (i.e. {@code System.getenv("PATH")}).
-   * The problem is that on MacOSX original PATH value can be different than the PATH
-   * value in Terminal (see {@link EnvironmentUtil#getEnvironmentMap()}.
-   *
-   * @param exePath String path to exe file (basename, relative path or absolute path)
-   * @return if an exe file can be found in {@code EnvironmentUtil.getValue("PATH")} and
-   * nothing found in original PATH (i.e. {@code System.getenv("PATH")}),
-   * return the found exe file absolute path.
-   * Otherwise, return the passed in exe path.
-   */
-  @NotNull
-  public static String toLocatableExePath(@NotNull String exePath) {
-    if (SystemInfo.isMac) {
-      if (!StringUtil.containsChar(exePath, '/') && !StringUtil.containsChar(exePath, '\\')) {
-        File originalResolvedExeFile = findInOriginalPath(exePath);
-        // don't modify exePath if the absolute path can be found in the original PATH
-        if (originalResolvedExeFile == null) {
-          File resolvedExeFile = findInPath(exePath);
-          if (resolvedExeFile != null) {
-            exePath = resolvedExeFile.getAbsolutePath();
-          }
-        }
-      }
-    }
-    return exePath;
-  }
-
   @NotNull
   public static List<String> getWindowsExecutableFileExtensions() {
     if (SystemInfo.isWindows) {
@@ -189,19 +129,33 @@ public class PathEnvironmentVariableUtil {
     return Collections.emptyList();
   }
 
+  @NotNull
   public static String findExecutableInWindowsPath(@NotNull String exePath) {
+    return findExecutableInWindowsPath(exePath, exePath);
+  }
+
+  @Contract("_, !null -> !null")
+  public static String findExecutableInWindowsPath(@NotNull String exePath, @Nullable String defaultPath) {
     if (SystemInfo.isWindows) {
       if (!StringUtil.containsChar(exePath, '/') && !StringUtil.containsChar(exePath, '\\')) {
         List<String> executableFileExtensions = getWindowsExecutableFileExtensions();
 
         String[] baseNames = ContainerUtil.map2Array(executableFileExtensions, String.class, s -> exePath+s);
-        List<File> exeFiles = findExeFilesInPath(true, null, EnvironmentUtil.getValue(PATH), baseNames);
+        List<File> exeFiles = findExeFilesInPath(true, null, getPathVariableValue(), baseNames);
         File foundFile = ContainerUtil.getFirstItem(exeFiles);
         if(foundFile != null){
           return foundFile.getAbsolutePath();
         }
       }
     }
-    return exePath;
+    return defaultPath;
+  }
+
+  /**
+   * Retrieves the value of PATH environment variable
+   */
+  @Nullable
+  public static String getPathVariableValue() {
+    return EnvironmentUtil.getValue(PATH);
   }
 }

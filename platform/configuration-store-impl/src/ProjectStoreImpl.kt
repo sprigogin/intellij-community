@@ -1,45 +1,23 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.ide.highlighter.WorkspaceFileType
-import com.intellij.notification.Notifications
-import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.invokeAndWaitIfNeed
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.*
-import com.intellij.openapi.components.StateStorage.SaveSession
-import com.intellij.openapi.components.impl.ServiceManagerImpl
 import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.IProjectStore
-import com.intellij.openapi.components.impl.stores.StoreUtil
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.impl.ModuleManagerImpl
+import com.intellij.openapi.module.ModuleServiceManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCoreUtil
+import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.ProjectNameProvider
+import com.intellij.openapi.project.getProjectCachePath
 import com.intellij.openapi.project.impl.ProjectImpl
-import com.intellij.openapi.project.impl.ProjectManagerImpl.UnableToSaveProjectNotification
 import com.intellij.openapi.project.impl.ProjectStoreClassProvider
-import com.intellij.openapi.util.JDOMUtil
-import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
@@ -47,74 +25,83 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.ReadonlyStatusHandler
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.util.*
+import com.intellij.util.PathUtilRt
+import com.intellij.util.SmartList
 import com.intellij.util.containers.computeIfAny
-import com.intellij.util.containers.forEachGuaranteed
 import com.intellij.util.containers.isNullOrEmpty
 import com.intellij.util.io.*
-import com.intellij.util.lang.CompoundRuntimeException
 import com.intellij.util.text.nullize
-import gnu.trove.THashSet
-import org.jdom.Element
-import java.io.File
-import java.io.IOException
-import java.nio.file.FileSystems
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.CalledInAny
+import java.nio.file.AccessDeniedException
 import java.nio.file.Path
 import java.nio.file.Paths
 
-const val PROJECT_FILE = "\$PROJECT_FILE$"
-const val PROJECT_CONFIG_DIR = "\$PROJECT_CONFIG_DIR$"
+internal const val PROJECT_FILE = "\$PROJECT_FILE$"
+internal const val PROJECT_CONFIG_DIR = "\$PROJECT_CONFIG_DIR$"
 
-val IProjectStore.nameFile: Path
+internal val IProjectStore.nameFile: Path
   get() = Paths.get(directoryStorePath, ProjectImpl.NAME_FILE)
 
 internal val PROJECT_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(PROJECT_FILE, false)
 internal val DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(PROJECT_FILE, true)
 
-abstract class ProjectStoreBase(override final val project: ProjectImpl) : ComponentStoreImpl(), IProjectStore {
+// cannot be `internal`, used in Upsource
+abstract class ProjectStoreBase(final override val project: Project) : ComponentStoreWithExtraComponents(), IProjectStore {
   // protected setter used in upsource
   // Zelix KlassMaster - ERROR: Could not find method 'getScheme()'
-  var scheme = StorageScheme.DEFAULT
+  var scheme: StorageScheme = StorageScheme.DEFAULT
 
-  override final var loadPolicy = StateLoadPolicy.LOAD
+  final override var loadPolicy: StateLoadPolicy = StateLoadPolicy.LOAD
 
-  override final fun isOptimiseTestLoadSpeed() = loadPolicy != StateLoadPolicy.LOAD
+  final override fun isOptimiseTestLoadSpeed(): Boolean = loadPolicy != StateLoadPolicy.LOAD
 
-  override final fun getStorageScheme() = scheme
+  final override fun getStorageScheme(): StorageScheme = scheme
 
-  override abstract val storageManager: StateStorageManagerImpl
+  abstract override val storageManager: StateStorageManagerImpl
 
   protected val isDirectoryBased: Boolean
     get() = scheme == StorageScheme.DIRECTORY_BASED
 
-  override final fun setOptimiseTestLoadSpeed(value: Boolean) {
+  final override fun setOptimiseTestLoadSpeed(value: Boolean) {
     // we don't load default state in tests as app store does because
     // 1) we should not do it
     // 2) it was so before, so, we preserve old behavior (otherwise RunManager will load template run configurations)
     loadPolicy = if (value) StateLoadPolicy.NOT_LOAD else StateLoadPolicy.LOAD
   }
 
-  override fun getProjectFilePath() = storageManager.expandMacro(PROJECT_FILE)
+  override fun getProjectFilePath(): String = storageManager.expandMacro(PROJECT_FILE)
 
-  override final fun getWorkspaceFilePath() = storageManager.expandMacro(StoragePathMacros.WORKSPACE_FILE)
+  /**
+   * `null` for default or non-directory based project.
+   */
+  override fun getProjectConfigDir(): String? = if (isDirectoryBased) storageManager.expandMacro(PROJECT_CONFIG_DIR) else null
 
-  override final fun clearStorages() {
+  final override fun getWorkspaceFilePath(): String = storageManager.expandMacro(StoragePathMacros.WORKSPACE_FILE)
+
+  final override fun clearStorages() {
     storageManager.clearStorages()
   }
 
-  override final fun loadProjectFromTemplate(defaultProject: Project) {
-    defaultProject.save()
+  final override fun loadProjectFromTemplate(defaultProject: Project) {
+    runBlocking { defaultProject.stateStore.save() }
 
     val element = (defaultProject.stateStore as DefaultProjectStoreImpl).getStateCopy() ?: return
     LOG.runAndLogException {
       if (isDirectoryBased) {
         normalizeDefaultProjectElement(defaultProject, element, Paths.get(storageManager.expandMacro(PROJECT_CONFIG_DIR)))
       }
+      else {
+        moveComponentConfiguration(defaultProject, element) { if (it == "workspace.xml") Paths.get(workspaceFilePath) else Paths.get(projectFilePath) }
+      }
     }
     (storageManager.getOrCreateStorage(PROJECT_FILE) as XmlElementStorage).setDefaultState(element)
   }
 
-  override final fun getProjectBasePath(): String {
+  final override fun getProjectBasePath(): String {
     if (isDirectoryBased) {
       val path = PathUtilRt.getParentPath(storageManager.expandMacro(PROJECT_CONFIG_DIR))
       if (Registry.`is`("store.basedir.parent.detection", true) && PathUtilRt.getFileName(path).startsWith("${Project.DIRECTORY_STORE_FOLDER}.")) {
@@ -128,7 +115,7 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
   }
 
   // used in upsource
-  protected fun setPath(filePath: String, refreshVfs: Boolean, useOldWorkspaceContentIfExists: Boolean) {
+  protected suspend fun setPath(filePath: String, isRefreshVfs: Boolean) {
     val storageManager = storageManager
     val fs = LocalFileSystem.getInstance()
     if (filePath.endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION)) {
@@ -136,46 +123,41 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
 
       storageManager.addMacro(PROJECT_FILE, filePath)
 
-      val workspacePath = composeWsPath(filePath)
+      val workspacePath = composeFileBasedProjectWorkSpacePath(filePath)
       storageManager.addMacro(StoragePathMacros.WORKSPACE_FILE, workspacePath)
 
-      if (refreshVfs) {
-        invokeAndWaitIfNeed {
+      if (isRefreshVfs) {
+        withContext(storeEdtCoroutineContext) {
           VfsUtil.markDirtyAndRefresh(false, true, false, fs.refreshAndFindFileByPath(filePath), fs.refreshAndFindFileByPath(workspacePath))
         }
       }
 
       if (ApplicationManager.getApplication().isUnitTestMode) {
         // load state only if there are existing files
-        isOptimiseTestLoadSpeed = !File(filePath).exists()
+        isOptimiseTestLoadSpeed = !Paths.get(filePath).toFile().exists()
       }
     }
     else {
       scheme = StorageScheme.DIRECTORY_BASED
 
-      // if useOldWorkspaceContentIfExists false, so, file path is expected to be correct (we must avoid file io operations)
-      val isDir = !useOldWorkspaceContentIfExists || Paths.get(filePath).isDirectory()
-      val configDir = "${(if (isDir) filePath else PathUtilRt.getParentPath(filePath))}/${Project.DIRECTORY_STORE_FOLDER}"
+      val configDir = "$filePath/${Project.DIRECTORY_STORE_FOLDER}"
       storageManager.addMacro(PROJECT_CONFIG_DIR, configDir)
       storageManager.addMacro(PROJECT_FILE, "$configDir/misc.xml")
       storageManager.addMacro(StoragePathMacros.WORKSPACE_FILE, "$configDir/workspace.xml")
-
-      if (!isDir) {
-        val workspace = File(workspaceFilePath)
-        if (!workspace.exists()) {
-          useOldWorkspaceContent(filePath, workspace)
-        }
-      }
 
       if (ApplicationManager.getApplication().isUnitTestMode) {
         // load state only if there are existing files
         isOptimiseTestLoadSpeed = !Paths.get(filePath).exists()
       }
 
-      if (refreshVfs) {
-        invokeAndWaitIfNeed { VfsUtil.markDirtyAndRefresh(false, true, true, fs.refreshAndFindFileByPath(configDir)) }
+      if (isRefreshVfs) {
+        withContext(storeEdtCoroutineContext) {
+          VfsUtil.markDirtyAndRefresh(false, true, true, fs.refreshAndFindFileByPath(configDir))
+        }
       }
     }
+
+    storageManager.addMacro(StoragePathMacros.CACHE_FILE, project.getProjectCachePath(cacheDirName = "workspace", extensionWithDot = ".xml").systemIndependentPath)
   }
 
   override fun <T> getStorageSpecs(component: PersistentStateComponent<T>, stateSpec: State, operation: StateStorageOperation): List<Storage> {
@@ -200,16 +182,20 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
       }
       else {
         result!!.sortWith(deprecatedComparator)
-        StreamProviderFactory.EP_NAME.getExtensions(project).computeIfAny {
-          LOG.runAndLogException { it.customizeStorageSpecs(component, project, stateSpec, result!!, operation) }
-        }?.let {
-          // yes, DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION is not added in this case
-          return it
+        if (isDirectoryBased) {
+          StreamProviderFactory.EP_NAME.getExtensions(project).computeIfAny {
+            LOG.runAndLogException { it.customizeStorageSpecs(component, storageManager, stateSpec, result!!, operation) }
+          }?.let {
+              // yes, DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION is not added in this case
+              return it
+            }
         }
 
         // if we create project from default, component state written not to own storage file, but to project file,
         // we don't have time to fix it properly, so, ancient hack restored
-        result.add(DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION)
+        if (result.first().path != StoragePathMacros.CACHE_FILE) {
+          result.add(DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION)
+        }
         return result
       }
     }
@@ -219,7 +205,7 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
       var hasOnlyDeprecatedStorages = true
       for (storage in storages) {
         @Suppress("DEPRECATION")
-        if (storage.path == PROJECT_FILE || storage.path == StoragePathMacros.WORKSPACE_FILE) {
+        if (storage.path == PROJECT_FILE || storage.path == StoragePathMacros.WORKSPACE_FILE || storage.path == StoragePathMacros.CACHE_FILE) {
           if (result == null) {
             result = SmartList()
           }
@@ -254,26 +240,28 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
     return FileUtil.isAncestor(PathUtilRt.getParentPath(projectFilePath), filePath, false)
   }
 
-  override fun getDirectoryStorePath(ignoreProjectStorageScheme: Boolean) = if (!ignoreProjectStorageScheme && !isDirectoryBased) null else PathUtilRt.getParentPath(projectFilePath).nullize()
+  override fun getDirectoryStorePath(ignoreProjectStorageScheme: Boolean): String? = if (!ignoreProjectStorageScheme && !isDirectoryBased) null else PathUtilRt.getParentPath(projectFilePath).nullize()
 
-  override fun getDirectoryStoreFile() = directoryStorePath?.let { LocalFileSystem.getInstance().findFileByPath(it) }
+  override fun getDirectoryStoreFile(): VirtualFile? = directoryStorePath?.let { LocalFileSystem.getInstance().findFileByPath(it) }
 
-  override fun getDirectoryStorePathOrBase() = PathUtilRt.getParentPath(projectFilePath)
+  override fun getDirectoryStorePathOrBase(): String = PathUtilRt.getParentPath(projectFilePath)
 }
 
-private open class ProjectStoreImpl(project: ProjectImpl, private val pathMacroManager: PathMacroManager) : ProjectStoreBase(project) {
+private open class ProjectStoreImpl(project: Project, private val pathMacroManager: PathMacroManager) : ProjectStoreBase(project) {
   private var lastSavedProjectName: String? = null
 
   init {
     assert(!project.isDefault)
   }
 
-  override final fun getPathMacroManagerForDefaults() = pathMacroManager
+  final override fun getPathMacroManagerForDefaults() = pathMacroManager
 
-  override val storageManager = ProjectStateStorageManager(pathMacroManager.createTrackingSubstitutor(), project)
+  override val storageManager = ProjectStateStorageManager(TrackingPathMacroSubstitutorImpl(pathMacroManager), project)
 
-  override fun setPath(filePath: String) {
-    setPath(filePath, true, true)
+  override fun setPath(path: String) {
+    runBlocking {
+      setPath(path, true)
+    }
   }
 
   override fun getProjectName(): String {
@@ -284,20 +272,18 @@ private open class ProjectStoreImpl(project: ProjectImpl, private val pathMacroM
     val baseDir = projectBasePath
     val nameFile = nameFile
     if (nameFile.exists()) {
-      LOG.runAndLogException {
-        nameFile.inputStream().reader().useLines { it.firstOrNull { !it.isEmpty() }?.trim() }?.let {
-          lastSavedProjectName = it
-          return it
-        }
+      LOG.runAndLogException { readProjectNameFile(nameFile) }?.let {
+        lastSavedProjectName = it
+        return it
       }
     }
 
-    return ProjectNameProvider.EP_NAME.extensions.computeIfAny {
+    return ProjectNameProvider.EP_NAME.extensionList.computeIfAny {
       LOG.runAndLogException { it.getDefaultName(project) }
     } ?: PathUtilRt.getFileName(baseDir).replace(":", "")
   }
 
-  private fun saveProjectName() {
+  private suspend fun saveProjectName() {
     if (!isDirectoryBased) {
       return
     }
@@ -310,86 +296,87 @@ private open class ProjectStoreImpl(project: ProjectImpl, private val pathMacroM
     lastSavedProjectName = currentProjectName
 
     val basePath = projectBasePath
-    if (currentProjectName == PathUtilRt.getFileName(basePath)) {
-      // name equals to base path name - just remove name
-      nameFile.delete()
-    }
-    else {
-      if (Paths.get(basePath).isDirectory()) {
+
+    fun doSave() {
+      if (currentProjectName == PathUtilRt.getFileName(basePath)) {
+        // name equals to base path name - just remove name
+        nameFile.delete()
+      }
+      else if (Paths.get(basePath).isDirectory()) {
         nameFile.write(currentProjectName.toByteArray())
       }
     }
-  }
 
-  override fun doSave(saveSessions: List<SaveSession>, readonlyFiles: MutableList<Pair<SaveSession, VirtualFile>>, prevErrors: MutableList<Throwable>?): MutableList<Throwable>? {
     try {
-      saveProjectName()
+      doSave()
     }
-    catch (e: Throwable) {
-      LOG.error("Unable to store project name", e)
-    }
-
-    var errors = prevErrors
-    beforeSave(readonlyFiles)
-
-    errors = super.doSave(saveSessions, readonlyFiles, errors)
-
-    val notifications = NotificationsManager.getNotificationsManager().getNotificationsOfType(UnableToSaveProjectNotification::class.java, project)
-    if (readonlyFiles.isEmpty()) {
-      for (notification in notifications) {
-        notification.expire()
+    catch (e: AccessDeniedException) {
+      val status = ensureFilesWritable(project, listOf(LocalFileSystem.getInstance().refreshAndFindFileByPath(nameFile.systemIndependentPath)!!))
+      if (status.hasReadonlyFiles()) {
+        throw e
       }
-      return errors
+
+      doSave()
     }
-
-    if (!notifications.isEmpty()) {
-      throw IComponentStore.SaveCancelledException()
-    }
-
-    val status = runReadAction { ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(*getFilesList(readonlyFiles)) }
-    if (status.hasReadonlyFiles()) {
-      dropUnableToSaveProjectNotification(project, status.readonlyFiles)
-      throw IComponentStore.SaveCancelledException()
-    }
-
-    val oldList = readonlyFiles.toTypedArray()
-    readonlyFiles.clear()
-    for (entry in oldList) {
-      errors = executeSave(entry.first, readonlyFiles, errors)
-    }
-
-    CompoundRuntimeException.throwIfNotEmpty(errors)
-
-    if (!readonlyFiles.isEmpty()) {
-      dropUnableToSaveProjectNotification(project, getFilesList(readonlyFiles))
-      throw IComponentStore.SaveCancelledException()
-    }
-
-    return errors
   }
 
-  protected open fun beforeSave(readonlyFiles: List<Pair<SaveSession, VirtualFile>>) {
+  final override suspend fun doSave(result: SaveResult, forceSavingAllSettings: Boolean) {
+    coroutineScope {
+      launch {
+        // save modules before project
+        val errors = SmartList<Throwable>()
+        val moduleSaveSessions = saveModules(errors, forceSavingAllSettings)
+        result.addErrors(errors)
+
+        (saveSettingsSavingComponentsAndCommitComponents(result, forceSavingAllSettings) as ProjectSaveSessionProducerManager)
+          .saveWithAdditionalSaveSessions(moduleSaveSessions)
+          .appendTo(result)
+      }
+
+      val projectSaved = project.messageBus.syncPublisher(ProjectEx.ProjectSaved.TOPIC)
+      launch {
+        try {
+          saveProjectName()
+        }
+        catch (e: Throwable) {
+          LOG.error("Unable to store project name", e)
+        }
+
+        projectSaved.duringSave(project)
+      }
+    }
+  }
+
+  protected open suspend fun saveModules(errors: MutableList<Throwable>, isForceSavingAllSettings: Boolean): List<SaveSession> {
+    return emptyList()
+  }
+
+  final override fun createSaveSessionProducerManager() = ProjectSaveSessionProducerManager(project)
+
+  final override fun commitStalledComponents(session: SaveSessionProducerManager, isProjectLevel: Boolean) {
+    if (isDirectoryBased) {
+      super.commitStalledComponents(session, true)
+    }
   }
 }
 
-private fun dropUnableToSaveProjectNotification(project: Project, readOnlyFiles: Array<VirtualFile>) {
-  val notifications = NotificationsManager.getNotificationsManager().getNotificationsOfType(UnableToSaveProjectNotification::class.java, project)
-  if (notifications.isEmpty()) {
-    Notifications.Bus.notify(UnableToSaveProjectNotification(project, readOnlyFiles), project)
-  }
-  else {
-    notifications[0].myFiles = readOnlyFiles
-  }
-}
+private class ProjectWithModulesStoreImpl(project: Project, pathMacroManager: PathMacroManager) : ProjectStoreImpl(project, pathMacroManager) {
+  override suspend fun saveModules(errors: MutableList<Throwable>, isForceSavingAllSettings: Boolean): List<SaveSession> {
+    val modules = ModuleManager.getInstance(project)?.modules ?: Module.EMPTY_ARRAY
+    if (modules.isEmpty()) {
+      return emptyList()
+    }
 
-private fun getFilesList(readonlyFiles: List<Pair<SaveSession, VirtualFile>>) = Array(readonlyFiles.size) { readonlyFiles[it].second }
-
-private class ProjectWithModulesStoreImpl(project: ProjectImpl, pathMacroManager: PathMacroManager) : ProjectStoreImpl(project, pathMacroManager) {
-  override fun beforeSave(readonlyFiles: List<Pair<SaveSession, VirtualFile>>) {
-    super.beforeSave(readonlyFiles)
-
-    for (module in (ModuleManager.getInstance(project)?.modules ?: Module.EMPTY_ARRAY)) {
-      module.stateStore.save(readonlyFiles)
+    return withContext(createStoreEdtCoroutineContext(listOf(InTransactionRule(project)))) {
+      // do no create with capacity because very rarely a lot of modules will be modified
+      val saveSessions: MutableList<SaveSession> = SmartList<SaveSession>()
+      // commit components
+      for (module in modules) {
+        val moduleStore = ModuleServiceManager.getService(module, IComponentStore::class.java) as ComponentStoreImpl
+        // collectSaveSessions is very cheap, so, do it in EDT
+        moduleStore.doCreateSaveSessionManagerAndCommitComponents(isForceSavingAllSettings, errors).collectSaveSessions(saveSessions)
+      }
+      saveSessions
     }
   }
 }
@@ -401,172 +388,18 @@ class PlatformLangProjectStoreClassProvider : ProjectStoreClassProvider {
   }
 }
 
+@Suppress("unused")
 private class PlatformProjectStoreClassProvider : ProjectStoreClassProvider {
   override fun getProjectStoreClass(isDefaultProject: Boolean): Class<out IComponentStore> {
     return if (isDefaultProject) DefaultProjectStoreImpl::class.java else ProjectStoreImpl::class.java
   }
 }
 
-private fun composeWsPath(filePath: String) = "${FileUtilRt.getNameWithoutExtension(filePath)}${WorkspaceFileType.DOT_DEFAULT_EXTENSION}"
+private fun composeFileBasedProjectWorkSpacePath(filePath: String) = "${FileUtilRt.getNameWithoutExtension(filePath)}${WorkspaceFileType.DOT_DEFAULT_EXTENSION}"
 
-private fun useOldWorkspaceContent(filePath: String, ws: File) {
-  val oldWs = File(composeWsPath(filePath))
-  if (!oldWs.exists()) {
-    return
-  }
-
-  try {
-    FileUtil.copyContent(oldWs, ws)
-  }
-  catch (e: IOException) {
-    LOG.error(e)
-  }
-}
-
-private fun moveComponentConfiguration(defaultProject: Project, element: Element, projectConfigDir: Path) {
-  val componentElements = element.getChildren("component")
-  if (componentElements.isEmpty()) {
-    return
-  }
-
-  val workspaceComponentNames = THashSet(listOf("GradleLocalSettings"))
-  val compilerComponentNames = THashSet<String>()
-
-  fun processComponents(aClass: Class<*>) {
-    val stateAnnotation = StoreUtil.getStateSpec(aClass)
-    if (stateAnnotation == null || stateAnnotation.name.isEmpty()) {
-      return
-    }
-
-    val storage = stateAnnotation.storages.sortByDeprecated().firstOrNull() ?: return
-
-    when {
-      storage.path == StoragePathMacros.WORKSPACE_FILE -> workspaceComponentNames.add(stateAnnotation.name)
-      storage.path == "compiler.xml" -> compilerComponentNames.add(stateAnnotation.name)
-    }
-  }
-
-  @Suppress("DEPRECATION")
-  val projectComponents = defaultProject.getComponents(PersistentStateComponent::class.java)
-  projectComponents.forEachGuaranteed {
-    processComponents(it.javaClass)
-  }
-
-  ServiceManagerImpl.processAllImplementationClasses(defaultProject as ProjectImpl) { aClass, _ ->
-    processComponents(aClass)
-    true
-  }
-
-  @Suppress("RemoveExplicitTypeArguments")
-  val elements = mapOf(compilerComponentNames to SmartList<Element>(), workspaceComponentNames to SmartList<Element>())
-  val iterator = componentElements.iterator()
-  for (componentElement in iterator) {
-    val name = componentElement.getAttributeValue("name") ?: continue
-    for ((names, list) in elements) {
-      if (names.contains(name)) {
-        iterator.remove()
-        list.add(componentElement)
-      }
-    }
-  }
-
-  for ((names, list) in elements) {
-    writeConfigFile(list, projectConfigDir.resolve(if (names === workspaceComponentNames) "workspace.xml" else "compiler.xml"))
-  }
-}
-
-private fun writeConfigFile(elements: List<Element>, file: Path) {
-  if (elements.isEmpty()) {
-    return
-  }
-
-  var wrapper = Element("project").attribute("version", "4")
-  if (file.exists()) {
-    try {
-      wrapper = loadElement(file)
-    }
-    catch (e: Exception) {
-      LOG.warn(e)
-    }
-  }
-  elements.forEach { wrapper.addContent(it) }
-  // .idea component configuration files uses XML prolog due to historical reasons
-  if (file.fileSystem == FileSystems.getDefault()) {
-    // VFS must be used to write workspace.xml and misc.xml to ensure that project files will be not reloaded on external file change event
-    writeFile(file, SaveSession { }, null, wrapper, LineSeparator.LF, prependXmlProlog = true)
-  }
-  else {
-    file.outputStream().use {
-      it.write(XML_PROLOG)
-      it.write(LineSeparator.LF.separatorBytes)
-      wrapper.write(it)
-    }
-  }
-}
-
-// public only to test
-fun normalizeDefaultProjectElement(defaultProject: Project, element: Element, projectConfigDir: Path) {
-  LOG.runAndLogException {
-    moveComponentConfiguration(defaultProject, element, projectConfigDir)
-  }
-
-  LOG.runAndLogException {
-    val iterator = element.getChildren("component").iterator()
-    for (component in iterator) {
-      val componentName = component.getAttributeValue("name")
-
-      fun writeProfileSettings(schemeDir: Path) {
-        component.removeAttribute("name")
-        if (!component.isEmpty()) {
-          val wrapper = Element("component").attribute("name", componentName)
-          component.name = "settings"
-          wrapper.addContent(component)
-
-          val file = schemeDir.resolve("profiles_settings.xml")
-          if (file.fileSystem == FileSystems.getDefault()) {
-            // VFS must be used to write workspace.xml and misc.xml to ensure that project files will be not reloaded on external file change event
-            writeFile(file, SaveSession { }, null, wrapper, LineSeparator.LF, prependXmlProlog = false)
-          }
-          else {
-            file.outputStream().use {
-              wrapper.write(it)
-            }
-          }
-        }
-      }
-
-      when (componentName) {
-        "InspectionProjectProfileManager" -> {
-          iterator.remove()
-          val schemeDir = projectConfigDir.resolve("inspectionProfiles")
-          convertProfiles(component.getChildren("profile").iterator(), componentName, schemeDir)
-          component.removeChild("version")
-          writeProfileSettings(schemeDir)
-        }
-
-        "CopyrightManager" -> {
-          iterator.remove()
-          val schemeDir = projectConfigDir.resolve("copyright")
-          convertProfiles(component.getChildren("copyright").iterator(), componentName, schemeDir)
-          writeProfileSettings(schemeDir)
-        }
-
-        ModuleManagerImpl.COMPONENT_NAME -> {
-          iterator.remove()
-        }
-      }
-    }
-  }
-}
-
-private fun convertProfiles(profileIterator: MutableIterator<Element>, componentName: String, schemeDir: Path) {
-  for (profile in profileIterator) {
-    val schemeName = profile.getChildren("option").find { it.getAttributeValue("name") == "myName" }?.getAttributeValue("value") ?: continue
-
-    profileIterator.remove()
-    val wrapper = Element("component").attribute("name", componentName)
-    wrapper.addContent(profile)
-    val path = schemeDir.resolve("${FileUtil.sanitizeFileName(schemeName, true)}.xml")
-    JDOMUtil.write(wrapper, path.outputStream(), "\n")
+@CalledInAny
+internal suspend fun ensureFilesWritable(project: Project, files: Collection<VirtualFile>): ReadonlyStatusHandler.OperationStatus {
+  return withContext(storeEdtCoroutineContext) {
+    ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(files)
   }
 }

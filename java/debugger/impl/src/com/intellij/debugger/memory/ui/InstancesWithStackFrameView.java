@@ -1,26 +1,15 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.memory.ui;
 
 import com.intellij.debugger.DebuggerManager;
-import com.intellij.debugger.memory.component.InstancesTracker;
 import com.intellij.debugger.memory.component.MemoryViewDebugProcessData;
-import com.intellij.debugger.memory.event.InstancesTrackerListener;
-import com.intellij.debugger.memory.tracking.TrackingType;
+import com.intellij.xdebugger.memory.component.InstancesTracker;
+import com.intellij.xdebugger.memory.event.InstancesTrackerListener;
+import com.intellij.xdebugger.memory.tracking.TrackingType;
 import com.intellij.debugger.memory.utils.StackFrameItem;
+import com.intellij.debugger.ui.impl.watch.NodeDescriptorProvider;
+import com.intellij.debugger.ui.tree.NodeDescriptor;
+import com.intellij.debugger.ui.tree.ValueDescriptor;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -30,10 +19,16 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.labels.ActionLink;
 import com.intellij.xdebugger.XDebugSession;
+import com.intellij.xdebugger.frame.XValue;
+import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
+import com.intellij.xdebugger.memory.ui.InstancesTree;
 import com.sun.jdi.ObjectReference;
+import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.tree.TreePath;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -61,10 +56,10 @@ class InstancesWithStackFrameView {
     }
     else {
       ActionLink actionLink = new ActionLink("Enable tracking for new instances",
-                                             AllIcons.Debugger.MemoryView.ClassTracked,
+                                             AllIcons.Debugger.Watch,
                                              new AnAction() {
                                                @Override
-                                               public void actionPerformed(AnActionEvent e) {
+                                               public void actionPerformed(@NotNull AnActionEvent e) {
                                                  final Project project = e.getProject();
                                                  if (project != null && !project.isDisposed()) {
                                                    InstancesTracker.getInstance(project).add(className, TrackingType.CREATION);
@@ -109,7 +104,7 @@ class InstancesWithStackFrameView {
       DebuggerManager.getInstance(project).getDebugProcess(debugSession.getDebugProcess().getProcessHandler())
         .getUserData(MemoryViewDebugProcessData.KEY);
     tree.addTreeSelectionListener(e -> {
-      ObjectReference ref = tree.getSelectedReference();
+      ObjectReference ref = getSelectedReference(tree);
       if (ref != null && data != null) {
         List<StackFrameItem> stack = data.getTrackedStacks().getStack(ref);
         if (stack != null) {
@@ -127,6 +122,27 @@ class InstancesWithStackFrameView {
 
       list.setFrameItems(Collections.emptyList());
     });
+  }
+  @Nullable
+  private static ObjectReference getSelectedReference(InstancesTree tree) {
+    TreePath selectionPath = tree.getSelectionPath();
+    Object selectedItem = selectionPath != null ? selectionPath.getLastPathComponent() : null;
+    if (selectedItem instanceof XValueNodeImpl) {
+      XValueNodeImpl xValueNode = (XValueNodeImpl)selectedItem;
+      XValue valueContainer = xValueNode.getValueContainer();
+
+      if (valueContainer instanceof NodeDescriptorProvider) {
+        NodeDescriptor descriptor = ((NodeDescriptorProvider)valueContainer).getDescriptor();
+
+        if (descriptor instanceof ValueDescriptor) {
+          Value value = ((ValueDescriptor)descriptor).getValue();
+
+          if (value instanceof ObjectReference) return (ObjectReference)value;
+        }
+      }
+    }
+
+    return null;
   }
 
   JComponent getComponent() {

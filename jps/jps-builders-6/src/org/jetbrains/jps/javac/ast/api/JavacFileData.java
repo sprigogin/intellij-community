@@ -1,32 +1,25 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.javac.ast.api;
 
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.DataInputOutputUtilRt;
 import com.intellij.util.ThrowableConsumer;
+import gnu.trove.THashSet;
 import gnu.trove.TObjectIntHashMap;
 import gnu.trove.TObjectIntProcedure;
 import org.jetbrains.annotations.NotNull;
 
 import javax.lang.model.element.Modifier;
 import java.io.*;
-import java.util.*;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 
 public class JavacFileData {
+  public static final String CUSTOM_DATA_PLUGIN_ID = "ast.reference.collector"; // fake plugin name to fit into customOutputData API
+  public static final String CUSTOM_DATA_KIND = "JavacFileData";
+
   private static final byte CLASS_MARKER = 0;
   private static final byte METHOD_MARKER = 1;
   private static final byte FIELD_MARKER = 2;
@@ -37,22 +30,30 @@ public class JavacFileData {
   private final TObjectIntHashMap<JavacRef> myImportRefs;
   private final List<JavacTypeCast> myCasts;
   private final List<JavacDef> myDefs;
+  private final Set<JavacRef> myImplicitRefs;
 
   public JavacFileData(@NotNull String path,
                        @NotNull TObjectIntHashMap<JavacRef> refs,
                        @NotNull TObjectIntHashMap<JavacRef> importRefs,
                        @NotNull List<JavacTypeCast> casts,
-                       @NotNull List<JavacDef> defs) {
+                       @NotNull List<JavacDef> defs,
+                       @NotNull Set<JavacRef> implicitRefs) {
     myFilePath = path;
     myRefs = refs;
     myImportRefs = importRefs;
     myCasts = casts;
     myDefs = defs;
+    myImplicitRefs = implicitRefs;
   }
 
   @NotNull
   public String getFilePath() {
     return myFilePath;
+  }
+
+  @NotNull
+  public Set<JavacRef> getImplicitToStringRefs() {
+    return myImplicitRefs;
   }
 
   @NotNull
@@ -85,6 +86,7 @@ public class JavacFileData {
       saveRefs(stream, getImportRefs());
       saveCasts(stream, getCasts());
       saveDefs(stream, getDefs());
+      saveImplicitToString(stream, getImplicitToStringRefs());
     }
     catch (IOException e) {
       throw new RuntimeException(e);
@@ -101,7 +103,8 @@ public class JavacFileData {
                                readRefs(in),
                                readRefs(in),
                                readCasts(in),
-                               readDefs(in));
+                               readDefs(in),
+                               readImplicitToString(in));
     }
     catch (IOException e) {
       throw new RuntimeException(e);
@@ -275,5 +278,22 @@ public class JavacFileData {
         return new JavacTypeCast((JavacRef.JavacClass)readJavacRef(input), (JavacRef.JavacClass)readJavacRef(input));
       }
     });
+  }
+
+  @NotNull
+  private static Set<JavacRef> readImplicitToString(@NotNull DataInputStream in) throws IOException {
+    int size = DataInputOutputUtilRt.readINT(in);
+    THashSet<JavacRef> result = new THashSet<JavacRef>(size);
+    for (int i = 0; i < size; i++) {
+      result.add(readJavacRef(in));
+    }
+    return result;
+  }
+
+  private static void saveImplicitToString(@NotNull DataOutputStream out, @NotNull Set<JavacRef> refs) throws IOException {
+    DataInputOutputUtilRt.writeINT(out, refs.size());
+    for (JavacRef ref : refs) {
+      writeJavacRef(out, ref);
+    }
   }
 }

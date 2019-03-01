@@ -17,6 +17,7 @@ package com.intellij.util.graph;
 
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
@@ -25,7 +26,7 @@ import java.util.*;
  */
 public class CachingSemiGraph<Node> implements GraphGenerator.SemiGraph<Node> {
   public static <T> InboundSemiGraph<T> cache(InboundSemiGraph<T> original) {
-    return new CachingSemiGraph<T>(original);
+    return new CachingSemiGraph<>(original);
   }
 
   private final Set<Node> myNodes;
@@ -33,39 +34,30 @@ public class CachingSemiGraph<Node> implements GraphGenerator.SemiGraph<Node> {
 
   private CachingSemiGraph(InboundSemiGraph<Node> original) {
     myNodes = ContainerUtil.newLinkedHashSet(original.getNodes());
-    myIn = new THashMap<Node, List<Node>>();
+    myIn = new THashMap<>();
     for (Node node : myNodes) {
       final Iterator<Node> inIterator = original.getIn(node);
       if (inIterator.hasNext()) {
-        ArrayList<Node> value = new ArrayList<Node>();
+        ArrayList<Node> value = new ArrayList<>();
         ContainerUtil.addAll(value, inIterator);
         myIn.put(node, value);
       }
     }
   }
 
+  @NotNull
   @Override
   public Collection<Node> getNodes() {
     return myNodes;
   }
 
+  @NotNull
   @Override
   public Iterator<Node> getIn(Node n) {
     final List<Node> inNodes = myIn.get(n);
     return inNodes != null
            ? inNodes.iterator()
-           : ContainerUtil.<Node>emptyIterator();
+           : ContainerUtil.emptyIterator();
   }
 
-  //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link #cache(InboundSemiGraph)} (to be removed in IDEA 2018) */
-  public static <T> CachingSemiGraph<T> create(GraphGenerator.SemiGraph<T> original) {
-    return new CachingSemiGraph<T>((InboundSemiGraph<T>)original);
-  }
-
-  /** @deprecated use {@link #cache(InboundSemiGraph)} (to be removed in IDEA 2018) */
-  public CachingSemiGraph(GraphGenerator.SemiGraph<Node> original) {
-    this((InboundSemiGraph<Node>)original);
-  }
-  //</editor-fold>
 }

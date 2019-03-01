@@ -34,7 +34,6 @@ import com.intellij.ui.JBColor;
 
 /**
  * @author Denis Zhdanov
- * @since 3/27/13 11:11 AM
  */
 public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureTestCase {
   public void testBlockSelection() {
@@ -336,7 +335,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
         syntaxInfo.processOutputInfo(new MarkupHandler() {
           @Override
           public void handleText(int startOffset, int endOffset) {
-            builder.append("text=").append(text.substring(startOffset, endOffset)).append('\n');
+            builder.append("text=").append(text, startOffset, endOffset).append('\n');
           }
 
           @Override

@@ -60,8 +60,7 @@ public class UrlClassLoaderTest {
 
     URL url = root.toURI().toURL();
     UrlClassLoader customCl = UrlClassLoader.build().urls(url).get();
-    URLClassLoader standardCl = new URLClassLoader(new URL[] {url});
-    try {
+    try (URLClassLoader standardCl = new URLClassLoader(new URL[]{url})) {
       String relativePathToFile = "dir/a.txt";
       assertNotNull(customCl.getResourceAsStream(relativePathToFile));
       assertNotNull(standardCl.findResource(relativePathToFile));
@@ -77,9 +76,6 @@ public class UrlClassLoaderTest {
       String absoluteNonCanonicalPathToFile = "/dir/a.txt/../a.txt";
       assertNotNull(customCl.getResourceAsStream(absoluteNonCanonicalPathToFile));  // non-standard CL behavior
       assertNull(standardCl.findResource(absoluteNonCanonicalPathToFile));
-    }
-    finally {
-      standardCl.close();
     }
   }
 
@@ -126,7 +122,7 @@ public class UrlClassLoaderTest {
                 assertNotNull(findResource(loader, name, random.nextBoolean()));
               }
               catch (Throwable e) {
-                System.out.println("Failed loading " + name);
+                System.err.println("Failed loading " + name);
                 throw new RuntimeException(e);
               }
             }
@@ -152,14 +148,14 @@ public class UrlClassLoaderTest {
       File theGood = createTestJar(createTestFile(sadHill, "1_normal.jar"), entryName, "-");
       File theBad = createTestFile(sadHill, "2_broken.jar", new String(new char[1024]));
 
-      UrlClassLoader flat = UrlClassLoader.build().urls(theBad.toURI().toURL(), theGood.toURI().toURL()).get();
+      UrlClassLoader flat = UrlClassLoader.build().urls(theBad.toURI().toURL(), theGood.toURI().toURL()).useLazyClassloadingCaches(false).get();
       assertNotNull(findResource(flat, entryName, false));
 
       String content = Attributes.Name.MANIFEST_VERSION + ": 1.0\n" +
                        Attributes.Name.CLASS_PATH + ": " + theBad.toURI().toURL() + " " + theGood.toURI().toURL() + "\n\n";
-      File theUgly = createTestJar(createTestFile(sadHill, "3_classpath.jar"), JarFile.MANIFEST_NAME, content);
+      File theUgly = createTestJar(createTestFile(sadHill, ClassPath.CLASSPATH_JAR_FILE_NAME_PREFIX + "_3.jar"), JarFile.MANIFEST_NAME, content);
 
-      UrlClassLoader recursive = UrlClassLoader.build().urls(theUgly.toURI().toURL()).get();
+      UrlClassLoader recursive = UrlClassLoader.build().urls(theUgly.toURI().toURL()).useLazyClassloadingCaches(false).get();
       assertNotNull(findResource(recursive, entryName, false));
     }
     finally {
@@ -186,15 +182,11 @@ public class UrlClassLoaderTest {
       assertNotNull(findResource(flat, resourceDirNameWithSlash2, false));
       assertNotNull(findResource(flat, resourceDirNameWithSlash2_, false)); // non-standard CL behavior
 
-      URLClassLoader recursive2 = new URLClassLoader(new URL[] {theGood.toURI().toURL()});
-      try {
+      try (URLClassLoader recursive2 = new URLClassLoader(new URL[]{theGood.toURI().toURL()})) {
         assertNotNull(recursive2.findResource(resourceDirNameWithSlash2));
         assertNull(recursive2.findResource(resourceDirNameWithSlash2_));
         assertNull(recursive2.findResource(resourceDirNameWithSlash));
         assertNull(recursive2.findResource(resourceDirNameWithSlash_));
-      }
-      finally {
-        recursive2.close();
       }
     }
     finally {
@@ -228,9 +220,8 @@ public class UrlClassLoaderTest {
         createTestFile(subDir, resourceName);
 
         URL url = root.toURI().toURL();
-        URLClassLoader standardCl = new URLClassLoader(new URL[] {url});
 
-        try {
+        try (URLClassLoader standardCl = new URLClassLoader(new URL[]{url})) {
           Enumeration<URL> resources = standardCl.findResources(dirName);
           assertTrue(resources.hasMoreElements());
           URL expectedResourceUrl = resources.nextElement();
@@ -240,8 +231,6 @@ public class UrlClassLoaderTest {
             checkResourceUrlIsTheSame(customCl, dirName, expectedResourceUrl);
           });
           withCustomCachedClassloader(url, (customCl) -> checkResourceUrlIsTheSame(customCl, dirName, expectedResourceUrl));
-        } finally {
-          standardCl.close();
         }
       }
     }

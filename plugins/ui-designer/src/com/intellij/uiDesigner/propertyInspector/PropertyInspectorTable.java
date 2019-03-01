@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.propertyInspector;
 
 import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
@@ -37,7 +23,6 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.ui.*;
 import com.intellij.uiDesigner.ErrorAnalyzer;
@@ -68,8 +53,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Anton Katilin
@@ -149,7 +134,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
       public void mousePressed(final MouseEvent e){
         final int row = rowAtPoint(e.getPoint());
         final int column = columnAtPoint(e.getPoint());
-        if (row == -1){
+        if (row == -1 || column == -1){
           return;
         }
         final Property property = myProperties.get(row);
@@ -225,7 +210,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   @Nullable
   public IntrospectedProperty getSelectedIntrospectedProperty(){
     Property property = getSelectedProperty();
-    if (property == null || !(property instanceof IntrospectedProperty)) {
+    if (!(property instanceof IntrospectedProperty)) {
       return null;
     }
 
@@ -260,7 +245,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   }
 
   @Override
-  public Object getData(final String dataId) {
+  public Object getData(@NotNull final String dataId) {
     if(getClass().getName().equals(dataId)){
       return this;
     }
@@ -896,7 +881,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   private final class MyModel extends AbstractTableModel {
     private final String[] myColumnNames;
 
-    public MyModel(){
+    MyModel(){
       myColumnNames=new String[]{
         UIDesignerBundle.message("column.property"),
         UIDesignerBundle.message("column.value")};
@@ -962,9 +947,9 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
   }
 
-  private final class MyPropertyEditorListener extends PropertyEditorAdapter{
+  private final class MyPropertyEditorListener implements PropertyEditorListener {
     @Override
-    public void valueCommitted(final PropertyEditor source, final boolean continueEditing, final boolean closeEditorOnError){
+    public void valueCommitted(@NotNull final PropertyEditor source, final boolean continueEditing, final boolean closeEditorOnError){
       if(isEditing()){
         final Object value;
         final TableCellEditor tableCellEditor = cellEditor;
@@ -986,7 +971,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
 
     @Override
-    public void editingCanceled(final PropertyEditor source) {
+    public void editingCanceled(@NotNull final PropertyEditor source) {
       if(isEditing()){
         cellEditor.cancelCellEditing();
       }
@@ -1005,7 +990,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     private final Icon myIndentedCollapseIcon;
     private final Icon[] myIndentIcons = new Icon[3];
 
-    public MyCompositeTableCellRenderer(){
+    MyCompositeTableCellRenderer(){
       myPropertyNameRenderer = new ColoredTableCellRenderer() {
         @Override
         protected void customizeCellRenderer(
@@ -1325,7 +1310,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   private class MyExpandCurrentAction extends AbstractAction {
     private final boolean myExpand;
 
-    public MyExpandCurrentAction(final boolean expand) {
+    MyExpandCurrentAction(final boolean expand) {
       myExpand = expand;
     }
 
@@ -1376,7 +1361,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
 
     @Override
-    public void lookAndFeelChanged(final LafManager source) {
+    public void lookAndFeelChanged(@NotNull final LafManager source) {
       updateUI(myBorderProperty);
       updateUI(MarginProperty.getInstance(myProject));
       updateUI(HGapProperty.getInstance(myProject));

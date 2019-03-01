@@ -37,14 +37,14 @@ public class MapInputDataDiffBuilder<Key, Value> extends InputDataDiffBuilder<Ke
 
   public MapInputDataDiffBuilder(int inputId, @Nullable Map<Key, Value> map) {
     super(inputId);
-    myMap = map == null ? Collections.<Key, Value>emptyMap() : map;
+    myMap = map == null ? Collections.emptyMap() : map;
   }
 
   @Override
-  public void differentiate(@NotNull Map<Key, Value> newData,
-                            @NotNull KeyValueUpdateProcessor<Key, Value> addProcessor,
-                            @NotNull KeyValueUpdateProcessor<Key, Value> updateProcessor,
-                            @NotNull RemovedKeyProcessor<Key> removeProcessor) throws StorageException {
+  public boolean differentiate(@NotNull Map<Key, Value> newData,
+                            @NotNull KeyValueUpdateProcessor<? super Key, ? super Value> addProcessor,
+                            @NotNull KeyValueUpdateProcessor<? super Key, ? super Value> updateProcessor,
+                            @NotNull RemovedKeyProcessor<? super Key> removeProcessor) throws StorageException {
     if (ourDiffUpdateEnabled) {
       if (myMap.isEmpty()) {
         EmptyInputDataDiffBuilder.processKeys(newData, addProcessor, myInputId);
@@ -85,19 +85,27 @@ public class MapInputDataDiffBuilder<Key, Value> extends InputDataDiffBuilder<Ke
         totalRemovals.addAndGet(myMap.size());
         totalAdditions.addAndGet(newData.size());
 
-        if ((totalRequests & 0xFFF) == 0 && DebugAssertions.DEBUG) {
+        if ((totalRequests & 0xFFFF) == 0 && DebugAssertions.DEBUG) {
           Logger.getInstance(getClass()).info("Incremental index diff update:" + requests +
                                               ", removals:" + totalRemovals + "->" + incrementalRemovals +
-                                              ", additions:" + totalAdditions + "->" + incrementalAdditions);
+                                              ", additions:" + totalAdditions + "->" + incrementalAdditions +
+                                              ", no op changes:" + noopModifications
+                                              );
+        }
+
+        if (added == 0 && removed == 0) {
+          noopModifications.incrementAndGet();
+          return false;
         }
       }
     }
     else {
       CollectionInputDataDiffBuilder.differentiateWithKeySeq(myMap.keySet(), newData, myInputId, addProcessor, removeProcessor);
     }
+    return true;
   }
 
-  private void processAllKeysAsDeleted(final RemovedKeyProcessor<Key> removeProcessor) throws StorageException {
+  private void processAllKeysAsDeleted(final RemovedKeyProcessor<? super Key> removeProcessor) throws StorageException {
     if (myMap instanceof THashMap) {
       final StorageException[] exception = new StorageException[]{null};
       ((THashMap<Key, Value>)myMap).forEachEntry(new TObjectObjectProcedure<Key, Value>() {
@@ -122,9 +130,14 @@ public class MapInputDataDiffBuilder<Key, Value> extends InputDataDiffBuilder<Ke
     }
   }
 
+  public Map<Key, Value> getMap() {
+    return myMap;
+  }
+
   private static final AtomicInteger requests = new AtomicInteger();
   private static final AtomicInteger totalRemovals = new AtomicInteger();
   private static final AtomicInteger totalAdditions = new AtomicInteger();
   private static final AtomicInteger incrementalRemovals = new AtomicInteger();
   private static final AtomicInteger incrementalAdditions = new AtomicInteger();
+  private static final AtomicInteger noopModifications = new AtomicInteger();
 }

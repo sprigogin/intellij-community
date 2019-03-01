@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.quickfix;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -51,7 +37,7 @@ public class AddFieldQuickFix implements LocalQuickFix {
 
   private final String myInitializer;
   private final String myClassName;
-  private String myIdentifier;
+  private final String myIdentifier;
   private boolean replaceInitializer = false;
 
   public AddFieldQuickFix(@NotNull final String identifier, @NotNull final String initializer, final String className, boolean replace) {
@@ -61,18 +47,20 @@ public class AddFieldQuickFix implements LocalQuickFix {
     replaceInitializer = replace;
   }
 
+  @Override
   @NotNull
   public String getName() {
     return PyBundle.message("QFIX.NAME.add.field.$0.to.class.$1", myIdentifier, myClassName);
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return "Add field to class";
   }
 
   @NotNull
-  public static PsiElement appendToMethod(PyFunction init, Function<String, PyStatement> callback) {
+  public static PsiElement appendToMethod(PyFunction init, Function<? super String, ? extends PyStatement> callback) {
     // add this field as the last stmt of the constructor
     final PyStatementList statementList = init.getStatementList();
     // name of 'self' may be different for fancier styles
@@ -87,6 +75,7 @@ public class AddFieldQuickFix implements LocalQuickFix {
     return result;
   }
 
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     // expect the descriptor to point to the unresolved identifier.
     final PsiElement element = descriptor.getPsiElement();
@@ -152,7 +141,7 @@ public class AddFieldQuickFix implements LocalQuickFix {
   }
 
   @Nullable
-  public static PsiElement addFieldToInit(Project project, PyClass cls, String itemName, Function<String, PyStatement> callback) {
+  public static PsiElement addFieldToInit(Project project, PyClass cls, String itemName, Function<? super String, ? extends PyStatement> callback) {
     if (cls != null && itemName != null) {
       PyFunction init = cls.findMethodByName(PyNames.INIT, false, null);
       if (init != null) {
@@ -231,9 +220,9 @@ public class AddFieldQuickFix implements LocalQuickFix {
   }
 
   private static class CreateFieldCallback implements Function<String, PyStatement> {
-    private Project myProject;
-    private String myItemName;
-    private String myInitializer;
+    private final Project myProject;
+    private final String myItemName;
+    private final String myInitializer;
 
     private CreateFieldCallback(Project project, String itemName, String initializer) {
       myProject = project;
@@ -241,6 +230,7 @@ public class AddFieldQuickFix implements LocalQuickFix {
       myInitializer = initializer;
     }
 
+    @Override
     public PyStatement fun(String selfName) {
       return PyElementGenerator.getInstance(myProject).createFromText(LanguageLevel.getDefault(), PyStatement.class, selfName + "." + myItemName + " = " + myInitializer);
     }

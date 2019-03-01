@@ -29,7 +29,7 @@ public class JqlFileType extends LanguageFileType {
   public static final LanguageFileType INSTANCE = new JqlFileType();
   public static final String DEFAULT_EXTENSION = "jql";
 
-  public JqlFileType() {
+  private JqlFileType() {
     super(JqlLanguage.INSTANCE);
   }
 
@@ -42,7 +42,7 @@ public class JqlFileType extends LanguageFileType {
   @NotNull
   @Override
   public String getDescription() {
-    return "JIRA query language";
+    return "JIRA query";
   }
 
   @NotNull

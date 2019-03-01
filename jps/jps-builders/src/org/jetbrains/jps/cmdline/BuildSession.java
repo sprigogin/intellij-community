@@ -16,10 +16,11 @@
 package org.jetbrains.jps.cmdline;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.LowMemoryWatcherManager;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
-import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.concurrency.Semaphore;
@@ -33,10 +34,7 @@ import org.jetbrains.jps.api.*;
 import org.jetbrains.jps.builders.*;
 import org.jetbrains.jps.builders.java.JavaModuleBuildTargetType;
 import org.jetbrains.jps.builders.java.dependencyView.Callbacks;
-import org.jetbrains.jps.incremental.MessageHandler;
-import org.jetbrains.jps.incremental.RebuildRequestedException;
-import org.jetbrains.jps.incremental.TargetTypeRegistry;
-import org.jetbrains.jps.incremental.Utils;
+import org.jetbrains.jps.incremental.*;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.messages.*;
 import org.jetbrains.jps.incremental.storage.Timestamps;
@@ -46,10 +44,7 @@ import org.jetbrains.jps.service.SharedThreadPool;
 
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
 
@@ -59,6 +54,8 @@ import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage
 final class BuildSession implements Runnable, CanceledStatus {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.cmdline.BuildSession");
   public static final String FS_STATE_FILE = "fs_state.dat";
+  private static final Boolean REPORT_BUILD_STATISTICS = Boolean.valueOf(System.getProperty(GlobalOptions.REPORT_BUILD_STATISTICS, "false"));
+  
   private final UUID mySessionId;
   private final Channel myChannel;
   @Nullable 
@@ -124,6 +121,7 @@ final class BuildSession implements Runnable, CanceledStatus {
 
   @Override
   public void run() {
+    final LowMemoryWatcherManager memWatcher = new LowMemoryWatcherManager(SharedThreadPool.getInstance());
     Throwable error = null;
     final Ref<Boolean> hasErrors = new Ref<>(false);
     final Ref<Boolean> doneSomething = new Ref<>(false);
@@ -166,13 +164,14 @@ final class BuildSession implements Runnable, CanceledStatus {
             response = CmdlineProtoUtil.createCustomBuilderMessage(builderMessage.getBuilderId(), builderMessage.getMessageType(), builderMessage.getMessageText());
           }
           else if (buildMessage instanceof BuilderStatisticsMessage) {
-            BuilderStatisticsMessage message = (BuilderStatisticsMessage)buildMessage;
-            int srcCount = message.getNumberOfProcessedSources();
-            long time = message.getElapsedTimeMs();
-            if (srcCount != 0 || time > 50) {
-              LOG.info("Build duration: '" + message.getBuilderName() + "' builder took " + time + " ms, " + srcCount + " sources processed");
+            final BuilderStatisticsMessage message = (BuilderStatisticsMessage)buildMessage;
+            final boolean worthReporting = message.getNumberOfProcessedSources() != 0 || message.getElapsedTimeMs() > 50;
+            if (worthReporting) {
+              LOG.info(message.getMessageText());
             }
-            response = null;
+            response = worthReporting && REPORT_BUILD_STATISTICS ?
+                       CmdlineProtoUtil.createCompileMessage(BuildMessage.Kind.JPS_INFO, message.getMessageText(), null, -1, -1, -1, -1, -1, -1.0f):
+                       null;
           }
           else if (!(buildMessage instanceof BuildingTargetProgressMessage)) {
             float done = -1.0f;
@@ -200,6 +199,7 @@ final class BuildSession implements Runnable, CanceledStatus {
     }
     finally {
       finishBuild(error, hasErrors.get(), doneSomething.get());
+      Disposer.dispose(memWatcher);
     }
   }
 
@@ -280,14 +280,9 @@ final class BuildSession implements Runnable, CanceledStatus {
         TimingLog.LOG.debug("Project descriptor loaded");
         if (fsStateStream != null) {
           try {
-            try {
-              fsState.load(fsStateStream, pd.getModel(), pd.getBuildRootIndex());
-              applyFSEvent(pd, myInitialFSDelta, false);
-              TimingLog.LOG.debug("FS Delta loaded");
-            }
-            finally {
-              fsStateStream.close();
-            }
+            fsState.load(fsStateStream, pd.getModel(), pd.getBuildRootIndex());
+            applyFSEvent(pd, myInitialFSDelta, false);
+            TimingLog.LOG.debug("FS Delta loaded");
           }
           catch (Throwable e) {
             LOG.error(e);
@@ -400,7 +395,6 @@ final class BuildSession implements Runnable, CanceledStatus {
       Collection<BuildRootDescriptor> descriptor = pd.getBuildRootIndex().findAllParentDescriptors(file, null, null);
       if (!descriptor.isEmpty()) {
         if (!cacheCleared) {
-          pd.getFSCache().clear();
           cacheCleared = true;
         }
         if (LOG.isDebugEnabled()) {
@@ -427,12 +421,11 @@ final class BuildSession implements Runnable, CanceledStatus {
         for (BuildRootDescriptor descriptor : descriptors) {
           if (!descriptor.isGenerated()) { // ignore generates sources as they are processed at the time of generation
             if (fileStamp == -1L) {
-              fileStamp = FileSystemUtil.lastModified(file); // lazy init
+              fileStamp = FSOperations.lastModified(file); // lazy init
             }
             final long stamp = timestamps.getStamp(file, descriptor.getTarget());
             if (stamp != fileStamp) {
               if (!cacheCleared) {
-                pd.getFSCache().clear();
                 cacheCleared = true;
               }
               pd.fsState.markDirty(null, file, descriptor, timestamps, saveEventStamp);
@@ -457,8 +450,7 @@ final class BuildSession implements Runnable, CanceledStatus {
     final File file = new File(dataStorageRoot, FS_STATE_FILE);
     try {
       final BufferExposingByteArrayOutputStream bytes = new BufferExposingByteArrayOutputStream();
-      final DataOutputStream out = new DataOutputStream(bytes);
-      try {
+      try (DataOutputStream out = new DataOutputStream(bytes)) {
         out.writeInt(BuildFSState.VERSION);
         out.writeLong(ordinal);
         out.writeBoolean(false);
@@ -469,9 +461,6 @@ final class BuildSession implements Runnable, CanceledStatus {
           }
           out.write(b);
         }
-      }
-      finally {
-        out.close();
       }
 
       saveOnDisk(bytes, file);
@@ -487,15 +476,11 @@ final class BuildSession implements Runnable, CanceledStatus {
     final File file = new File(dataStorageRoot, FS_STATE_FILE);
     try {
       final BufferExposingByteArrayOutputStream bytes = new BufferExposingByteArrayOutputStream();
-      final DataOutputStream out = new DataOutputStream(bytes);
-      try {
+      try (DataOutputStream out = new DataOutputStream(bytes)) {
         out.writeInt(BuildFSState.VERSION);
         out.writeLong(myLastEventOrdinal);
         out.writeBoolean(hasWorkToDo(state, pd));
         state.save(out);
-      }
-      finally {
-        out.close();
       }
 
       saveOnDisk(bytes, file);
@@ -522,6 +507,13 @@ final class BuildSession implements Runnable, CanceledStatus {
   }
 
   private static void saveOnDisk(BufferExposingByteArrayOutputStream bytes, final File file) throws IOException {
+    try (FileOutputStream fos = writeOrCreate(file)) {
+      fos.write(bytes.getInternalBuffer(), 0, bytes.size());
+    }
+  }
+
+  @NotNull
+  private static FileOutputStream writeOrCreate(@NotNull File file) throws FileNotFoundException {
     FileOutputStream fos = null;
     try {
       //noinspection IOResourceOpenedButNotSafelyClosed
@@ -534,26 +526,14 @@ final class BuildSession implements Runnable, CanceledStatus {
     if (fos == null) {
       fos = new FileOutputStream(file);
     }
-    try {
-      fos.write(bytes.getInternalBuffer(), 0, bytes.size());
-    }
-    finally {
-      fos.close();
-    }
+    return fos;
   }
 
   @Nullable
   private static DataInputStream createFSDataStream(File dataStorageRoot, final long currentEventOrdinal) {
-    try {
-      final File file = new File(dataStorageRoot, FS_STATE_FILE);
-      byte[] bytes;
-      final InputStream fs = new FileInputStream(file);
-      try {
-        bytes = FileUtil.loadBytes(fs, (int)file.length());
-      }
-      finally {
-        fs.close();
-      }
+    final File file = new File(dataStorageRoot, FS_STATE_FILE);
+    try (InputStream fs = new FileInputStream(file)) {
+      byte[] bytes = FileUtil.loadBytes(fs, (int)file.length());
       final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
       final int version = in.readInt();
       if (version != BuildFSState.VERSION) {
@@ -591,12 +571,8 @@ final class BuildSession implements Runnable, CanceledStatus {
           cause = error;
         }
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        final PrintStream stream = new PrintStream(out);
-        try {
+        try (PrintStream stream = new PrintStream(out)) {
           cause.printStackTrace(stream);
-        }
-        finally {
-          stream.close();
         }
 
         final StringBuilder messageText = new StringBuilder();
@@ -655,17 +631,21 @@ final class BuildSession implements Runnable, CanceledStatus {
     return BuildType.BUILD;
   }
 
-  private static class EventsProcessor extends SequentialTaskExecutor {
+  private static class EventsProcessor {
     private final Semaphore myProcessingEnabled = new Semaphore();
+    private final Executor myExecutorService = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("BuildSession.EventsProcessor.EventsProcessor Pool", SharedThreadPool.getInstance());
 
     private EventsProcessor() {
-      super("BuildSession.EventsProcessor.EventsProcessor pool", SharedThreadPool.getInstance());
       myProcessingEnabled.down();
       execute(() -> myProcessingEnabled.waitFor());
     }
 
     private void startProcessing() {
       myProcessingEnabled.up();
+    }
+
+    public void execute(@NotNull Runnable task) {
+      myExecutorService.execute(task);
     }
   }
 

@@ -15,10 +15,19 @@
  */
 package org.jetbrains.ether;
 
+import org.jetbrains.jps.builders.CompileScopeTestBuilder;
+import org.jetbrains.jps.builders.java.JavaModuleBuildTargetType;
+import org.jetbrains.jps.model.JpsDummyElement;
 import org.jetbrains.jps.model.JpsModuleRootModificationUtil;
 import org.jetbrains.jps.model.java.JpsJavaDependencyScope;
+import org.jetbrains.jps.model.java.JpsJavaLibraryType;
 import org.jetbrains.jps.model.library.JpsLibrary;
+import org.jetbrains.jps.model.library.JpsOrderRootType;
+import org.jetbrains.jps.model.library.JpsTypedLibrary;
 import org.jetbrains.jps.model.module.JpsModule;
+
+import java.io.File;
+import java.util.Map;
 
 /**
  * @author: db
@@ -40,6 +49,54 @@ public class MarkDirtyTest extends IncrementalTestCase {
     doTestBuild(1).assertSuccessful();
   }
 
+  @Override
+  protected boolean useCachedProjectDescriptorOnEachMake() {
+    return !"recompileTargetOnExportedLibraryChange".equals(getTestName(true));
+  }
+
+  @Override
+  protected void modify(int stage) {
+    if (stage == 0 && "recompileTargetOnExportedLibraryChange".equals(getTestName(true))) {
+      final JpsTypedLibrary<JpsDummyElement> library = myProject.getLibraryCollection().findLibrary("l", JpsJavaLibraryType.INSTANCE);
+      assertNotNull(library);
+      for (String url : library.getRootUrls(JpsOrderRootType.COMPILED)) {
+        library.removeUrl(url, JpsOrderRootType.COMPILED);
+      }
+      library.addRoot(new File(getAbsolutePath("moduleA/lib/util_new.jar")), JpsOrderRootType.COMPILED);
+    }
+    else {
+      super.modify(stage);
+    }
+  }
+
+  @Override
+  protected CompileScopeTestBuilder createCompileScope(int stage) {
+    if ("cleanTimestampsWithOutputOnModuleRebuild".equals(getTestName(true))) {
+      if (stage == 0) {
+        return CompileScopeTestBuilder.recompile().targetTypes(JavaModuleBuildTargetType.PRODUCTION);
+      }
+    }
+    return super.createCompileScope(stage);
+  }
+
+  public void testCleanTimestampsWithOutputOnModuleRebuild() {
+    setupInitialProject();
+    setupModules();
+    doTestBuild(2).assertSuccessful();
+  }
+
+  public void testRecompileTargetOnExportedLibraryChange() {
+    setupInitialProject();
+    final Map<String, JpsModule> modules = setupModules();
+    final JpsModule moduleA = modules.get("A");
+    assertNotNull(moduleA);
+
+    JpsLibrary library = addLibrary("moduleA/lib/util.jar");
+    JpsModuleRootModificationUtil.addDependency(moduleA, library, JpsJavaDependencyScope.COMPILE, true);
+
+    doTestBuild(1).assertSuccessful();
+  }
+
   public void testTransitiveRecompile() {
     JpsModule module = addModule();
     addTestRoot(module, "testSrc");
@@ -51,7 +108,7 @@ public class MarkDirtyTest extends IncrementalTestCase {
     JpsModuleRootModificationUtil.addDependency(util, lib);
     doTestBuild(1).assertSuccessful();
   }
-  
+
   public void testRecompileTwinDependencies() {
     doTest().assertSuccessful();
   }

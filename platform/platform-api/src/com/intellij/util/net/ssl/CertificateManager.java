@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
 import com.intellij.openapi.application.Application;
@@ -74,13 +60,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * @author Mikhail Golubev
  */
-@State(
-  name = "CertificateManager",
-  storages = {
-    @Storage("certificates.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
+@State(name = "CertificateManager", storages = @Storage("certificates.xml"))
 public class CertificateManager implements PersistentStateComponent<CertificateManager.Config> {
 
   @NonNls public static final String COMPONENT_NAME = "Certificate Manager";
@@ -90,15 +70,29 @@ public class CertificateManager implements PersistentStateComponent<CertificateM
   private static final Logger LOG = Logger.getInstance(CertificateManager.class);
 
   /**
-   * Note that deprecated {@link org.apache.http.conn.ssl.BrowserCompatHostnameVerifier} is used intentionally here 
-   * since external clients might expect implementor of {@link org.apache.http.conn.ssl.X509HostnameVerifier} and 
+   * Note that deprecated {@link org.apache.http.conn.ssl.BrowserCompatHostnameVerifier} is used intentionally here
+   * since external clients might expect implementor of {@link org.apache.http.conn.ssl.X509HostnameVerifier} and
    * {@link org.apache.http.conn.ssl.DefaultHostnameVerifier} is not.
-   * 
+   *
    * @deprecated To be removed in IDEA 18. Use specific host name verifiers from httpclient-4.x instead.
    */
   @Deprecated
-  public static final HostnameVerifier HOSTNAME_VERIFIER = new BrowserCompatHostnameVerifier();
-  
+  public static final HostnameVerifier HOSTNAME_VERIFIER = new HostnameVerifier() {
+    private volatile HostnameVerifier myHostnameVerifier; 
+    @Override
+    public boolean verify(String s, SSLSession session) {
+      HostnameVerifier hostnameVerifier = myHostnameVerifier;
+      if (hostnameVerifier == null) {
+        //noinspection SynchronizeOnThis
+        synchronized (this) {
+          hostnameVerifier = myHostnameVerifier;
+          if (hostnameVerifier == null) myHostnameVerifier = hostnameVerifier = new BrowserCompatHostnameVerifier();
+        }
+      }
+      return hostnameVerifier.verify(s, session);
+    }
+  };
+
   /**
    * Used to check whether dialog is visible to prevent possible deadlock, e.g. when some external resource is loaded by
    * {@link java.awt.MediaTracker}.
@@ -360,7 +354,7 @@ public class CertificateManager implements PersistentStateComponent<CertificateM
   }
 
   @Override
-  public void loadState(Config state) {
+  public void loadState(@NotNull Config state) {
     XmlSerializerUtil.copyBean(state, myConfig);
   }
 

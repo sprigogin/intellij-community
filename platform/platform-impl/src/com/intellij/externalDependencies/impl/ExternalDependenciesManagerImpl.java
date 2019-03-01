@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.externalDependencies.impl;
 
 import com.intellij.externalDependencies.DependencyOnPlugin;
@@ -41,7 +39,7 @@ public class ExternalDependenciesManagerImpl extends ExternalDependenciesManager
     //noinspection unchecked
     return ((Comparable)o1).compareTo(o2);
   };
-  private List<ProjectExternalDependency> myDependencies = new ArrayList<>();
+  private final List<ProjectExternalDependency> myDependencies = new ArrayList<>();
   
   @NotNull
   @Override
@@ -73,11 +71,11 @@ public class ExternalDependenciesManagerImpl extends ExternalDependenciesManager
   }
 
   @Override
-  public void loadState(ExternalDependenciesState state) {
+  public void loadState(@NotNull ExternalDependenciesState state) {
     ArrayList<ProjectExternalDependency> oldDependencies = new ArrayList<>(myDependencies);
     myDependencies.clear();
     for (DependencyOnPluginState dependency : state.myDependencies) {
-      myDependencies.add(new DependencyOnPlugin(dependency.myId, dependency.myMinVersion, dependency.myMaxVersion, dependency.myChannel));
+      myDependencies.add(new DependencyOnPlugin(dependency.myId, dependency.myMinVersion, dependency.myMaxVersion));
     }
     if (!oldDependencies.equals(myDependencies) && !myDependencies.isEmpty()) {
       StartupManager.getInstance(myProject).runWhenProjectIsInitialized(

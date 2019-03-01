@@ -11,7 +11,7 @@ import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.impl.RequestFailedException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.apache.xmlrpc.*;
 import org.jetbrains.annotations.NotNull;
@@ -191,7 +191,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
       final String name;
       final Iterable<String> canChangeTo;
 
-      public Status(String name, boolean isOpen, Iterable<String> canChangeTo) {
+      Status(String name, boolean isOpen, Iterable<String> canChangeTo) {
         this.isOpen = isOpen;
         this.name = name;
         this.canChangeTo = canChangeTo;
@@ -360,7 +360,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
   private class BugzillaXmlRpcRequest {
     // Copied from Trac repository
     private class Transport extends CommonsXmlRpcTransport {
-      public Transport() throws MalformedURLException {
+      Transport() throws MalformedURLException {
         super(new URL(getUrl()), getHttpClient());
       }
 
@@ -374,7 +374,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
     private final HashMap<String, Object> myParameters = new HashMap<>();
     private final Transport myTransport;
 
-    public BugzillaXmlRpcRequest(@NotNull String methodName) throws MalformedURLException {
+    BugzillaXmlRpcRequest(@NotNull String methodName) throws MalformedURLException {
       myMethodName = methodName;
       myTransport = new Transport();
     }

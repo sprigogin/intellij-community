@@ -23,7 +23,7 @@ import org.jetbrains.uast.visitor.UastTypedVisitor
 /**
  * A [PsiElement] declaration wrapper.
  */
-interface UDeclaration : UElement, PsiModifierListOwner, UAnnotated {
+interface UDeclaration : UElement, PsiModifierListOwner, UAnnotated, UAnchorOwner {
   /**
    * Returns the original declaration (which is *always* unwrapped, never a [UDeclaration]).
    */
@@ -32,9 +32,12 @@ interface UDeclaration : UElement, PsiModifierListOwner, UAnnotated {
   override fun getOriginalElement(): PsiElement? = psi.originalElement
 
   /**
-   * Returns the declaration name identifier, or null if the declaration is anonymous.
+   * Returns the declaration name identifier. If declaration is anonymous other implementation dependant psi element will be returned.
+   * The main rule that returned element is "anchor": it is a single token which represents this declaration.
+   *
+   * It is useful for putting gutters and inspection reports.
    */
-  val uastAnchor: UElement?
+  override val uastAnchor: UIdentifier?
 
   /**
    * Returns `true` if this declaration has a [PsiModifier.STATIC] modifier.
@@ -54,7 +57,33 @@ interface UDeclaration : UElement, PsiModifierListOwner, UAnnotated {
   val visibility: UastVisibility
     get() = UastVisibility[this]
 
-  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D) = visitor.visitDeclaration(this, data)
+  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D): R = visitor.visitDeclaration(this, data)
 }
 
-fun UElement.getContainingDeclaration() = withContainingElements.filterIsInstance<UDeclaration>().firstOrNull()
+interface UDeclarationEx : UDeclaration {
+  override val javaPsi: PsiModifierListOwner
+}
+
+fun UElement?.getContainingDeclaration(): UDeclaration? = this?.withContainingElements?.drop(1)?.filterIsInstance<UDeclaration>()?.firstOrNull()
+
+fun <T : UElement> UElement?.getContainingDeclaration(cls: Class<out T>): T? {
+  val element = this?.withContainingElements?.drop(1)?.filterIsInstance<UDeclaration>()?.firstOrNull()
+  return if (element != null && cls.isInstance(element)) {
+    element as T
+  } else {
+    null
+  }
+}
+
+fun UDeclaration?.getAnchorPsi():PsiElement? {
+  return this?.uastAnchor?.sourcePsi
+}
+
+/**
+ * A base interface for every [UElement] which have a name identifier. As analogy to [PsiNameIdentifierOwner]
+ */
+interface UAnchorOwner : UElement {
+
+  val uastAnchor: UIdentifier?
+
+}

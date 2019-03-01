@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.runtime.clientLibrary;
 
 import com.intellij.execution.configurations.RuntimeConfigurationError;
@@ -40,7 +38,7 @@ public class ClientLibraryManagerImpl extends ClientLibraryManager implements Pe
   private static final Logger LOG = Logger.getInstance(ClientLibraryManagerImpl.class);
   private Map<String, List<File>> myFiles = new LinkedHashMap<>();
 
-  private EventDispatcher<CloudClientLibraryManagerListener> myEventDispatcher
+  private final EventDispatcher<CloudClientLibraryManagerListener> myEventDispatcher
     = EventDispatcher.create(CloudClientLibraryManagerListener.class);
 
 
@@ -49,6 +47,7 @@ public class ClientLibraryManagerImpl extends ClientLibraryManager implements Pe
     myEventDispatcher.addListener(listener, disposable);
   }
 
+  @Override
   public State getState() {
     State result = new State();
     for (Map.Entry<String, List<File>> entry : myFiles.entrySet()) {
@@ -63,7 +62,7 @@ public class ClientLibraryManagerImpl extends ClientLibraryManager implements Pe
   }
 
   @Override
-  public void loadState(State state) {
+  public void loadState(@NotNull State state) {
     myFiles = new HashMap<>();
     for (DownloadedLibraryState libraryState : state.myLibraries) {
       List<File> files = new ArrayList<>();

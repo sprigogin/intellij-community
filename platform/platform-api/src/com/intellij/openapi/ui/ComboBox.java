@@ -146,7 +146,9 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
     }
 
     if (getModel().getSize() == 0 && visible) return;
-    if (visible && JBPopupFactory.getInstance().getChildFocusedPopup(this) != null) return;
+    if (visible &&
+        ApplicationManager.getApplication() != null /* Allow ComboBox on welcome wizard*/ &&
+        JBPopupFactory.getInstance().getChildFocusedPopup(this) != null) return;
 
     final boolean wasShown = isPopupVisible();
     super.setPopupVisible(visible);
@@ -227,7 +229,6 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
         setPopupVisible(false);
       }
       else {
-        //noinspection HardCodedStringLiteral
         final Object clientProperty = getClientProperty(TABLE_CELL_EDITOR_PROPERTY);
         if (clientProperty instanceof CellEditor) {
           // If combo box is inside editable table then we need to cancel editing
@@ -278,7 +279,7 @@ public class ComboBox<E> extends ComboBoxWithWidePopup<E> implements AWTEventLis
     private final JComboBox myComboBox;
     private final ComboBoxEditor myDelegate;
 
-    public MyEditor(final JComboBox comboBox, final ComboBoxEditor delegate) {
+    MyEditor(final JComboBox comboBox, final ComboBoxEditor delegate) {
       myComboBox = comboBox;
       myDelegate = delegate;
       if (myDelegate != null) {

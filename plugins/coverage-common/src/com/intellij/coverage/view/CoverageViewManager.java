@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage.view;
 
 import com.intellij.coverage.CoverageDataManager;
@@ -18,6 +16,7 @@ import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentManager;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -30,11 +29,11 @@ import java.util.Map;
 public class CoverageViewManager implements PersistentStateComponent<CoverageViewManager.StateBean> {
   private static final Logger LOG = Logger.getInstance(CoverageViewManager.class);
   public static final String TOOLWINDOW_ID = "Coverage";
-  private Project myProject;
+  private final Project myProject;
   private final CoverageDataManager myDataManager;
-  private ContentManager myContentManager;
+  private final ContentManager myContentManager;
   private StateBean myStateBean = new StateBean();
-  private Map<String, CoverageView> myViews = new HashMap<>();
+  private final Map<String, CoverageView> myViews = new HashMap<>();
   private boolean myReady;
 
   public CoverageViewManager(Project project, ToolWindowManager toolWindowManager, CoverageDataManager dataManager) {
@@ -48,11 +47,13 @@ public class CoverageViewManager implements PersistentStateComponent<CoverageVie
     new ContentManagerWatcher(toolWindow, myContentManager);
   }
 
+  @Override
   public StateBean getState() {
     return myStateBean;
   }
 
-  public void loadState(StateBean state) {
+  @Override
+  public void loadState(@NotNull StateBean state) {
     myStateBean = state;
   }
 
@@ -60,7 +61,7 @@ public class CoverageViewManager implements PersistentStateComponent<CoverageVie
     return myViews.get(getDisplayName(suitesBundle));
   }
 
-  public void activateToolwindow(CoverageView view, boolean requestFocus) {
+  public void activateToolwindow(@NotNull CoverageView view, boolean requestFocus) {
     ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(TOOLWINDOW_ID);
     if (requestFocus) {
       myContentManager.setSelectedContent(myContentManager.getContent(view));
@@ -88,6 +89,7 @@ public class CoverageViewManager implements PersistentStateComponent<CoverageVie
   void closeView(String displayName) {
     final CoverageView oldView = myViews.remove(displayName);
     if (oldView != null) {
+      oldView.saveSize();
       final Content content = myContentManager.getContent(oldView);
       final Runnable runnable = () -> {
         if (content != null) {
@@ -116,5 +118,6 @@ public class CoverageViewManager implements PersistentStateComponent<CoverageVie
     public boolean myFlattenPackages = false;
     public boolean myAutoScrollToSource = false;
     public boolean myAutoScrollFromSource = false;
+    public int myElementSize = JBUI.scale(200);
   }
 }

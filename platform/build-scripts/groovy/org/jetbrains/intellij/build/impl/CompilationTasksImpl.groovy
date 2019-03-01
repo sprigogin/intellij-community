@@ -41,8 +41,13 @@ class CompilationTasksImpl extends CompilationTasks {
       resolveProjectDependencies()
       return
     }
+    if (context.options.pathToCompiledClassesArchivesMetadata != null) {
+      context.messages.info("Compilation skipped, the compiled classes from '${context.options.pathToCompiledClassesArchivesMetadata}' will be used")
+      resolveProjectDependencies()
+      return
+    }
 
-    CompilationContextImpl.setupCompilationDependencies(context.gradle)
+    CompilationContextImpl.setupCompilationDependencies(context.gradle, context.options)
 
     context.messages.progress("Compiling project")
     JpsCompilationRunner runner = new JpsCompilationRunner(context)
@@ -77,8 +82,9 @@ class CompilationTasksImpl extends CompilationTasks {
   @Override
   void buildProjectArtifacts(Collection<String> artifactNames) {
     if (!artifactNames.isEmpty()) {
+      boolean buildIncludedModules = !context.options.useCompiledClassesFromProjectOutput && context.options.pathToCompiledClassesArchive == null
       try {
-        new JpsCompilationRunner(context).buildArtifacts(artifactNames)
+        new JpsCompilationRunner(context).buildArtifacts(artifactNames, buildIncludedModules)
       }
       catch (Throwable e) {
         context.messages.error("Building project artifacts failed with exception: $e", e)

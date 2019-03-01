@@ -36,9 +36,11 @@ public interface ToolWindowId {
   String VCS = UIBundle.message("tool.window.name.version.control");
   String MODULES_DEPENDENCIES = UIBundle.message("tool.window.name.module.dependencies");
   String DUPLICATES = UIBundle.message("tool.window.name.module.duplicates");
+  String EXTRACT_METHOD = UIBundle.message("tool.window.name.extract.method");
   String DOCUMENTATION = UIBundle.message("tool.window.name.documentation");
   String TASKS = UIBundle.message("tool.window.name.tasks");
   String DATABASE_VIEW = UIBundle.message("tool.window.name.database");
   String PREVIEW = UIBundle.message("tool.window.name.preview");
   String RUN_DASHBOARD = UIBundle.message("tool.window.name.run.dashboard");
+  String SERVICES = UIBundle.message("tool.window.name.services");
 }

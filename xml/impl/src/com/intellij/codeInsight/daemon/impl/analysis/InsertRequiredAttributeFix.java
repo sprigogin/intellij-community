@@ -107,7 +107,7 @@ public class InsertRequiredAttributeFix extends LocalQuickFixAndIntentionActionO
       template.addTextSegment(" " + myAttrName);
       if (!insertShorthand) {
         String quote = XmlEditUtil.getAttributeQuote(file);
-        AttributeValuePresentation presentation = XmlExtension.getExtension(file).getAttributeValuePresentation(attrDescriptor, quote);
+        AttributeValuePresentation presentation = XmlExtension.getExtension(file).getAttributeValuePresentation(attrDescriptor, quote, file);
 
         valuePostfix = presentation.getPostfix();
         template.addTextSegment("=" + presentation.getPrefix());
@@ -174,10 +174,5 @@ public class InsertRequiredAttributeFix extends LocalQuickFixAndIntentionActionO
     else {
       runnable.run();
     }
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
   }
 }

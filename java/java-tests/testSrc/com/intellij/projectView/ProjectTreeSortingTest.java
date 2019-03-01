@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
 import com.intellij.ide.projectView.*;
@@ -54,21 +40,27 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
     myProjectView.addProjectPane(myPane);
     myOriginalManualOrder = myProjectView.isManualOrder(myPane.getId());
     myOriginalSortByType = myProjectView.isSortByType(myPane.getId());
-    myOriginalFoldersAlwaysOnTop = ((ProjectViewImpl)myProjectView).isFoldersAlwaysOnTop();
+    myOriginalFoldersAlwaysOnTop = myProjectView.isFoldersAlwaysOnTop(myPane.getId());
 
     TreeUtil.expand(myPane.getTree(), 2);
   }
 
   @Override
   public void tearDown() throws Exception {
-    myProjectView.setManualOrder(myPane.getId(), myOriginalManualOrder);
-    myProjectView.setSortByType(myPane.getId(), myOriginalSortByType);
-    ((ProjectViewImpl)myProjectView).setFoldersAlwaysOnTop(myOriginalFoldersAlwaysOnTop);
-    myProjectView.removeProjectPane(myPane);
-    myProjectView = null;
-    myPane = null;
-
-    super.tearDown();
+    try {
+      myProjectView.setManualOrder(myPane.getId(), myOriginalManualOrder);
+      myProjectView.setSortByType(myPane.getId(), myOriginalSortByType);
+      ((ProjectViewImpl)myProjectView).setFoldersAlwaysOnTop(myOriginalFoldersAlwaysOnTop);
+      myProjectView.removeProjectPane(myPane);
+      myProjectView = null;
+      myPane = null;
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   public void testSortByName() {
@@ -98,7 +90,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
   }
 
   public void testFoldersOnTop() {
-    // first, check with 'sort by type' disabled 
+    // first, check with 'sort by type' disabled
     myProjectView.setSortByType(myPane.getId(), false);
 
     ((ProjectViewImpl)myProjectView).setFoldersAlwaysOnTop(true);
@@ -119,7 +111,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
                " c.java\n" +
                " c.txt\n");
 
-    // now let's check the behavior, when sortByType is enabled 
+    // now let's check the behavior, when sortByType is enabled
     myProjectView.setSortByType(myPane.getId(), true);
 
     ((ProjectViewImpl)myProjectView).setFoldersAlwaysOnTop(true);
@@ -249,17 +241,17 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
 
   private void assertTree(String expected) {
     TreePath path = PlatformTestUtil.waitForPromise(myPane.promisePathToElement(getContentDirectory()));
-    PlatformTestUtil.waitUntilBusy(myPane.getTree());
+    PlatformTestUtil.waitWhileBusy(myPane.getTree());
     Object element = path.getLastPathComponent();
     assertNotNull("Element for " + getContentDirectory() + " not found", element);
-    assertEquals(expected, PlatformTestUtil.print(myPane.getTree(), element, new Queryable.PrintInfo(), false));
+    assertEquals(expected.trim(), PlatformTestUtil.print(myPane.getTree(), path, new Queryable.PrintInfo(), false));
   }
 
   static class MyOrderProvider implements TreeStructureProvider {
     private final Project myProject;
     private final Map<String, Integer> myOrder = new LinkedHashMap<>();
 
-    public MyOrderProvider(Project project) {
+    MyOrderProvider(Project project) {
       myProject = project;
     }
 
@@ -297,7 +289,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
 
             @Override
             public int getWeight() {
-              return ((ProjectViewNode)child).getWeight();
+              return child.getWeight();
             }
 
             @Nullable
@@ -309,7 +301,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
             @Nullable
             @Override
             public Comparable getManualOrderKey() {
-              return order == null ? null : order;
+              return order;
             }
 
             @Nullable
@@ -340,7 +332,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
             }
 
             @Override
-            public void update(PresentationData presentation) {
+            public void update(@NotNull PresentationData presentation) {
             }
 
             @Override

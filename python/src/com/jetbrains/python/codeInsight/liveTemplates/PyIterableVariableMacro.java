@@ -78,7 +78,7 @@ public class PyIterableVariableMacro extends Macro {
         }
       }
     }
-    return results.toArray(new LookupElement[results.size()]);
+    return results.toArray(LookupElement.EMPTY_ARRAY);
   }
 
   @Override
@@ -110,7 +110,7 @@ public class PyIterableVariableMacro extends Macro {
 
       StreamEx
         .of(scope.getImportedNameDefiners())
-        .filter(definer -> !PyImplicitImportNameDefiner.class.isInstance(definer))
+        .filter(definer -> !(definer instanceof PyImplicitImportNameDefiner))
         .flatMap(definer -> StreamSupport.stream(definer.iterateNames().spliterator(), false))
         .select(PsiNamedElement.class)
         .forEach(results::add);

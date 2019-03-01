@@ -79,6 +79,9 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
         }
       });
     PersistentHashMapValueStorage.CreationTimeOptions.COMPACT_CHUNKS_WITH_VALUE_DESERIALIZATION.set(Boolean.TRUE);
+    if (myKeyIsUniqueForIndexedFile) {
+      PersistentHashMapValueStorage.CreationTimeOptions.HAS_NO_CHUNKS.set(Boolean.TRUE);
+    }
     try {
       map = new ValueContainerMap<Key, Value>(getStorageFile(), myKeyDescriptor, myDataExternalizer, myKeyIsUniqueForIndexedFile) {
         @Override
@@ -89,12 +92,15 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
     } finally {
       PersistentHashMapValueStorage.CreationTimeOptions.EXCEPTIONAL_IO_CANCELLATION.set(null);
       PersistentHashMapValueStorage.CreationTimeOptions.COMPACT_CHUNKS_WITH_VALUE_DESERIALIZATION.set(null);
+      if (myKeyIsUniqueForIndexedFile) {
+        PersistentHashMapValueStorage.CreationTimeOptions.HAS_NO_CHUNKS.set(Boolean.FALSE);
+      }
     }
-    myCache = new SLRUCache<Key, ChangeTrackingValueContainer<Value>>(myCacheSize, (int)(Math.ceil(myCacheSize * 0.25)) /* 25% from the main cache size*/) {
+    myCache = new SLRUCache<Key, ChangeTrackingValueContainer<Value>>(myCacheSize, (int)(Math.ceil(myCacheSize * 0.25)) /* 25% from the main cache size*/, myKeyDescriptor) {
       @Override
       @NotNull
       public ChangeTrackingValueContainer<Value> createValue(final Key key) {
-        return new ChangeTrackingValueContainer<Value>(new ChangeTrackingValueContainer.Initializer<Value>() {
+        return new ChangeTrackingValueContainer<>(new ChangeTrackingValueContainer.Initializer<Value>() {
           @NotNull
           @Override
           public Object getLock() {
@@ -108,7 +114,7 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
             try {
               value = map.get(key);
               if (value == null) {
-                value = new ValueContainerImpl<Value>();
+                value = new ValueContainerImpl<>();
               }
             }
             catch (IOException e) {
@@ -139,7 +145,7 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
 
   @NotNull
   private File getStorageFile() {
-    return new File(myBaseStorageFile.getPath() + ".storage");
+    return getIndexStorageFile(myBaseStorageFile);
   }
 
   @Override
@@ -175,10 +181,7 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
     try {
       myMap.close();
     }
-    catch (IOException e) {
-      LOG.error(e);
-    }
-    catch (RuntimeException e) {
+    catch (IOException | RuntimeException e) {
       LOG.error(e);
     }
     try {
@@ -233,7 +236,7 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
         return;
       }
       // do not pollute the cache with keys unique to indexed file
-      ChangeTrackingValueContainer<Value> valueContainer = new ChangeTrackingValueContainer<Value>(null);
+      ChangeTrackingValueContainer<Value> valueContainer = new ChangeTrackingValueContainer<>(null);
       valueContainer.addValue(inputId, value);
       myMap.put(key, valueContainer);
     }
@@ -278,7 +281,7 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
   }
 
   @TestOnly
-  public boolean processKeys(@NotNull Processor<Key> processor) throws StorageException {
+  public boolean processKeys(@NotNull Processor<? super Key> processor) throws StorageException {
     l.lock();
     try {
       myCache.clear(); // this will ensure that all new keys are made into the map
@@ -299,5 +302,10 @@ public abstract class MapIndexStorage<Key, Value> implements IndexStorage<Key, V
   @TestOnly
   public PersistentMap<Key, UpdatableValueContainer<Value>> getIndexMap() {
     return myMap;
+  }
+
+  @NotNull
+  public static File getIndexStorageFile(@NotNull File baseFile) {
+    return new File(baseFile.getPath() + ".storage");
   }
 }

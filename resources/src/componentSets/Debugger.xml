@@ -1,10 +1,4 @@
 <idea-plugin>
-  <application-components>
-    <component>
-      <implementation-class>com.intellij.debugger.memory.component.MemoryViewManager</implementation-class>
-    </component>
-  </application-components>
-
   <project-components>
     <component>
       <interface-class>com.intellij.debugger.ui.DebuggerPanelsManager</interface-class>
@@ -27,17 +21,11 @@
     </component>
 
     <component>
-      <implementation-class>com.intellij.debugger.memory.component.InstancesTracker</implementation-class>
+      <implementation-class>com.intellij.xdebugger.memory.component.InstancesTracker</implementation-class>
     </component>
   </project-components>
 
-  <!--
-  <actions>
-    <group id="CommonViews">
-      <add-to-group group-id="Debugger.Representation" anchor="after" relative-to-action="Debugger.AutoRenderer"/>
-      <action id="Debugger.ShowAllAsHex"     class="com.intellij.debugger.ui.tree.actions.ShowAllAsHex"     text="Hex Array"/>
-      <action id="Debugger.ShowAllAsDecimal" class="com.intellij.debugger.ui.tree.actions.ShowAllAsDecimal" text="Decimal Array"/>
-    </group>
-  </actions>
-  -->
+  <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceImplementation="com.intellij.xdebugger.memory.component.MemoryViewManager"/>
+  </extensions>
 </idea-plugin>

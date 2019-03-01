@@ -17,7 +17,6 @@ package com.jetbrains.python.console
 
 import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.IdeActions
-import com.intellij.openapi.application.Result
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.actionSystem.EditorActionManager
@@ -33,9 +32,9 @@ import com.intellij.util.DocumentUtil
 import com.jetbrains.python.PyTokenTypes
 import com.jetbrains.python.psi.PyStatementListContainer
 import com.jetbrains.python.psi.PyStringLiteralExpression
+import com.jetbrains.python.psi.PyStringLiteralUtil
 import com.jetbrains.python.psi.PyTryPart
 import com.jetbrains.python.psi.impl.PyPsiUtils
-import com.jetbrains.python.psi.impl.PyStringLiteralExpressionImpl
 
 
 class PyConsoleEnterHandler {
@@ -86,12 +85,9 @@ class PyConsoleEnterHandler {
 
   private fun executeEnterHandler(project: Project, editor:EditorEx) {
     val enterHandler = EditorActionManager.getInstance().getActionHandler(IdeActions.ACTION_EDITOR_ENTER)
-    object : WriteCommandAction<Nothing>(project) {
-      @Throws(Throwable::class)
-      override fun run(result: Result<Nothing>) {
+    WriteCommandAction.runWriteCommandAction(project) {
         enterHandler.execute(editor, null, DataManager.getInstance().getDataContext(editor.component))
-      }
-    }.execute()
+    }
   }
 
   private fun isElementInsideDocString(atElement: PsiElement, caretOffset: Int): Boolean {
@@ -129,12 +125,12 @@ class PyConsoleEnterHandler {
   }
 
   private fun isMultilineString(str: String): Boolean {
-    val text = str.substring(PyStringLiteralExpressionImpl.getPrefixLength(str))
+    val text = str.substring(PyStringLiteralUtil.getPrefixLength(str))
     return text.startsWith("\"\"\"") || text.startsWith("'''")
   }
 
   private fun isCompleteDocString(str: String): Boolean {
-    val prefixLen = PyStringLiteralExpressionImpl.getPrefixLength(str)
+    val prefixLen = PyStringLiteralUtil.getPrefixLength(str)
     val text = str.substring(prefixLen)
     for (token in arrayOf("\"\"\"", "'''")) {
       if (text.length >= 2 * token.length && text.startsWith(token) && text.endsWith(token)) {

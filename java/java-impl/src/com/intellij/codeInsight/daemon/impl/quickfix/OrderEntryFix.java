@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixActionRegistrar;
@@ -36,7 +22,7 @@ import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.source.PsiJavaModuleReference;
+import com.intellij.psi.PsiJavaModuleReference;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiUtil;
@@ -145,6 +131,12 @@ public abstract class OrderEntryFix implements IntentionAction, LocalQuickFix {
     if (allowedDependencies.isEmpty()) {
       return result;
     }
+    if (reference instanceof PsiJavaCodeReferenceElement) {
+      String qualifiedName = getQualifiedName((PsiJavaCodeReferenceElement)reference, shortReferenceName, containingFile);
+      if (qualifiedName != null) {
+        allowedDependencies.removeIf(aClass -> !qualifiedName.equals(aClass.getQualifiedName()));
+      }
+    }
 
     OrderEntryFix moduleDependencyFix = new AddModuleDependencyFix(reference, currentModule, scope, allowedDependencies);
     registrar.register(moduleDependencyFix);
@@ -186,10 +178,31 @@ public abstract class OrderEntryFix implements IntentionAction, LocalQuickFix {
     return result;
   }
 
+  @Nullable
+  private static String getQualifiedName(@NotNull PsiJavaCodeReferenceElement reference,
+                                         String shortReferenceName,
+                                         PsiFile containingFile) {
+    String qualifiedName = null;
+    if (reference.isQualified()) {
+      qualifiedName = reference.getQualifiedName();
+    }
+    else if (containingFile instanceof PsiJavaFile) {
+      PsiImportList list = ((PsiJavaFile)containingFile).getImportList();
+      if (list != null) {
+        PsiImportStatementBase statement = list.findSingleImportStatement(shortReferenceName);
+        if (statement != null) {
+          //noinspection ConstantConditions
+          qualifiedName = statement.getImportReference().getQualifiedName();
+        }
+      }
+    }
+    return qualifiedName;
+  }
+
   private static void createModuleFixes(PsiJavaModuleReference reference,
                                         Module currentModule,
                                         DependencyScope scope,
-                                        List<LocalQuickFix> result) {
+                                        List<? super LocalQuickFix> result) {
     ProjectFileIndex index = ProjectRootManager.getInstance(currentModule.getProject()).getFileIndex();
     List<PsiElement> targets = Stream.of(reference.multiResolve(true))
       .map(ResolveResult::getElement)
@@ -228,7 +241,7 @@ public abstract class OrderEntryFix implements IntentionAction, LocalQuickFix {
                                             Module currentModule,
                                             DependencyScope scope,
                                             QuickFixActionRegistrar registrar,
-                                            List<LocalQuickFix> result) {
+                                            List<? super LocalQuickFix> result) {
     String fullReferenceText = reference.getCanonicalText();
     ThreeState refToAnnotation = isReferenceToAnnotation(psiElement);
     for (ExternalLibraryResolver resolver : ExternalLibraryResolver.EP_NAME.getExtensions()) {

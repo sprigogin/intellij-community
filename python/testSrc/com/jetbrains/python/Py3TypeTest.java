@@ -23,7 +23,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-6702
   public void testYieldFromType() {
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("Union[str, int, float]",
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("Union[str, int, float]",
            "def subgen():\n" +
            "    for i in [1, 2, 3]:\n" +
            "        yield i\n" +
@@ -39,7 +39,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-12944
   public void testYieldFromReturnType() {
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("None",
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("None",
            "def a():\n" +
            "    yield 1\n" +
            "    return 'a'\n" +
@@ -49,7 +49,7 @@ public class Py3TypeTest extends PyTestCase {
            "def b():\n" +
            "    expr = yield from y\n" +
            "    return expr\n"));
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("str",
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("str",
            "def a():\n" +
            "    yield 1\n" +
            "    return 'a'\n" +
@@ -57,7 +57,7 @@ public class Py3TypeTest extends PyTestCase {
            "def b():\n" +
            "    expr = yield from a()\n" +
            "    return expr\n"));
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("int",
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int",
            "def g():\n" +
            "    yield 1\n" +
            "    return 'abc'\n" +
@@ -174,7 +174,7 @@ public class Py3TypeTest extends PyTestCase {
   
   // PY-16987
   public void testNoTypeInGoogleDocstringParamAnnotation() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("int", "def f(x: int):\n" +
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int", "def f(x: int):\n" +
                                                                  "    \"\"\"\n" +
                                                                  "    Args:\n" +
                                                                  "        x: foo\n" +
@@ -184,7 +184,7 @@ public class Py3TypeTest extends PyTestCase {
   
   // PY-16987
   public void testUnfilledTypeInGoogleDocstringParamAnnotation() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("int", "def f(x: int):\n" +
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int", "def f(x: int):\n" +
                                                                  "    \"\"\"\n" +
                                                                  "    Args:\n" +
                                                                  "        x (): foo\n" +
@@ -194,7 +194,7 @@ public class Py3TypeTest extends PyTestCase {
   
   // PY-16987
   public void testNoTypeInNumpyDocstringParamAnnotation() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("int", "def f(x: int):\n" +
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int", "def f(x: int):\n" +
                                                                  "    \"\"\"\n" +
                                                                  "    Parameters\n" +
                                                                  "    ----------\n" +
@@ -206,7 +206,7 @@ public class Py3TypeTest extends PyTestCase {
   
   // PY-17010
   public void testAnnotatedReturnTypePrecedesDocstring() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("int", "def func() -> int:\n" +
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int", "def func() -> int:\n" +
                                                                  "    \"\"\"\n" +
                                                                  "    Returns:\n" +
                                                                  "        str\n" +
@@ -216,7 +216,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-17010
   public void testAnnotatedParamTypePrecedesDocstring() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("int", "def func(x: int):\n" +
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("int", "def func(x: int):\n" +
                                                                  "    \"\"\"\n" +
                                                                  "    Args:\n" +
                                                                  "        x (str):\n" +
@@ -259,7 +259,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-1427
   public void testBytesLiteral() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("bytes", "expr = b'foo'"));
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("bytes", "expr = b'foo'"));
   }
 
   // PY-20770
@@ -637,6 +637,25 @@ public class Py3TypeTest extends PyTestCase {
     );
   }
 
+  // PY-27518
+  public void testAsyncFunctionReturnTypeInNumpyDocstring() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("Coroutine[Any, Any, int]",
+                   "async def f():\n" +
+                   "    \"\"\"\n" +
+                   "    An integer.\n" +
+                   "\n" +
+                   "    Returns\n" +
+                   "    -------\n" +
+                   "    int\n" +
+                   "        A number\n" +
+                   "    \"\"\"\n" +
+                   "    pass\n" +
+                   "expr = f()")
+    );
+  }
+
   // PY-26847
   public void testAwaitOnImportedCoroutine() {
     runWithLanguageLevel(
@@ -661,6 +680,427 @@ public class Py3TypeTest extends PyTestCase {
                    "    pass\n" +
                    "expr = B().foo()")
     );
+  }
+
+  // PY-4813
+  public void testParameterTypeInferenceInSubclassFromDocstring() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self, param):\n" +
+                   "        \"\"\"\n" +
+                   "        :param param:\n" +
+                   "        :type param: int\n" +
+                   "        \"\"\"\n" +
+                   "        pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassFromAnnotation() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassHierarchyFromAnnotation1() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "class Base1(Base):\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "class Subclass(Base1):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassHierarchyFromAnnotation2() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base1:\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "class Base2:\n" +
+                   "    def test(self, param: str) -> str: pass\n" +
+                   "\n" +
+                   "class Subclass(Base1, Base2):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassHierarchyFromAnnotation3() {
+      runWithLanguageLevel(
+        LanguageLevel.PYTHON35,
+        () -> doTest("int",
+                     "class Base1:\n" +
+                     "    def test(self, param: int) -> int: pass\n" +
+                     "\n" +
+                     "class Base2:\n" +
+                     "    def test(self, param: str) -> str: pass\n" +
+                     "\n" +
+                     "class Base3(Base1):\n" +
+                     "    pass\n" +
+                     "\n" +
+                     "class Subclass(Base3, Base2):\n" +
+                     "    def test(self, param):\n" +
+                     "        expr = param")
+      );
+    }
+
+  public void testParameterTypeInferenceInSubclassHierarchyFromAnnotation4() {
+    /*
+      This behavior mimics C3 MRO used by *new style* classes for Python 2.3 and below
+      For details see: https://www.python.org/download/releases/2.3/mro/
+      Since annotations are supported in Python 3.5 and above, *classic classes*
+      should not be tested here, but it's NOT the case for docstrings
+    */
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base1:\n" +
+                   "    def test(self, param: str) -> str: pass\n" +
+                   "\n" +
+                   "class Base2(Base1):\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "class Base3(Base1):\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "class Subclass(Base3, Base2):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassHierarchyFromAnnotation5() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base1:\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "class Base2(Base1):\n" +
+                   "    def test(self, param): pass\n" +
+                   "\n" +
+                   "class Subclass(Base2):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInOverloadedMethods() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("Any",
+                   "from typing import overload\n" +
+                   "\n" +
+                   "class Base:\n" +
+                   "    @overload\n" +
+                   "    def test(self, param: int) -> int: pass\n" +
+                   "\n" +
+                   "    @overload\n" +
+                   "    def test(self, param: str) -> str: pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    def test(self, param):\n" +
+                   "        expr = param")
+    );
+  }
+
+  public void testParameterTypeInferenceInSubclassHierarchyInStaticMethods() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    @staticmethod\n" +
+                   "    def test(param: int, param1: int) -> int: pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    @staticmethod\n" +
+                   "    def test(param, param1):\n" +
+                   "        expr = param\n" +
+                   "\n")
+    );
+  }
+
+  public void testReturnTypeInferenceInSubclassFromAnnotation() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self) -> int: pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    def test(self): pass\n" +
+                   "\n" +
+                   "expr = Subclass().test()")
+    );
+  }
+
+  public void testReturnTypeInferenceInSubclassHierarchyFromAnnotation() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self) -> int: pass\n" +
+                   "\n" +
+                   "class Base1(Base):\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "class Subclass(Base1):\n" +
+                   "    def test(self): pass\n" +
+                   "\n" +
+                   "expr = Subclass().test()")
+    );
+  }
+
+  /**
+   * TODO: activate when return type information from :rtype: will be available in subclasses.
+   *
+   * See {@code {@link com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider#getReturnTypeFromSupertype}} javadoc.
+   */
+  public void ignoreTestReturnTypeInferenceInSubclassFromDocstring() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self):" +
+                   "        \"\"\"\n" +
+                   "        :rtype: int\n" +
+                   "        \"\"\"\n" +
+                   "        pass\n" +
+                   "\n" +
+                   "class Subclass(Base):\n" +
+                   "    def test(self): pass\n" +
+                   "\n" +
+                   "expr = Subclass().test()")
+    );
+  }
+
+  /**
+   * TODO: activate when return type information from :rtype: will be available in subclasses.
+   *
+   * See {@code {@link com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider#getReturnTypeFromSupertype}} javadoc.
+   */
+  public void ignoreTestReturnTypeInferenceInSubclassHierarchyFromDocstring() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTest("int",
+                   "class Base:\n" +
+                   "    def test(self):" +
+                   "        \"\"\"\n" +
+                   "        :rtype: int\n" +
+                   "        \"\"\"\n" +
+                   "        pass\n" +
+                   "\n" +
+                   "class Base1(Base):\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "class Subclass(Base1):\n" +
+                   "    def test(self): pass\n" +
+                   "\n" +
+                   "expr = Subclass().test()")
+    );
+  }
+
+  // PY-27398
+  public void testDataclassPostInitParameter() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> doMultiFileTest("int",
+                            "from dataclasses import dataclass, InitVar\n" +
+                            "@dataclass\n" +
+                            "class Foo:\n" +
+                            "    i: int\n" +
+                            "    j: int\n" +
+                            "    d: InitVar[int]\n" +
+                            "    def __post_init__(self, d):\n" +
+                            "        expr = d")
+    );
+  }
+
+  // PY-27398
+  public void testDataclassPostInitParameterNoInit() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> doMultiFileTest("Any",
+                            "from dataclasses import dataclass, InitVar\n" +
+                            "@dataclass(init=False)\n" +
+                            "class Foo:\n" +
+                            "    i: int\n" +
+                            "    j: int\n" +
+                            "    d: InitVar[int]\n" +
+                            "    def __post_init__(self, d):\n" +
+                            "        expr = d")
+    );
+  }
+
+  // PY-28506
+  public void testDataclassPostInitInheritedParameter() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> {
+        myFixture.copyDirectoryToProject(TEST_DIRECTORY + "DataclassPostInitParameter", "");
+
+        // both are dataclasses with enabled `init`
+        doTest("int",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+
+        // both are dataclasses, base with enabled `init`
+        doTest("Any",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "@dataclass(init=False)\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+
+        // both are dataclasses, derived with enabled `init`
+        doTest("int",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "@dataclass(init=False)\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+
+        // both are dataclasses with disabled `init`
+        doTest("Any",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "@dataclass(init=False)\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "@dataclass(init=False)\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+      }
+    );
+  }
+
+  // PY-28506
+  public void testMixedDataclassPostInitInheritedParameter() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> {
+        myFixture.copyDirectoryToProject(TEST_DIRECTORY + "DataclassPostInitParameter", "");
+
+        doTest("Any",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+
+        doTest("Any",
+               "from dataclasses import dataclass, InitVar\n" +
+               "\n" +
+               "@dataclass\n" +
+               "class A:\n" +
+               "    a: InitVar[int]\n" +
+               "\n" +
+               "class B(A):\n" +
+               "    b: InitVar[str]\n" +
+               "\n" +
+               "    def __post_init__(self, a, b):\n" +
+               "        expr = a");
+      }
+    );
+  }
+
+  // PY-27783
+  public void testApplyingSuperSubstitutionToGenericClass() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON36,
+      () -> doTest("Dict[T, int]",
+                   "from typing import TypeVar, Generic, Dict, List\n" +
+                   "\n" +
+                   "T = TypeVar('T')\n" +
+                   "\n" +
+                   "class A(Generic[T]):\n" +
+                   "    pass\n" +
+                   "\n" +
+                   "class B(A[List[T]], Generic[T]):\n" +
+                   "    def __init__(self) -> None:\n" +
+                   "        self.value_set: Dict[T, int] = {}\n" +
+                   "\n" +
+                   "    def foo(self) -> None:\n" +
+                   "        expr = self.value_set")
+    );
+  }
+
+  // PY-13750
+  public void testBuiltinRound() {
+    doTest("int", "expr = round(1)");
+    doTest("Union[float, int]", "expr = round(1, 1)");
+
+    doTest("int", "expr = round(1.1)");
+    doTest("Union[float, int]", "expr = round(1.1, 1)");
+
+    doTest("int", "expr = round(True)");
+    doTest("Union[float, int]", "expr = round(True, 1)");
+  }
+
+  // PY-29665
+  public void testRawBytesLiteral() {
+   doTest("bytes", "expr = rb'raw bytes'");
+   doTest("bytes", "expr = br'raw bytes'");
+  }
+
+  public void testFStringLiteralType() {
+    doTest("str",
+           "expr = f'foo'");
   }
 
   private void doTest(final String expectedType, final String text) {

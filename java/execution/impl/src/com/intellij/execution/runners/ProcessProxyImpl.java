@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
 import com.intellij.execution.process.BaseOSProcessHandler;
@@ -21,6 +21,7 @@ import java.nio.channels.AsynchronousChannelGroup;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit;
  */
 class ProcessProxyImpl implements ProcessProxy {
   static final Key<ProcessProxyImpl> KEY = Key.create("ProcessProxyImpl");
+  private static final File ourBreakgenHelper = SystemInfo.isWindows ? PathManager.findBinFile("breakgen.dll") : null;
 
   private final AsynchronousChannelGroup myGroup;
   private final int myPort;
@@ -76,11 +78,20 @@ class ProcessProxyImpl implements ProcessProxy {
 
   private void writeLine(String s) {
     execute(() -> {
-      ByteBuffer out = ByteBuffer.wrap((s + '\n').getBytes("US-ASCII"));
+      ByteBuffer out = ByteBuffer.wrap((s + '\n').getBytes(StandardCharsets.US_ASCII));
       synchronized (myLock) {
         myConnection.write(out);
       }
     });
+  }
+
+  String getBinPath() {
+    if (SystemInfo.isWindows) {
+      if (ourBreakgenHelper != null) {
+        return ourBreakgenHelper.getParent();
+      }
+    }
+    return PathManager.getBinPath();
   }
 
   @Override
@@ -89,7 +100,7 @@ class ProcessProxyImpl implements ProcessProxy {
       synchronized (myLock) {
         if (myConnection == null) return false;
       }
-      return new File(PathManager.getBinPath(), "breakgen.dll").exists();
+      return ourBreakgenHelper != null;
     }
 
     if (SystemInfo.isUnix) {

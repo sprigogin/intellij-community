@@ -34,7 +34,6 @@ import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.SmartList;
-import com.intellij.util.io.StringRef;
 import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -85,7 +84,7 @@ public class TypeInfo {
 
   @NotNull
   public TypeInfo applyAnnotations(@NotNull StubBase<?> owner) {
-    PsiModifierListStub modifierList = (PsiModifierListStub)owner.findChildStubByType(JavaStubElementTypes.MODIFIER_LIST);
+    PsiModifierListStub modifierList = owner.findChildStubByType(JavaStubElementTypes.MODIFIER_LIST);
     if (modifierList == null) return this;
 
     List<PsiAnnotationStub> annotationStubs = null;
@@ -99,7 +98,7 @@ public class TypeInfo {
     }
 
     PsiAnnotationStub[] stubArray = PsiAnnotationStub.EMPTY_ARRAY;
-    if (annotationStubs != null) stubArray = annotationStubs.toArray(new PsiAnnotationStub[annotationStubs.size()]);
+    if (annotationStubs != null) stubArray = annotationStubs.toArray(PsiAnnotationStub.EMPTY_ARRAY);
     return new TypeInfo(text, arrayCount, isEllipsis, stubArray);
   }
 
@@ -210,7 +209,7 @@ public class TypeInfo {
     boolean hasEllipsis = isSet(flags, HAS_ELLIPSIS);
 
     int frequentIndex = FREQUENT_INDEX_MASK & flags;
-    String text = frequentIndex == 0 ? StringRef.toString(record.readName()) : ourIndexFrequentType[frequentIndex];
+    String text = frequentIndex == 0 ? record.readNameString() : ourIndexFrequentType[frequentIndex];
 
     return new TypeInfo(text, arrayCount, hasEllipsis, PsiAnnotationStub.EMPTY_ARRAY);
   }

@@ -9,6 +9,7 @@ STATE_SUSPEND = 2
 PYTHON_SUSPEND = 1
 DJANGO_SUSPEND = 2
 JINJA2_SUSPEND = 3
+JUPYTER_SUSPEND = 4
 
 
 class DebugInfoHolder:
@@ -20,8 +21,15 @@ class DebugInfoHolder:
 
 #Hold a reference to the original _getframe (because psyco will change that as soon as it's imported)
 import sys #Note: the sys import must be here anyways (others depend on it)
+IS_IRONPYTHON = sys.platform == 'cli'
 try:
     get_frame = sys._getframe
+    if IS_IRONPYTHON:
+        def get_frame():
+            try:
+                return sys._getframe()
+            except ValueError:
+                pass
 except AttributeError:
     def get_frame():
         raise AssertionError('sys._getframe not available (possible causes: enable -X:Frames on IronPython?)')
@@ -38,8 +46,6 @@ import os
 from _pydevd_bundle import pydevd_vm_type
 
 IS_JYTHON = pydevd_vm_type.get_vm_type() == pydevd_vm_type.PydevdVmType.JYTHON
-IS_IRONPYTHON = sys.platform == 'cli'
-
 IS_JYTH_LESS25 = False
 if IS_JYTHON:
     if sys.version_info[0] == 2 and sys.version_info[1] < 5:
@@ -78,10 +84,8 @@ try:
     if sys.version_info[0] >= 3:
         IS_PY3K = True
         IS_PY2 = False
-        if (sys.version_info[0] == 3 and sys.version_info[1] >= 4) or sys.version_info[0] > 3:
-            IS_PY34_OR_GREATER = True
-        if (sys.version_info[0] == 3 and sys.version_info[1] >= 6) or sys.version_info[0] > 3:
-            IS_PY36_OR_GREATER = True
+        IS_PY34_OR_GREATER = sys.version_info >= (3, 4)
+        IS_PY36_OR_GREATER = sys.version_info >= (3, 6)
     elif sys.version_info[0] == 2 and sys.version_info[1] == 7:
         IS_PY27 = True
     elif sys.version_info[0] == 2 and sys.version_info[1] == 4:
@@ -101,11 +105,21 @@ USE_LIB_COPY = SUPPORT_GEVENT and \
                 (IS_PY3K and sys.version_info[1] >= 3))
 
 
+class ValuesPolicy:
+    SYNC = 0
+    ASYNC = 1
+    ON_DEMAND = 2
+
+
+LOAD_VALUES_POLICY = ValuesPolicy.SYNC
+if os.getenv('PYDEVD_LOAD_VALUES_ASYNC', 'False') == 'True':
+    LOAD_VALUES_POLICY = ValuesPolicy.ASYNC
+if os.getenv('PYDEVD_LOAD_VALUES_ON_DEMAND', 'False') == 'True':
+    LOAD_VALUES_POLICY = ValuesPolicy.ON_DEMAND
+DEFAULT_VALUES_DICT = {ValuesPolicy.ASYNC: "__pydevd_value_async", ValuesPolicy.ON_DEMAND: "__pydevd_value_on_demand"}
+
 INTERACTIVE_MODE_AVAILABLE = sys.platform in ('darwin', 'win32') or os.getenv('DISPLAY') is not None
 IS_PYCHARM = True
-
-LOAD_VALUES_ASYNC = os.getenv('PYDEVD_LOAD_VALUES_ASYNC', 'False') == 'True'
-DEFAULT_VALUE = "__pydevd_value_async"
 ASYNC_EVAL_TIMEOUT_SEC = 60
 NEXT_VALUE_SEPARATOR = "__pydev_val__"
 BUILTINS_MODULE_NAME = '__builtin__' if IS_PY2 else 'builtins'
@@ -171,15 +185,8 @@ if IS_PY3K:
         return list(d.items())
 
 else:
-    dict_keys = None
-    try:
-        dict_keys = dict.keys
-    except:
-        pass
-
-    if IS_JYTHON or not dict_keys:
-        def dict_keys(d):
-            return d.keys()
+    def dict_keys(d):
+        return d.keys()
 
     try:
         dict_iter_values = dict.itervalues

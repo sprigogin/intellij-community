@@ -194,14 +194,13 @@ public class PyMoveFileHandler extends MoveFileHandler {
   }
 
   private static boolean probablyNamespacePackage(@NotNull PsiFile anchor, @NotNull PsiDirectory destination, @NotNull PsiDirectory root) {
-    if (!LanguageLevel.forElement(anchor).isAtLeast(LanguageLevel.PYTHON33)) {
+    if (LanguageLevel.forElement(anchor).isPython2()) {
       return false;
     }
     while (destination != null && destination != root) {
       if (destination.findFile(PyNames.INIT_DOT_PY) != null) {
         return false;
       }
-      //noinspection ConstantConditions
       destination = destination.getParent();
     }
     return true;
@@ -310,20 +309,17 @@ public class PyMoveFileHandler extends MoveFileHandler {
    * @param importStatement import statement to update
    * @param qualifiedName   qualified name of new import source
    * @return updated import statement
-   * @see #replaceWithQualifiedExpression(com.intellij.psi.PsiElement, com.intellij.psi.util.QualifiedName)
+   * @see #replaceWithQualifiedExpression(PsiElement, QualifiedName)
    */
   @NotNull
   private static PsiElement replaceRelativeImportSourceWithQualifiedExpression(@NotNull PyFromImportStatement importStatement,
                                                                                @Nullable QualifiedName qualifiedName) {
     final Couple<PsiElement> range = getRelativeImportSourceRange(importStatement);
     if (range != null && qualifiedName != null) {
-      if (range.getFirst() == range.getSecond()) {
-        replaceWithQualifiedExpression(range.getFirst(), qualifiedName);
-      }
-      else {
+      if (range.getFirst() != range.getSecond()) {
         importStatement.deleteChildRange(range.getFirst().getNextSibling(), range.getSecond());
-        replaceWithQualifiedExpression(range.getFirst(), qualifiedName);
       }
+      replaceWithQualifiedExpression(range.getFirst(), qualifiedName);
     }
     return importStatement;
   }

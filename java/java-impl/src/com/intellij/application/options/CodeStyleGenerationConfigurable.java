@@ -63,21 +63,26 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
   private JCheckBox myInsertOverrideAnnotationCheckBox;
   private JCheckBox myRepeatSynchronizedCheckBox;
   private JPanel myVisibilityPanel;
-  
+
   @SuppressWarnings("unused") private JPanel myCommenterPanel;
   private JPanel myOverridePanel;
   private JBCheckBox myReplaceInstanceOfCb;
-  private JBCheckBox myReplaceCastCb;
   private JBCheckBox myReplaceNullCheckCb;
+  private JTextField myTestClassPrefix;
+  private JTextField myTestClassSuffix;
+  private JTextField mySubclassPrefix;
+  private JTextField mySubclassSuffix;
+  private JBCheckBox myReplaceSumCb;
   private CommenterForm myCommenterForm;
   private SortedListModel<String> myRepeatAnnotationsModel;
 
   public CodeStyleGenerationConfigurable(CodeStyleSettings settings) {
     mySettings = settings;
-    myPanel.setBorder(JBUI.Borders.empty(2, 2, 2, 2));
+    myPanel.setBorder(JBUI.Borders.empty(2));
     myJavaVisibilityPanel = new JavaVisibilityPanel(false, true, RefactoringBundle.message("default.visibility.border.title"));
   }
 
+  @Override
   public JComponent createComponent() {
     myVisibilityPanel.add(myJavaVisibilityPanel, BorderLayout.CENTER);
     GridBagConstraints gc =
@@ -90,9 +95,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return myPanel;
   }
 
-  public void disposeUIResources() {
-  }
-
+  @Override
   public String getDisplayName() {
     return ApplicationBundle.message("title.code.generation");
   }
@@ -102,6 +105,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return "reference.settingsdialog.IDE.globalcodestyle.codegen";
   }
 
+  @Override
   public void reset(@NotNull CodeStyleSettings settings) {
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
     myCbPreferLongerNames.setSelected(javaSettings.PREFER_LONGER_NAMES);
@@ -110,11 +114,15 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     myStaticFieldPrefixField.setText(javaSettings.STATIC_FIELD_NAME_PREFIX);
     myParameterPrefixField.setText(javaSettings.PARAMETER_NAME_PREFIX);
     myLocalVariablePrefixField.setText(javaSettings.LOCAL_VARIABLE_NAME_PREFIX);
+    mySubclassPrefix.setText(javaSettings.SUBCLASS_NAME_PREFIX);
+    myTestClassPrefix.setText(javaSettings.TEST_NAME_PREFIX);
 
     myFieldSuffixField.setText(javaSettings.FIELD_NAME_SUFFIX);
     myStaticFieldSuffixField.setText(javaSettings.STATIC_FIELD_NAME_SUFFIX);
     myParameterSuffixField.setText(javaSettings.PARAMETER_NAME_SUFFIX);
     myLocalVariableSuffixField.setText(javaSettings.LOCAL_VARIABLE_NAME_SUFFIX);
+    mySubclassSuffix.setText(javaSettings.SUBCLASS_NAME_SUFFIX);
+    myTestClassSuffix.setText(javaSettings.TEST_NAME_SUFFIX);
 
     myCbGenerateFinalLocals.setSelected(javaSettings.GENERATE_FINAL_LOCALS);
     myCbGenerateFinalParameters.setSelected(javaSettings.GENERATE_FINAL_PARAMETERS);
@@ -124,19 +132,21 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     myRepeatSynchronizedCheckBox.setSelected(javaSettings.REPEAT_SYNCHRONIZED);
     myJavaVisibilityPanel.setVisibility(javaSettings.VISIBILITY);
 
-    myReplaceCastCb.setSelected(javaSettings.REPLACE_CAST);
-    myReplaceInstanceOfCb.setSelected(javaSettings.REPLACE_INSTANCEOF);
+    myReplaceInstanceOfCb.setSelected(javaSettings.REPLACE_INSTANCEOF_AND_CAST);
     myReplaceNullCheckCb.setSelected(javaSettings.REPLACE_NULL_CHECK);
+    myReplaceSumCb.setSelected(javaSettings.REPLACE_SUM);
 
     myRepeatAnnotationsModel.clear();
     myRepeatAnnotationsModel.addAll(javaSettings.getRepeatAnnotations());
     myCommenterForm.reset(settings);
   }
 
+  @Override
   public void reset() {
     reset(mySettings);
   }
 
+  @Override
   public void apply(@NotNull CodeStyleSettings settings) throws ConfigurationException {
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
     javaSettings.PREFER_LONGER_NAMES = myCbPreferLongerNames.isSelected();
@@ -145,11 +155,15 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     javaSettings.STATIC_FIELD_NAME_PREFIX = setPrefixSuffix(myStaticFieldPrefixField.getText(), true);
     javaSettings.PARAMETER_NAME_PREFIX = setPrefixSuffix(myParameterPrefixField.getText(), true);
     javaSettings.LOCAL_VARIABLE_NAME_PREFIX = setPrefixSuffix(myLocalVariablePrefixField.getText(), true);
+    javaSettings.SUBCLASS_NAME_PREFIX = setPrefixSuffix(mySubclassPrefix.getText(), true);
+    javaSettings.TEST_NAME_PREFIX = setPrefixSuffix(myTestClassPrefix.getText(), true);
 
     javaSettings.FIELD_NAME_SUFFIX = setPrefixSuffix(myFieldSuffixField.getText(), false);
     javaSettings.STATIC_FIELD_NAME_SUFFIX = setPrefixSuffix(myStaticFieldSuffixField.getText(), false);
     javaSettings.PARAMETER_NAME_SUFFIX = setPrefixSuffix(myParameterSuffixField.getText(), false);
     javaSettings.LOCAL_VARIABLE_NAME_SUFFIX = setPrefixSuffix(myLocalVariableSuffixField.getText(), false);
+    javaSettings.SUBCLASS_NAME_SUFFIX = setPrefixSuffix(mySubclassSuffix.getText(), false);
+    javaSettings.TEST_NAME_SUFFIX = setPrefixSuffix(myTestClassSuffix.getText(), false);
 
     javaSettings.GENERATE_FINAL_LOCALS = myCbGenerateFinalLocals.isSelected();
     javaSettings.GENERATE_FINAL_PARAMETERS = myCbGenerateFinalParameters.isSelected();
@@ -157,12 +171,12 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     javaSettings.USE_EXTERNAL_ANNOTATIONS = myCbUseExternalAnnotations.isSelected();
     javaSettings.INSERT_OVERRIDE_ANNOTATION = myInsertOverrideAnnotationCheckBox.isSelected();
     javaSettings.REPEAT_SYNCHRONIZED = myRepeatSynchronizedCheckBox.isSelected();
-    
+
     javaSettings.VISIBILITY = myJavaVisibilityPanel.getVisibility();
 
-    javaSettings.REPLACE_CAST = myReplaceCastCb.isSelected();
-    javaSettings.REPLACE_INSTANCEOF = myReplaceInstanceOfCb.isSelected();
+    javaSettings.REPLACE_INSTANCEOF_AND_CAST = myReplaceInstanceOfCb.isSelected();
     javaSettings.REPLACE_NULL_CHECK = myReplaceNullCheckCb.isSelected();
+    javaSettings.REPLACE_SUM = myReplaceSumCb.isSelected();
 
 
     myCommenterForm.apply(settings);
@@ -182,6 +196,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return text;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     apply(mySettings);
   }
@@ -194,11 +209,15 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     isModified |= isModified(myStaticFieldPrefixField, javaSettings.STATIC_FIELD_NAME_PREFIX);
     isModified |= isModified(myParameterPrefixField, javaSettings.PARAMETER_NAME_PREFIX);
     isModified |= isModified(myLocalVariablePrefixField, javaSettings.LOCAL_VARIABLE_NAME_PREFIX);
+    isModified |= isModified(mySubclassPrefix, javaSettings.SUBCLASS_NAME_PREFIX);
+    isModified |= isModified(myTestClassPrefix, javaSettings.TEST_NAME_PREFIX);
 
     isModified |= isModified(myFieldSuffixField, javaSettings.FIELD_NAME_SUFFIX);
     isModified |= isModified(myStaticFieldSuffixField, javaSettings.STATIC_FIELD_NAME_SUFFIX);
     isModified |= isModified(myParameterSuffixField, javaSettings.PARAMETER_NAME_SUFFIX);
     isModified |= isModified(myLocalVariableSuffixField, javaSettings.LOCAL_VARIABLE_NAME_SUFFIX);
+    isModified |= isModified(mySubclassSuffix, javaSettings.SUBCLASS_NAME_SUFFIX);
+    isModified |= isModified(myTestClassSuffix, javaSettings.TEST_NAME_SUFFIX);
 
     isModified |= isModified(myCbGenerateFinalLocals, javaSettings.GENERATE_FINAL_LOCALS);
     isModified |= isModified(myCbGenerateFinalParameters, javaSettings.GENERATE_FINAL_PARAMETERS);
@@ -207,12 +226,12 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     isModified |= isModified(myInsertOverrideAnnotationCheckBox, javaSettings.INSERT_OVERRIDE_ANNOTATION);
     isModified |= isModified(myRepeatSynchronizedCheckBox, javaSettings.REPEAT_SYNCHRONIZED);
 
-    isModified |= isModified(myReplaceCastCb, javaSettings.REPLACE_CAST);
-    isModified |= isModified(myReplaceInstanceOfCb, javaSettings.REPLACE_INSTANCEOF);
+    isModified |= isModified(myReplaceInstanceOfCb, javaSettings.REPLACE_INSTANCEOF_AND_CAST);
     isModified |= isModified(myReplaceNullCheckCb, javaSettings.REPLACE_NULL_CHECK);
+    isModified |= isModified(myReplaceSumCb, javaSettings.REPLACE_SUM);
 
     isModified |= !javaSettings.VISIBILITY.equals(myJavaVisibilityPanel.getVisibility());
-    
+
     isModified |= myCommenterForm.isModified(settings);
 
     isModified |= !myRepeatAnnotationsModel.getItems().equals(javaSettings.getRepeatAnnotations());
@@ -220,6 +239,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return isModified;
   }
 
+  @Override
   public boolean isModified() {
     return isModified(mySettings);
   }

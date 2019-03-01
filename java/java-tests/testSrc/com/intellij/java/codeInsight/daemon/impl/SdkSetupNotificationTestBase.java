@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.impl.SdkSetupNotificationProvider;
 import com.intellij.codeInsight.intention.IntentionActionWithOptions;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.fileEditor.FileEditor;
@@ -25,47 +12,55 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase;
 import com.intellij.ui.EditorNotificationPanel;
-import com.intellij.ui.EditorNotifications;
+import com.intellij.ui.EditorNotificationsImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 /**
  * @author Pavel.Dolgov
  */
 public abstract class SdkSetupNotificationTestBase extends JavaCodeInsightFixtureTestCase {
-
+  @Override
   protected void setUp() throws Exception {
     super.setUp();
 
     setProjectSdk(IdeaTestUtil.getMockJdk17());
-    new SdkSetupNotificationProvider(getProject(), EditorNotifications.getInstance(getProject()));
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    FileEditorManagerEx.getInstanceEx(getProject()).closeAllFiles();
-    super.tearDown();
-  }
-
+  @Nullable
   protected EditorNotificationPanel configureBySdkAndText(@Nullable Sdk sdk,
-                                                          boolean moduleSdk,
+                                                          boolean isModuleSdk,
                                                           @NotNull String name,
                                                           @NotNull String text) {
-    final PsiFile psiFile = myFixture.configureByText(name, text);
-    final FileEditor[] editors = FileEditorManagerEx.getInstanceEx(getProject()).openFile(psiFile.getVirtualFile(), true);
-    assertSize(1, editors);
-
-    if (moduleSdk) {
+    if (isModuleSdk) {
       ModuleRootModificationUtil.setModuleSdk(myModule, sdk);
     }
     else {
       setProjectSdk(sdk);
       ModuleRootModificationUtil.setSdkInherited(myModule);
     }
+
+    final PsiFile psiFile = myFixture.configureByText(name, text);
+    FileEditorManagerEx fileEditorManager = FileEditorManagerEx.getInstanceEx(getProject());
+    VirtualFile virtualFile = psiFile.getVirtualFile();
+    final FileEditor[] editors = fileEditorManager.openFile(virtualFile, true);
+    Disposer.register(myFixture.getTestRootDisposable(), new Disposable() {
+      @Override
+      public void dispose() {
+        fileEditorManager.closeFile(virtualFile);
+      }
+    });
+    assertThat(editors).hasSize(1);
+    EditorNotificationsImpl.completeAsyncTasks();
+
     return editors[0].getUserData(SdkSetupNotificationProvider.KEY);
   }
 
@@ -79,15 +74,15 @@ public abstract class SdkSetupNotificationTestBase extends JavaCodeInsightFixtur
     WriteAction.run(() -> ProjectRootManager.getInstance(getProject()).setProjectSdk(sdk));
   }
 
-  protected static void assertSdkSetupPanelShown(EditorNotificationPanel panel, String expectedMessagePrefix) {
-    assertNotNull(panel);
+  protected static void assertSdkSetupPanelShown(EditorNotificationPanel panel, @NotNull String expectedMessagePrefix) {
+    assertThat(panel).isNotNull();
     final IntentionActionWithOptions action = panel.getIntentionAction();
-    assertNotNull(action);
+    assertThat(action).isNotNull();
     final String text = action.getText();
-    assertNotNull(text);
+    assertThat(text).isNotNull();
     if (!text.startsWith(expectedMessagePrefix)) {
       final int length = Math.min(text.length(), expectedMessagePrefix.length());
-      assertEquals(expectedMessagePrefix, text.substring(0, length));
+      assertThat(text.substring(0, length)).isEqualTo(expectedMessagePrefix);
     }
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.dashboard.tree;
 
 import com.intellij.execution.dashboard.hyperlink.RunDashboardHyperlinkComponent;
@@ -24,8 +10,6 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseEvent;
@@ -53,19 +37,13 @@ public class RunDashboardTreeMouseListener extends RunDashboardLinkMouseListener
     return aimedObject;
   }
 
+  @Override
   protected void repaintComponent(MouseEvent e) {
-    final TreePath path = myTree.getPathForLocation(e.getX(), e.getY());
-    if (path != null) {
-      final TreeNode treeNode = (TreeNode)path.getLastPathComponent();
-      DefaultTreeModel treeModel = ObjectUtils.tryCast(myTree.getModel(), DefaultTreeModel.class);
-      if (treeModel != null) {
-        // Invoke nodeChanged() in order to repaint ExpandableItemsHandler's tooltip component.
-        treeModel.nodeChanged(treeNode);
-      }
+    TreePath path = myTree.getPathForLocation(e.getX(), e.getY());
+    Rectangle bounds = path == null ? null : myTree.getPathBounds(path);
+    if (bounds != null) {
+      myTree.repaint(bounds);
     }
-
-    // Repaint all tree since nodes which cursor just leaved should be repaint too.
-    myTree.repaint();
   }
 
   @Nullable
@@ -78,12 +56,13 @@ public class RunDashboardTreeMouseListener extends RunDashboardLinkMouseListener
     if (rectangle == null) return null;
 
     int dx = e.getX() - rectangle.x;
-    final TreeNode treeNode = (TreeNode)path.getLastPathComponent();
+    final Object treeNode = path.getLastPathComponent();
     final int row = myTree.getRowForLocation(e.getX(), e.getY());
+    boolean isLeaf = myTree.getModel().isLeaf(treeNode);
 
     Object tag = null;
 
-    Component component = myTree.getCellRenderer().getTreeCellRendererComponent(myTree, treeNode, true, false, treeNode.isLeaf(), row, true);
+    Component component = myTree.getCellRenderer().getTreeCellRendererComponent(myTree, treeNode, true, false, isLeaf, row, true);
     if (component instanceof ColoredTreeCellRenderer) {
       tag = ((ColoredTreeCellRenderer)component).getFragmentTagAt(dx);
     }

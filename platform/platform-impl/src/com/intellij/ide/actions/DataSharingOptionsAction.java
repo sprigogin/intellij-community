@@ -10,8 +10,10 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.Pair;
 import com.intellij.ui.AppUIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.List;
 
 public class DataSharingOptionsAction extends DumbAwareAction {
   public DataSharingOptionsAction() {
@@ -19,8 +21,8 @@ public class DataSharingOptionsAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final Pair<Collection<Consent>, Boolean> consentsToShow = ConsentOptions.getInstance().getConsents();
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Pair<List<Consent>, Boolean> consentsToShow = ConsentOptions.getInstance().getConsents();
     try {
       final Collection<Consent> result = AppUIUtil.confirmConsentOptions(consentsToShow.first);
       if (result != null) {

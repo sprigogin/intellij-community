@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamMigration;
 
-import com.intellij.codeInspection.util.OptionalUtil;
+import com.intellij.codeInsight.ExpressionUtil;
+import com.intellij.codeInspection.util.OptionalRefactoringUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.ControlFlowUtils.InitializerUsageStatus;
@@ -28,9 +16,6 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
-/**
- * @author Tagir Valeev
- */
 class FindFirstMigration extends BaseStreamApiMigration {
   FindFirstMigration(boolean shouldWarn) {super(shouldWarn, "findFirst()");}
 
@@ -46,7 +31,7 @@ class FindFirstMigration extends BaseStreamApiMigration {
       PsiReturnStatement nextReturnStatement = ControlFlowUtils.getNextReturnStatement(loopStatement);
       if (nextReturnStatement == null) return null;
       PsiExpression orElseExpression = nextReturnStatement.getReturnValue();
-      if (!ExpressionUtils.isSimpleExpression(orElseExpression)) return null;
+      if (!ExpressionUtils.isSafelyRecomputableExpression(orElseExpression)) return null;
       String stream = generateOptionalUnwrap(ct, tb, value, orElseExpression, PsiTypesUtil.getMethodReturnType(returnStatement));
       boolean sibling = nextReturnStatement.getParent() == loopStatement.getParent();
       PsiElement replacement = ct.replaceAndRestoreComments(loopStatement, "return " + stream + ";");
@@ -59,7 +44,12 @@ class FindFirstMigration extends BaseStreamApiMigration {
       PsiStatement[] statements = tb.getStatements();
       if (statements.length != 2) return null;
       PsiAssignmentExpression assignment = ExpressionUtils.getAssignment(statements[0]);
-      if (assignment == null) {
+      if (assignment == null ||
+          isQualified(assignment.getLExpression()) ||
+          (tb.getVariable().getType() instanceof PsiPrimitiveType &&
+           !ExpressionUtils.isReferenceTo(assignment.getRExpression(), tb.getVariable()))) {
+        // if we found an assignment with primitive stream variable, then we are not assigning to local variable
+        // (see StreamApiMigrationInspection#findMigrationForBreak), thus it could be handled via ifPresent()
         if(!(statements[0] instanceof PsiExpressionStatement)) return null;
         PsiExpression expression = ((PsiExpressionStatement)statements[0]).getExpression();
         return ct.replaceAndRestoreComments(
@@ -74,27 +64,37 @@ class FindFirstMigration extends BaseStreamApiMigration {
       InitializerUsageStatus status = ControlFlowUtils.getInitializerUsageStatus(var, loopStatement);
       PsiExpression initializer = var.getInitializer();
       PsiExpression falseExpression = lValue;
+      PsiElement toDelete = null;
       if (status != ControlFlowUtils.InitializerUsageStatus.UNKNOWN &&
-          (status != ControlFlowUtils.InitializerUsageStatus.AT_WANTED_PLACE || ExpressionUtils.isSimpleExpression(initializer))) {
+          (status != ControlFlowUtils.InitializerUsageStatus.AT_WANTED_PLACE || ExpressionUtils.isSafelyRecomputableExpression(initializer))) {
         falseExpression = initializer;
       } else {
         PsiElement maybeAssignment = PsiTreeUtil.skipWhitespacesAndCommentsBackward(loopStatement);
         PsiExpression prevRValue = ExpressionUtils.getAssignmentTo(maybeAssignment, var);
         if (prevRValue != null) {
-          ct.delete(maybeAssignment);
+          toDelete = maybeAssignment;
           falseExpression = prevRValue;
         }
       }
       String replacementText = generateOptionalUnwrap(ct, tb, value, falseExpression, var.getType());
+      if (toDelete != null) {
+        ct.delete(toDelete);
+      }
       return replaceInitializer(loopStatement, var, initializer, replacementText, status, ct);
     }
+  }
+
+  private static boolean isQualified(PsiExpression expression) {
+    expression = PsiUtil.skipParenthesizedExprDown(expression);
+    return expression instanceof PsiReferenceExpression && !ExpressionUtil.isEffectivelyUnqualified((PsiReferenceExpression)expression) ||
+           expression instanceof PsiArrayAccessExpression;
   }
 
   private static String generateOptionalUnwrap(CommentTracker ct, TerminalBlock tb,
                                                PsiExpression trueExpression, PsiExpression falseExpression,
                                                PsiType targetType) {
     String qualifier = tb.generate(ct) + ".findFirst()";
-    return OptionalUtil.generateOptionalUnwrap(
+    return OptionalRefactoringUtil.generateOptionalUnwrap(
       qualifier, tb.getVariable(), ct.markUnchanged(trueExpression), ct.markUnchanged(falseExpression), targetType, false);
   }
 }

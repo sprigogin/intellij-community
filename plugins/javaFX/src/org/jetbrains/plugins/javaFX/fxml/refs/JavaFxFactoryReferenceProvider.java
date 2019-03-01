@@ -36,7 +36,7 @@ class JavaFxFactoryReferenceProvider extends PsiReferenceProvider {
   }
 
   private static class JavaFXFactoryReference extends PsiReferenceBase<XmlAttributeValue> {
-    public JavaFXFactoryReference(XmlAttributeValue attributeValue) {
+    JavaFXFactoryReference(XmlAttributeValue attributeValue) {
       super(attributeValue);
     }
 
@@ -57,7 +57,7 @@ class JavaFxFactoryReferenceProvider extends PsiReferenceProvider {
 
     private static boolean isFactoryMethod(PsiMethod method) {
       return method.hasModifierProperty(PsiModifier.STATIC) &&
-             method.getParameterList().getParametersCount() == 0 &&
+             method.getParameterList().isEmpty() &&
              !PsiType.VOID.equals(method.getReturnType());
     }
 

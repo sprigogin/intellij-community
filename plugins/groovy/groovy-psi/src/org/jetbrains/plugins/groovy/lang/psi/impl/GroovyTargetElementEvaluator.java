@@ -1,8 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.codeInsight.JavaTargetElementEvaluator;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
@@ -11,6 +11,8 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.impl.compiled.ClsMethodImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.lang.completion.GrPropertyForCompletion;
+import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrNewExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
@@ -21,13 +23,17 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.DefaultConstructor;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrRenameableLightElement;
 
+import java.util.Collection;
+
+import static com.intellij.util.containers.ContainerUtil.mapNotNull;
+import static org.jetbrains.plugins.groovy.lang.resolve.CollapsingKt.collapseReflectedMethods;
+
 /**
  * @author Maxim.Medvedev
  */
 public class GroovyTargetElementEvaluator extends JavaTargetElementEvaluator {
 
   public static final Key<Object> NAVIGATION_ELEMENT_IS_NOT_TARGET = Key.create("GroovyTargetElementEvaluator.DONT_FOLLOW_NAVIGATION_ELEMENT");
-
 
   @Override
   public PsiElement getElementByReference(@NotNull PsiReference ref, int flags) {
@@ -61,7 +67,7 @@ public class GroovyTargetElementEvaluator extends JavaTargetElementEvaluator {
           argumentList != null &&
           PsiImplUtil.hasNamedArguments(argumentList) &&
           !PsiImplUtil.hasExpressionArguments(argumentList)) {
-        if (constructor.getParameterList().getParametersCount() == 0) return constructor.getContainingClass();
+        if (constructor.getParameterList().isEmpty()) return constructor.getContainingClass();
       }
 
       return constructor;
@@ -95,5 +101,29 @@ public class GroovyTargetElementEvaluator extends JavaTargetElementEvaluator {
       }
     }
     return target;
+  }
+
+  @Nullable
+  @Override
+  public Collection<PsiElement> getTargetCandidates(@NotNull PsiReference reference) {
+    if (reference instanceof GrReferenceExpression) {
+      GrReferenceExpression referenceExpression = (GrReferenceExpression)reference;
+      if (referenceExpression.hasMemberPointer()) {
+        GroovyResolveResult[] results = referenceExpression.multiResolve(false);
+        if (results.length > 0) {
+          return collapseReflectedMethods(mapNotNull(results, it -> it.getElement()));
+        }
+      }
+    }
+    return super.getTargetCandidates(reference);
+  }
+
+  @Nullable
+  @Override
+  public PsiElement adjustTargetElement(Editor editor, int offset, int flags, @NotNull PsiElement targetElement) {
+    if (targetElement instanceof GrPropertyForCompletion) {
+      return ((GrPropertyForCompletion)targetElement).getOriginalAccessor();
+    }
+    return super.adjustTargetElement(editor, offset, flags, targetElement);
   }
 }

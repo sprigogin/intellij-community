@@ -29,7 +29,6 @@ import java.util.Map;
 
 /**
  * @author Vladislav.Soroka
- * @since 3/28/14
  */
 public class NotificationData implements Disposable {
 
@@ -37,7 +36,7 @@ public class NotificationData implements Disposable {
   @NotNull private String myMessage;
   @NotNull private NotificationCategory myNotificationCategory;
   @NotNull private final NotificationSource myNotificationSource;
-  @NotNull private NotificationListener myListener;
+  @NotNull private final NotificationListener myListener;
   @Nullable private String myFilePath;
   @Nullable private Navigatable navigatable;
   private int myLine;

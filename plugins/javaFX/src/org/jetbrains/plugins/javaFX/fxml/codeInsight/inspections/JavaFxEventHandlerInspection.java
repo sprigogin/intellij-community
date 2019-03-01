@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections;
 
 import com.intellij.codeInsight.FileModificationService;
@@ -170,7 +171,7 @@ public class JavaFxEventHandlerInspection extends XmlSuppressableInspectionTool 
   private static class ChangeParameterTypeQuickFix extends LocalQuickFixOnPsiElement {
     final String myText;
 
-    public ChangeParameterTypeQuickFix(@NotNull XmlAttribute attribute, @NotNull PsiMethod method,
+    ChangeParameterTypeQuickFix(@NotNull XmlAttribute attribute, @NotNull PsiMethod method,
                                        @NotNull PsiType suggestedParameterType) {
       super(attribute);
       myText = "Change parameter type of '" + JavaHighlightUtil.formatMethod(method) +

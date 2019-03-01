@@ -16,16 +16,14 @@
 package com.intellij.codeInspection.visibility;
 
 import com.intellij.ToolExtensionPoints;
+import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMember;
-import com.intellij.psi.PsiMethod;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.siyeh.ig.LightInspectionTestCase;
@@ -116,6 +114,15 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
            "    /*Access can be private*/public/**/ boolean isVisible() { return true; }\n" +
            "  }\n"+
            "  boolean f = new Err().isVisible();\n" +
+           "}");
+  }
+
+  public void testSameFileInheritance() {
+    doTest("class C {\n" +
+           "  private static class Err {\n" +
+           "    /*Access can be package-private*/public/**/ boolean notVisible() { return true; }\n" +
+           "  }\n"+
+           "  boolean f = new Err(){}.notVisible();\n" + //call on anonymous class!
            "}");
   }
 
@@ -215,6 +222,13 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
            "            return myElement;\n" +
            "        }\n" +
            "    }\n" +
+           "    <warning descr=\"Access can be private\">protected</warning> String myElement1;\n" +
+           "    class B1 {\n" +
+           "        @Override\n" +
+           "        public String toString() {\n" +
+           "            return myElement1;\n" +
+           "        }\n" +
+           "    }\n" +
            "}");
   }
 
@@ -278,6 +292,27 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
     myFixture.checkHighlighting();
   }
 
+  public void testNestedEnumWithReferenceByName() {
+    myFixture.allowTreeAccessForAllFiles();
+    addJavaFile("x/Outer.java", "package x;\n" +
+                                "public class Outer {\n" +
+                                "    enum E {A}\n" +
+                                "    static final E abc = E.A;\n" +
+                                "\n" +
+                                "    public static void main(String[] args) {\n" +
+                                "        System.out.println(abc.ordinal());\n" +
+                                "    }\n" +
+                                "}\n");
+    addJavaFile("x/Consumer.java", "package x;\n" +
+                                 "public class Consumer {\n" +
+                                 "    public String foo() {\n" +
+                                 "       return Outer.abc.name();\n" +
+                                 "    }\n" +
+                                 "}");
+    myFixture.configureByFiles("x/Outer.java", "x/Consumer.java");
+    myFixture.checkHighlighting();
+  }
+
   public void testSuggestPackagePrivateForTopLevelClassSetting() {
     myFixture.allowTreeAccessForAllFiles();
     myVisibilityInspection.SUGGEST_PACKAGE_LOCAL_FOR_TOP_CLASSES = false;
@@ -325,7 +360,7 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
 
       @Override
       public int getMinVisibilityLevel(PsiMember member) {
-        return member instanceof PsiMethod && isEntryPoint(member) ? PsiUtil.ACCESS_LEVEL_PROTECTED : -1;
+        return member instanceof PsiMethod && isEntryPoint(member) ? PsiUtil.ACCESS_LEVEL_PROTECTED : ACCESS_LEVEL_INVALID;
       }
 
       @Override
@@ -344,6 +379,88 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
       @Override
       public String getId() {
         return getDisplayName();
+      }
+    }, getTestRootDisposable());
+    myFixture.configureByFiles("x/MyTest.java");
+    myFixture.checkHighlighting();
+  }
+
+  public void testMinimalVisibilityForNonEntryPOint() {
+    addJavaFile("x/MyTest.java", "package x;\n" +
+                               "public class MyTest {\n" +
+                               "    <warning descr=\"Access can be protected\">public</warning> void foo() {}\n" +
+                               "    {foo();}\n" +
+                               "}");
+    PlatformTestUtil.registerExtension(Extensions.getRootArea(), ExtensionPointName.create(ToolExtensionPoints.DEAD_CODE_TOOL), new EntryPointWithVisibilityLevel() {
+      @Override
+      public void readExternal(Element element) throws InvalidDataException {}
+
+      @Override
+      public void writeExternal(Element element) throws WriteExternalException {}
+
+      @NotNull
+      @Override
+      public String getDisplayName() {
+        return "accepted visibility";
+      }
+
+      @Override
+      public boolean isEntryPoint(@NotNull RefElement refElement, @NotNull PsiElement psiElement) {
+        return false;
+      }
+
+      @Override
+      public boolean isEntryPoint(@NotNull PsiElement psiElement) {
+        return false;
+      }
+
+      @Override
+      public int getMinVisibilityLevel(PsiMember member) {
+        return member instanceof PsiMethod && "foo".equals(((PsiMethod)member).getName()) ? PsiUtil.ACCESS_LEVEL_PROTECTED : ACCESS_LEVEL_INVALID;
+      }
+
+      @Override
+      public boolean isSelected() {
+        return true;
+      }
+
+      @Override
+      public void setSelected(boolean selected) {}
+
+      @Override
+      public String getTitle() {
+        return getDisplayName();
+      }
+
+      @Override
+      public String getId() {
+        return getDisplayName();
+      }
+    }, getTestRootDisposable());
+    myFixture.configureByFiles("x/MyTest.java");
+    myFixture.checkHighlighting();
+  }
+
+  public void testSuggestPackagePrivateForImplicitWrittenFields() {
+    addJavaFile("x/MyTest.java", "package x;\n" +
+                               "public class MyTest {\n" +
+                               "    String foo;\n" + 
+                               "  {System.out.println(foo);}" + 
+                               "}");
+    PlatformTestUtil.registerExtension(Extensions.getRootArea(), ImplicitUsageProvider.EP_NAME, new ImplicitUsageProvider() {
+      @Override
+      public boolean isImplicitUsage(PsiElement element) {
+        return false;
+      }
+
+      @Override
+      public boolean isImplicitRead(PsiElement element) {
+        return false;
+      }
+
+      @Override
+      public boolean isImplicitWrite(PsiElement element) {
+        return element instanceof PsiField && "foo".equals(((PsiField)element).getName());
       }
     }, getTestRootDisposable());
     myFixture.configureByFiles("x/MyTest.java");

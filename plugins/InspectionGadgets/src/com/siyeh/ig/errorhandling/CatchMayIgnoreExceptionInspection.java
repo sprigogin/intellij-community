@@ -1,6 +1,7 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.errorhandling;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
@@ -37,6 +38,7 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
 
   public boolean m_ignoreCatchBlocksWithComments = true;
   public boolean m_ignoreNonEmptyCatchBlock = true;
+  public boolean m_ignoreUsedIgnoredName = false;
 
   @Nullable
   @Override
@@ -45,6 +47,7 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
     panel.addCheckbox(InspectionGadgetsBundle.message("inspection.catch.ignores.exception.option.comments"),
                       "m_ignoreCatchBlocksWithComments");
     panel.addCheckbox(InspectionGadgetsBundle.message("inspection.catch.ignores.exception.option.nonempty"), "m_ignoreNonEmptyCatchBlock");
+    panel.addCheckbox(InspectionGadgetsBundle.message("inspection.catch.ignores.exception.option.ignored.used"), "m_ignoreUsedIgnoredName");
     return panel;
   }
 
@@ -69,7 +72,7 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
         final String parameterName = parameter.getName();
         if (parameterName == null) return;
         if (PsiUtil.isIgnoredName(parameterName)) {
-          if (VariableAccessUtils.variableIsUsed(parameter, section)) {
+          if (!m_ignoreUsedIgnoredName && VariableAccessUtils.variableIsUsed(parameter, section)) {
             holder.registerProblem(identifier, InspectionGadgetsBundle.message("inspection.catch.ignores.exception.used.message"));
           }
           return;
@@ -123,17 +126,16 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
         PsiClass exceptionClass = exception.resolve();
         if (exceptionClass == null) return false;
 
-        DataFlowRunner runner = new StandardDataFlowRunner(false, false);
+        DataFlowRunner runner = new StandardDataFlowRunner(false, block);
         DfaValueFactory factory = runner.getFactory();
-        DfaVariableValue exceptionVar = factory.getVarFactory().createVariableValue(parameter, false);
-        DfaVariableValue stableExceptionVar =
-          factory.getVarFactory().createVariableValue(new LightParameter("tmp", exception, block), false);
+        DfaVariableValue exceptionVar = factory.getVarFactory().createVariableValue(parameter);
+        DfaVariableValue stableExceptionVar = factory.getVarFactory().createVariableValue(new LightParameter("tmp", exception, block));
 
         StandardInstructionVisitor visitor = new IgnoredExceptionVisitor(parameter, block, exceptionClass, stableExceptionVar);
         Consumer<DfaMemoryState> stateAdjuster = state -> {
           state.applyCondition(factory.createCondition(exceptionVar, RelationType.EQ, stableExceptionVar));
-          state
-            .applyCondition(factory.createCondition(exceptionVar, RelationType.IS, factory.createTypeValue(exception, Nullness.NOT_NULL)));
+          state.applyCondition(
+            factory.createCondition(exceptionVar, RelationType.IS, factory.createTypeValue(exception, Nullability.NOT_NULL)));
           };
         return runner.analyzeCodeBlock(block, visitor, stateAdjuster) == RunnerResult.OK;
       }
@@ -146,7 +148,7 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
     private final @NotNull List<PsiMethod> myMethods;
     private final @NotNull DfaVariableValue myExceptionVar;
 
-    public IgnoredExceptionVisitor(@NotNull PsiParameter parameter,
+    IgnoredExceptionVisitor(@NotNull PsiParameter parameter,
                                    @NotNull PsiCodeBlock block,
                                    @NotNull PsiClass exceptionClass,
                                    @NotNull DfaVariableValue exceptionVar) {
@@ -155,7 +157,7 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
       myExceptionVar = exceptionVar;
       myMethods = StreamEx.of("getMessage", "getLocalizedMessage", "getCause")
         .flatArray(name -> exceptionClass.findMethodsByName(name, true))
-        .filter(m -> m.getParameterList().getParametersCount() == 0)
+        .filter(m -> m.getParameterList().isEmpty())
         .toList();
     }
 
@@ -163,9 +165,8 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
     public DfaInstructionState[] visitMethodCall(MethodCallInstruction instruction, DataFlowRunner runner, DfaMemoryState memState) {
       if (myMethods.contains(instruction.getTargetMethod())) {
         DfaValue qualifier = memState.peek();
-        DfaMemoryState copy = memState.createCopy();
         // Methods like "getCause" and "getMessage" return "null" for our test exception
-        if (!copy.applyCondition(runner.getFactory().createCondition(qualifier, RelationType.NE, myExceptionVar))) {
+        if (memState.areEqual(qualifier, myExceptionVar)) {
           memState.pop();
           memState.push(runner.getFactory().getConstFactory().getNull());
           return nextInstruction(instruction, runner, memState);
@@ -174,9 +175,10 @@ public class CatchMayIgnoreExceptionInspection extends AbstractBaseJavaLocalInsp
       return super.visitMethodCall(instruction, runner, memState);
     }
 
+    @Override
     protected boolean isModificationAllowed(DfaVariableValue variable) {
       PsiModifierListOwner owner = variable.getPsiVariable();
-      return owner == myParameter || PsiTreeUtil.isAncestor(myBlock, owner, false);
+      return owner == myParameter || owner != null && PsiTreeUtil.isAncestor(myBlock, owner, false);
     }
   }
 

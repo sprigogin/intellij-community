@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework;
 
 import com.intellij.concurrency.SensitiveProgressWrapper;
@@ -31,7 +17,6 @@ import com.intellij.openapi.progress.impl.BackgroundableProcessIndicator;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,7 +30,7 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
 
   private static final Logger LOG = Logger.getInstance(SearchForTestsTask.class);
   protected Socket mySocket;
-  private ServerSocket myServerSocket;
+  private final ServerSocket myServerSocket;
   private ProgressIndicator myProcessIndicator;
 
   public SearchForTestsTask(@Nullable final Project project,
@@ -105,21 +90,17 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
     try {
       mySocket = myServerSocket.accept();
       final ExecutionException[] ex = new ExecutionException[1];
-      Runnable runnable = () -> {
-        try {
-          search();
-        }
-        catch (ExecutionException e) {
-          ex[0] = e;
-        }
-      };
-      if (Registry.is("junit4.search.4.tests.in.classpath", false)) {
-        runnable.run();
-      }
-      else {
-        //noinspection StatementWithEmptyBody
-        while (!runSmartModeReadActionWithWritePriority(runnable, new SensitiveProgressWrapper(indicator)));
-      }
+      Runnable runnable = () ->
+        DumbService.getInstance(myProject).withAlternativeResolveEnabled(() -> {
+          try {
+            search();
+          }
+          catch (ExecutionException e) {
+            ex[0] = e;
+          }
+        });
+      //noinspection StatementWithEmptyBody
+      while (!runSmartModeReadActionWithWritePriority(runnable, new SensitiveProgressWrapper(indicator)));
       if (ex[0] != null) {
         logCantRunException(ex[0]);
       }
@@ -184,12 +165,7 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
       }
       finish();
     };
-    if (Registry.is("junit4.search.4.tests.in.classpath", false)) {
-      runnable.run();
-    }
-    else {
-      DumbService.getInstance(getProject()).runWhenSmart(runnable);
-    }
+    DumbService.getInstance(getProject()).runWhenSmart(runnable);
   }
 
   public void finish() {

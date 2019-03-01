@@ -29,16 +29,15 @@ import com.intellij.openapi.project.Project;
 import com.intellij.pom.Navigatable;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public class OpenInEditorAction extends EditSourceAction implements DumbAware {
   public static final DataKey<OpenInEditorAction> KEY = DataKey.create("DiffOpenInEditorAction");
 
-  @Nullable private final Runnable myAfterRunnable;
-
-  public OpenInEditorAction(@Nullable Runnable afterRunnable) {
+  public OpenInEditorAction() {
     ActionUtil.copyFrom(this, "EditSource");
-    myAfterRunnable = afterRunnable;
+  }
+
+  protected void onAfterEditorOpened() {
   }
 
   @Override
@@ -50,10 +49,10 @@ public class OpenInEditorAction extends EditSourceAction implements DumbAware {
 
     DiffRequest request = e.getData(DiffDataKeys.DIFF_REQUEST);
     DiffContext context = e.getData(DiffDataKeys.DIFF_CONTEXT);
-
     if (DiffUtil.isUserDataFlagSet(DiffUserDataKeys.GO_TO_SOURCE_DISABLE, request, context)) {
       e.getPresentation().setVisible(false);
       e.getPresentation().setEnabled(false);
+      return;
     }
 
     if (e.getProject() == null) {
@@ -74,6 +73,10 @@ public class OpenInEditorAction extends EditSourceAction implements DumbAware {
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
+    DiffRequest request = e.getData(DiffDataKeys.DIFF_REQUEST);
+    DiffContext context = e.getData(DiffDataKeys.DIFF_CONTEXT);
+    if (DiffUtil.isUserDataFlagSet(DiffUserDataKeys.GO_TO_SOURCE_DISABLE, request, context)) return;
+
     Project project = e.getProject();
     if (project == null) return;
 
@@ -95,6 +98,6 @@ public class OpenInEditorAction extends EditSourceAction implements DumbAware {
         success = true;
       }
     }
-    if (success && myAfterRunnable != null) myAfterRunnable.run();
+    if (success) onAfterEditorOpened();
   }
 }

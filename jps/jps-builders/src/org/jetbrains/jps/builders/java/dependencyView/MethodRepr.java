@@ -134,7 +134,7 @@ class MethodRepr extends ProtoMember {
     myArgumentTypes = TypeRepr.getType(context, Type.getArgumentTypes(descriptor));
   }
 
-  public MethodRepr(final DependencyContext context, final DataInput in) {
+  MethodRepr(final DependencyContext context, final DataInput in) {
     super(context, in);
     try {
       final DataExternalizer<TypeRepr.AbstractType> externalizer = TypeRepr.externalizer(context);
@@ -241,7 +241,7 @@ class MethodRepr extends ProtoMember {
     }
     stream.println();
 
-    final TypeRepr.AbstractType[] es = myExceptions.toArray(new TypeRepr.AbstractType[myExceptions.size()]);
+    final TypeRepr.AbstractType[] es = myExceptions.toArray(TypeRepr.AbstractType.EMPTY_TYPE_ARRAY);
     Arrays.sort(es, Comparator.comparing(o -> o.getDescr(context)));
     stream.print("          Exceptions : ");
     for (final TypeRepr.AbstractType e : es) {

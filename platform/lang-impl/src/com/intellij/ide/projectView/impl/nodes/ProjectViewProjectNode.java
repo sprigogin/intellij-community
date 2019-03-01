@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView.impl.nodes;
 
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.ModuleGroup;
 import com.intellij.ide.projectView.impl.ProjectRootsUtil;
-import com.intellij.ide.scratch.ScratchProjectViewPane;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.module.*;
 import com.intellij.openapi.module.impl.LoadedModuleDescriptionImpl;
@@ -27,6 +12,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -35,8 +21,14 @@ import java.util.*;
 
 public class ProjectViewProjectNode extends AbstractProjectNode {
 
-  public ProjectViewProjectNode(Project project, ViewSettings viewSettings) {
+  public ProjectViewProjectNode(@NotNull Project project, ViewSettings viewSettings) {
     super(project, project, viewSettings);
+  }
+
+  @Override
+  public boolean canRepresent(Object element) {
+    Project project = getValue();
+    return project == element || project != null && element instanceof VirtualFile && element.equals(project.getBaseDir());
   }
 
   @Override
@@ -70,7 +62,10 @@ public class ProjectViewProjectNode extends AbstractProjectNode {
     for (VirtualFile file : files) {
       if (!file.isDirectory()) {
         if (ProjectFileIndex.SERVICE.getInstance(getProject()).getModuleForFile(file, false) == null) {
-          nodes.add(new PsiFileNode(getProject(), psiManager.findFile(file), getSettings()));
+          PsiFile psiFile = psiManager.findFile(file);
+          if (psiFile != null) {
+            nodes.add(new PsiFileNode(getProject(), psiFile, getSettings()));
+          }
         }
       }
     }
@@ -78,15 +73,12 @@ public class ProjectViewProjectNode extends AbstractProjectNode {
     if (getSettings().isShowLibraryContents()) {
       nodes.add(new ExternalLibrariesNode(getProject(), getSettings()));
     }
-    if (ScratchProjectViewPane.isScratchesMergedIntoProjectTab()) {
-      nodes.add(ScratchProjectViewPane.createRootNode(getProject(), getSettings()));
-    }
-
     return nodes;
   }
 
+  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroup(final Module module) {
+  protected AbstractTreeNode createModuleGroup(@NotNull final Module module) {
     List<VirtualFile> roots = ProjectViewDirectoryHelper.getInstance(myProject).getTopLevelModuleRoots(module, getSettings());
     if (roots.size() == 1) {
       final PsiDirectory psi = PsiManager.getInstance(myProject).findDirectory(roots.get(0));
@@ -99,7 +91,7 @@ public class ProjectViewProjectNode extends AbstractProjectNode {
   }
 
   @Override
-  protected AbstractTreeNode createUnloadedModuleNode(UnloadedModuleDescription moduleDescription) {
+  protected AbstractTreeNode createUnloadedModuleNode(@NotNull UnloadedModuleDescription moduleDescription) {
     List<VirtualFile> roots = ProjectViewDirectoryHelper.getInstance(myProject).getTopLevelUnloadedModuleRoots(moduleDescription, getSettings());
     if (roots.size() == 1) {
       final PsiDirectory psi = PsiManager.getInstance(myProject).findDirectory(roots.get(0));
@@ -111,8 +103,9 @@ public class ProjectViewProjectNode extends AbstractProjectNode {
     return new ProjectViewUnloadedModuleNode(getProject(), moduleDescription, getSettings());
   }
 
+  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroupNode(final ModuleGroup moduleGroup) {
+  protected AbstractTreeNode createModuleGroupNode(@NotNull final ModuleGroup moduleGroup) {
     return new ProjectViewModuleGroupNode(getProject(), moduleGroup, getSettings());
   }
 }

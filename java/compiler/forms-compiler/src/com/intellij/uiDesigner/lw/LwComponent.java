@@ -81,6 +81,7 @@ public abstract class LwComponent implements IComponent{
     myDelegeeClientProperties = new LinkedHashMap();
   }
 
+  @Override
   public final String getId() {
     return myId;
   }
@@ -92,6 +93,7 @@ public abstract class LwComponent implements IComponent{
     myId = id;
   }
 
+  @Override
   public final String getBinding(){
     return myBinding;
   }
@@ -100,6 +102,7 @@ public abstract class LwComponent implements IComponent{
     myBinding = binding;
   }
 
+  @Override
   public final Object getCustomLayoutConstraints(){
     return myCustomLayoutConstraints;
   }
@@ -111,10 +114,12 @@ public abstract class LwComponent implements IComponent{
   /**
    * @return never null
    */
+  @Override
   public final String getComponentClassName(){
     return myClassName;
   }
 
+  @Override
   public IProperty[] getModifiedProperties() {
     return getAssignedIntrospectedProperties();
   }
@@ -131,10 +136,12 @@ public abstract class LwComponent implements IComponent{
    * @return component's constraints in GridLayoutManager. This method never
    * returns {@code null}.
    */
+  @Override
   public final GridConstraints getConstraints(){
     return myConstraints;
   }
 
+  @Override
   public boolean isCustomCreate() {
     return myCustomCreate;
   }
@@ -143,10 +150,12 @@ public abstract class LwComponent implements IComponent{
     return myDefaultBinding;
   }
 
+  @Override
   public boolean accept(ComponentVisitor visitor) {
     return visitor.visit(this);
   }
 
+  @Override
   public boolean areChildrenExclusive() {
     return false;
   }
@@ -155,6 +164,7 @@ public abstract class LwComponent implements IComponent{
     return myParent;
   }
 
+  @Override
   public IContainer getParentContainer() {
     return myParent;
   }
@@ -186,7 +196,6 @@ public abstract class LwComponent implements IComponent{
   public final LwIntrospectedProperty[] getAssignedIntrospectedProperties() {
     final LwIntrospectedProperty[] properties = new LwIntrospectedProperty[myIntrospectedProperty2Value.size()];
     final Iterator iterator = myIntrospectedProperty2Value.keySet().iterator();
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i=0; iterator.hasNext(); i++) {
       properties[i] = (LwIntrospectedProperty)iterator.next();
     }
@@ -206,11 +215,11 @@ public abstract class LwComponent implements IComponent{
 
   /**
    * 'properties' is not required subtag
-   * @param provider can be null if no properties should be read 
+   * @param provider can be null if no properties should be read
    */
   protected final void readProperties(final Element element, final PropertiesProvider provider) {
     if (provider == null) {
-      // do not read properties 
+      // do not read properties
       return;
     }
 
@@ -221,13 +230,12 @@ public abstract class LwComponent implements IComponent{
 
     final HashMap name2property = provider.getLwProperties(getComponentClassName());
     if (name2property == null) {
-      myErrorComponentProperties = (Element)propertiesElement.clone();
+      myErrorComponentProperties = propertiesElement.clone();
       return;
     }
 
-    final List propertyElements = propertiesElement.getChildren();
-    for (int i = 0; i < propertyElements.size(); i++) {
-      final Element t = (Element)propertyElements.get(i);
+    final List<Element> propertyElements = propertiesElement.getChildren();
+    for (Element t : propertyElements) {
       final String name = t.getName();
       final LwIntrospectedProperty property = (LwIntrospectedProperty)name2property.get(name);
       if (property == null){
@@ -248,9 +256,8 @@ public abstract class LwComponent implements IComponent{
   private void readClientProperties(final Element element) {
     Element propertiesElement = LwXmlReader.getChild(element, UIFormXmlConstants.ELEMENT_CLIENT_PROPERTIES);
     if (propertiesElement == null) return;
-    final List clientPropertyList = propertiesElement.getChildren();
-    for(int i=0; i<clientPropertyList.size(); i++) {
-      final Element prop = (Element) clientPropertyList.get(i);
+    final List<Element> clientPropertyList = propertiesElement.getChildren();
+    for (Element prop : clientPropertyList) {
       final String propName = prop.getName();
       final String className = LwXmlReader.getRequiredString(prop, UIFormXmlConstants.ATTRIBUTE_CLASS);
 
@@ -307,6 +314,7 @@ public abstract class LwComponent implements IComponent{
   /**
    * @see javax.swing.JComponent#getClientProperty(Object)
    */
+  @Override
   public final Object getClientProperty(final Object key){
     if (key == null) {
       throw new IllegalArgumentException("key cannot be null");
@@ -317,6 +325,7 @@ public abstract class LwComponent implements IComponent{
   /**
    * @see javax.swing.JComponent#putClientProperty(Object, Object)
    */
+  @Override
   public final void putClientProperty(final Object key, final Object value){
     if (key == null) {
       throw new IllegalArgumentException("key cannot be null");

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.evaluation.expression;
 
 import com.intellij.debugger.engine.DebugProcessImpl;
@@ -24,6 +10,7 @@ import com.intellij.psi.impl.PsiJavaParserFacadeImpl;
 import com.sun.jdi.*;
 
 import java.util.Collections;
+import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
@@ -35,20 +22,20 @@ public class BoxingEvaluator implements Evaluator{
     myOperand = DisableGC.create(operand);
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
-    final Object result = myOperand.evaluate(context);
-    if (result == null || result instanceof ObjectReference) {
-      return result;
-    }
+    return box(myOperand.evaluate(context), context);
+  }
 
-    if (result instanceof PrimitiveValue) {
-      PrimitiveValue primitiveValue = (PrimitiveValue)result;
+  public static Object box(Object value, EvaluationContextImpl context) throws EvaluateException {
+    if (value instanceof PrimitiveValue) {
+      PrimitiveValue primitiveValue = (PrimitiveValue)value;
       PsiPrimitiveType primitiveType = PsiJavaParserFacadeImpl.getPrimitiveType(primitiveValue.type().name());
       if (primitiveType != null) {
         return convertToWrapper(context, primitiveValue, primitiveType.getBoxedTypeName());
       }
     }
-    throw new EvaluateException("Cannot perform boxing conversion for a value of type " + ((Value)result).type().name());
+    return value;
   }
 
   private static Value convertToWrapper(EvaluationContextImpl context, PrimitiveValue value, String wrapperTypeName) throws
@@ -65,6 +52,8 @@ public class BoxingEvaluator implements Evaluator{
       throw new EvaluateException("Cannot construct wrapper object for value of type " + value.type() + ": Unable to find either valueOf() or constructor method");
     }
 
-    return process.invokeMethod(context, wrapperClass, method, Collections.singletonList(value));
+    Method finalMethod = method;
+    List<PrimitiveValue> args = Collections.singletonList(value);
+    return context.computeAndKeep(() -> process.invokeMethod(context, wrapperClass, finalMethod, args));
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.progress.util;
 
 import com.intellij.openapi.Disposable;
@@ -23,18 +9,17 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.DialogWrapperDialog;
 import com.intellij.openapi.ui.DialogWrapperPeer;
 import com.intellij.openapi.ui.impl.DialogWrapperPeerImpl;
-import com.intellij.openapi.ui.impl.FocusTrackbackProvider;
 import com.intellij.openapi.ui.impl.GlassPaneDialogWrapperPeer;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.WindowManager;
-import com.intellij.openapi.wm.ex.WindowManagerEx;
-import com.intellij.ui.FocusTrackback;
 import com.intellij.ui.PopupBorder;
 import com.intellij.ui.TitlePanel;
 import com.intellij.ui.WindowMoveListener;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.Alarm;
+import com.intellij.util.SingleAlarm;
+import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -43,8 +28,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.io.File;
 
@@ -81,6 +64,32 @@ class ProgressDialog implements Disposable {
     }
   };
 
+  private final Runnable myUpdateRequest = () -> update();
+
+  JPanel myPanel;
+  private JLabel myTextLabel;
+
+  private JBLabel myText2Label;
+  private JButton myCancelButton;
+
+  private JButton myBackgroundButton;
+  private JProgressBar myProgressBar;
+
+  private boolean myRepaintedFlag = true; // guarded by this
+  private TitlePanel myTitlePanel;
+  private JPanel myInnerPanel;
+  DialogWrapper myPopup;
+  private final Window myParentWindow;
+
+  private final SingleAlarm myDisableCancelAlarm = new SingleAlarm(this::setCancelButtonDisabledInEDT, 500, ModalityState.any(), this);
+  private final SingleAlarm myEnableCancelAlarm = new SingleAlarm(this::setCancelButtonEnabledInEDT, 500, ModalityState.any(), this);
+
+  ProgressDialog(@NotNull ProgressWindow progressWindow, boolean shouldShowBackground, String cancelText, @Nullable Window parentWindow) {
+    myProgressWindow = progressWindow;
+    myParentWindow = parentWindow;
+    initDialog(shouldShowBackground, cancelText);
+  }
+
   @NotNull
   private static String fitTextToLabel(@Nullable String fullText, @NotNull JLabel label) {
     if (fullText == null || fullText.isEmpty()) return " ";
@@ -92,58 +101,17 @@ class ProgressDialog implements Disposable {
     return fullText;
   }
 
-  private final Runnable myUpdateRequest = () -> update();
-  JPanel myPanel;
-
-  private JLabel myTextLabel;
-  private JBLabel myText2Label;
-
-  private JButton myCancelButton;
-  private JButton myBackgroundButton;
-
-  private JProgressBar myProgressBar;
-  private boolean myRepaintedFlag = true; // guarded by this
-  private TitlePanel myTitlePanel;
-  private JPanel myInnerPanel;
-  DialogWrapper myPopup;
-  private final Window myParentWindow;
-
-  public ProgressDialog(ProgressWindow progressWindow, boolean shouldShowBackground, Project project, String cancelText) {
-    myProgressWindow = progressWindow;
-    Window parentWindow = WindowManager.getInstance().suggestParentWindow(project);
-    if (parentWindow == null) {
-      parentWindow = WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow();
-    }
-    myParentWindow = parentWindow;
-
-    initDialog(shouldShowBackground, cancelText);
-  }
-
-  public ProgressDialog(ProgressWindow progressWindow, boolean shouldShowBackground, Component parent, String cancelText) {
-    myProgressWindow = progressWindow;
-    myParentWindow = UIUtil.getWindow(parent);
-    initDialog(shouldShowBackground, cancelText);
-  }
-
   private void initDialog(boolean shouldShowBackground, String cancelText) {
     if (SystemInfo.isMac) {
       UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, myText2Label);
     }
     myInnerPanel.setPreferredSize(new Dimension(SystemInfo.isMac ? 350 : JBUI.scale(450), -1));
 
-    myCancelButton.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(@NotNull ActionEvent e) {
-        doCancelAction();
-      }
-    });
+    myCancelButton.addActionListener(__ -> doCancelAction());
 
-    myCancelButton.registerKeyboardAction(new ActionListener() {
-      @Override
-      public void actionPerformed(@NotNull ActionEvent e) {
-        if (myCancelButton.isEnabled()) {
-          doCancelAction();
-        }
+    myCancelButton.registerKeyboardAction(__ -> {
+      if (myCancelButton.isEnabled()) {
+        doCancelAction();
       }
     }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 
@@ -173,19 +141,12 @@ class ProgressDialog implements Disposable {
     UIUtil.dispose(myCancelButton);
   }
 
+  @NotNull
   JPanel getPanel() {
     return myPanel;
   }
 
-  void setShouldShowBackground(final boolean shouldShowBackground) {
-    myShouldShowBackground = shouldShowBackground;
-    SwingUtilities.invokeLater(() -> {
-      myBackgroundButton.setVisible(shouldShowBackground);
-      myPanel.revalidate();
-    });
-  }
-
-  void changeCancelButtonText(String text) {
+  void changeCancelButtonText(@NotNull String text) {
     myCancelButton.setText(text);
   }
 
@@ -196,28 +157,21 @@ class ProgressDialog implements Disposable {
   }
 
   void cancel() {
-    setCancelButtonEnabledASAP(false);
+    enableCancelButtonIfNeeded(false);
   }
 
-  private void setCancelButtonEnabledASAP(boolean enabled) {
-    UIUtil.invokeLaterIfNeeded(() -> {
-      myCancelButton.setEnabled(enabled);
-      myDisableCancelAlarm.cancelAllRequests();
-    });
+  private void setCancelButtonEnabledInEDT() {
+    myCancelButton.setEnabled(true);
+  }
+  private void setCancelButtonDisabledInEDT() {
+    myCancelButton.setEnabled(false);
   }
 
   void enableCancelButtonIfNeeded(boolean enable) {
-    if (!myProgressWindow.myShouldShowCancel) return;
-    
-    if (enable && !myProgressWindow.isCanceled()) {
-      setCancelButtonEnabledASAP(true);
-    } else {
-      myDisableCancelAlarm.cancelAllRequests();
-      myDisableCancelAlarm.addRequest(() -> setCancelButtonEnabledASAP(false), 500);
-    }
-  }
+    if (!myProgressWindow.myShouldShowCancel || myDisableCancelAlarm.isDisposed()) return;
 
-  private final Alarm myDisableCancelAlarm = new Alarm(this);
+    (enable ? myEnableCancelAlarm : myDisableCancelAlarm).request();
+  }
 
   private void createCenterPanel() {
     // Cancel button (if any)
@@ -228,15 +182,11 @@ class ProgressDialog implements Disposable {
     myCancelButton.setVisible(myProgressWindow.myShouldShowCancel);
 
     myBackgroundButton.setVisible(myShouldShowBackground);
-    myBackgroundButton.addActionListener(
-      new ActionListener() {
-        @Override
-        public void actionPerformed(@NotNull ActionEvent e) {
-          if (myShouldShowBackground) {
-            myProgressWindow.background();
-          }
-        }
+    myBackgroundButton.addActionListener(__ -> {
+      if (myShouldShowBackground) {
+        myProgressWindow.background();
       }
+     }
     );
   }
 
@@ -246,12 +196,12 @@ class ProgressDialog implements Disposable {
     if (myRepaintedFlag) {
       if (System.currentTimeMillis() > myLastTimeDrawn + UPDATE_INTERVAL) {
         myRepaintedFlag = false;
-        SwingUtilities.invokeLater(myRepaintRunnable);
+        EdtExecutorService.getInstance().execute(myRepaintRunnable);
       }
       else {
         // later to avoid concurrent dispose/addRequest
         if (!myUpdateAlarm.isDisposed() && myUpdateAlarm.getActiveRequestCount() == 0) {
-          SwingUtilities.invokeLater(() -> {
+          EdtExecutorService.getInstance().execute(() -> {
             if (!myUpdateAlarm.isDisposed() && myUpdateAlarm.getActiveRequestCount() == 0) {
               myUpdateAlarm.addRequest(myUpdateRequest, 500, myProgressWindow.getModalityState());
             }
@@ -297,11 +247,6 @@ class ProgressDialog implements Disposable {
               ? new MyDialogWrapper(myParentWindow, myProgressWindow.myShouldShowCancel)
               : new MyDialogWrapper(myProgressWindow.myProject, myProgressWindow.myShouldShowCancel);
     myPopup.setUndecorated(true);
-    if (SystemInfo.isAppleJvm) {
-      // With Apple JDK we look for MacMessage parent by the window title.
-      // Let's set just the title as the window title for simplicity.
-      myPopup.setTitle(myProgressWindow.getTitle());
-    }
     if (myPopup.getPeer() instanceof DialogWrapperPeerImpl) {
       ((DialogWrapperPeerImpl)myPopup.getPeer()).setAutoRequestFocus(false);
       if (isWriteActionProgress()) {
@@ -312,13 +257,6 @@ class ProgressDialog implements Disposable {
 
     SwingUtilities.invokeLater(() -> {
       if (myPopup != null) {
-        if (myPopup.getPeer() instanceof FocusTrackbackProvider) {
-          final FocusTrackback focusTrackback = ((FocusTrackbackProvider)myPopup.getPeer()).getFocusTrackback();
-          if (focusTrackback != null) {
-            focusTrackback.consume();
-          }
-        }
-
         myProgressWindow.getFocusManager().requestFocusInProject(myCancelButton, myProgressWindow.myProject).doWhenDone(myRepaintRunnable);
       }
     });
@@ -332,20 +270,16 @@ class ProgressDialog implements Disposable {
     return myProgressWindow instanceof PotemkinProgress;
   }
 
-  boolean wasShown() {
-    return myProgressWindow.isShowing();
-  }
-
   private class MyDialogWrapper extends DialogWrapper {
     private final boolean myIsCancellable;
 
-    public MyDialogWrapper(Project project, final boolean cancellable) {
+    MyDialogWrapper(Project project, final boolean cancellable) {
       super(project, false);
       init();
       myIsCancellable = cancellable;
     }
 
-    public MyDialogWrapper(Component parent, final boolean cancellable) {
+    MyDialogWrapper(@NotNull Component parent, final boolean cancellable) {
       super(parent, false);
       init();
       myIsCancellable = cancellable;

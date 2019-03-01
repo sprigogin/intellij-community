@@ -81,7 +81,7 @@ public class SimplifyForEachInspection extends AbstractBaseJavaLocalInspectionTo
       PsiReferenceExpression methodExpression = call.getMethodExpression();
       return new TextRange(methodExpression.getTextOffset(), call.getArgumentList().getTextOffset());
     }
-    return new TextRange(call.getTextOffset(), call.getNextSibling().getTextOffset());
+    return call.getTextRange();
   }
 
   @Nullable
@@ -217,7 +217,6 @@ public class SimplifyForEachInspection extends AbstractBaseJavaLocalInspectionTo
       return myCustomName;
     }
 
-    @SuppressWarnings("DialogTitleCapitalization")
     @NotNull
     @Override
     public String getFamilyName() {
@@ -234,7 +233,7 @@ public class SimplifyForEachInspection extends AbstractBaseJavaLocalInspectionTo
       if (simplifyForEachContext == null) return;
       PsiElement result = simplifyForEachContext.migrate();
       if (result == null) return;
-      MigrateToStreamFix.simplifyAndFormat(project, result);
+      MigrateToStreamFix.simplify(project, result);
     }
   }
 
@@ -259,7 +258,7 @@ public class SimplifyForEachInspection extends AbstractBaseJavaLocalInspectionTo
       PsiElement lambdaBody = lambda.getBody();
       if (lambdaBody == null) return null;
       PsiExpressionList parameters = tryCast(PsiUtil.skipParenthesizedExprUp(lambda.getParent()), PsiExpressionList.class);
-      if (parameters == null || parameters.getExpressions().length != 1) return null;
+      if (parameters == null || parameters.getExpressionCount() != 1) return null;
       PsiMethodCallExpression call = tryCast(parameters.getParent(), PsiMethodCallExpression.class);
       SimplifyForEachContext simplifyForEachContext = SimplifyForEachContext.from(call);
       if (simplifyForEachContext == null || simplifyForEachContext.myMigration instanceof ForEachMigration) return null;
@@ -274,7 +273,7 @@ public class SimplifyForEachInspection extends AbstractBaseJavaLocalInspectionTo
       if (simplifyForEachContext != null) {
         PsiElement result = simplifyForEachContext.migrate();
         if (result != null) {
-          MigrateToStreamFix.simplifyAndFormat(project, result);
+          MigrateToStreamFix.simplify(project, result);
         }
       }
     }

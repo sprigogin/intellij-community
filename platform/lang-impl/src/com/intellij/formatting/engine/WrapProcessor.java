@@ -22,10 +22,10 @@ import java.util.ArrayList;
 
 public class WrapProcessor {
   private LeafBlockWrapper myFirstWrappedBlockOnLine = null;
-  private BlockRangesMap myBlockRangesMap;
+  private final BlockRangesMap myBlockRangesMap;
   private LeafBlockWrapper myWrapCandidate = null;
-  private IndentAdjuster myIndentAdjuster;
-  private int myRightMargin;
+  private final IndentAdjuster myIndentAdjuster;
+  private final int myRightMargin;
 
   public WrapProcessor(BlockRangesMap blockHelper, IndentAdjuster indentAdjuster, int rightMargin) {
     myIndentAdjuster = indentAdjuster;
@@ -120,7 +120,7 @@ public class WrapProcessor {
     return wrap == currentWrap || !wrap.isChildOf(currentWrap, currentBlock);
   }
 
-  public LeafBlockWrapper processWrap(LeafBlockWrapper currentBlock) {
+  LeafBlockWrapper processWrap(LeafBlockWrapper currentBlock) {
     final SpacingImpl spacing = currentBlock.getSpaceProperty();
     final WhiteSpace whiteSpace = currentBlock.getWhiteSpace();
 
@@ -195,12 +195,7 @@ public class WrapProcessor {
     return wrap != null && wrap.getType() == WrapImpl.Type.CHOP_IF_NEEDED && isSuitableInTheCurrentPosition(wrap, currentBlock);
   }
 
-
-  public void reset() {
-    myWrapCandidate = null;
-  }
-  
-  public void onCurrentLineChanged() {
+  void onCurrentLineChanged() {
     myWrapCandidate = null;
   }
   

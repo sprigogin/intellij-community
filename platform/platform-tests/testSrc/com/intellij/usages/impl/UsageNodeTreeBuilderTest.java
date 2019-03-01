@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.extensions.ExtensionPoint;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.extensions.ExtensionsArea;
 import com.intellij.openapi.fileEditor.FileEditorLocation;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
@@ -45,6 +32,9 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * @author max
@@ -54,7 +44,7 @@ public class UsageNodeTreeBuilderTest extends LightPlatformTestCase {
     GroupNode groupNode = buildUsageTree(new int[]{2, 3, 0}, UsageGroupingRule.EMPTY_ARRAY);
 
     assertNotNull(groupNode);
-    
+
     assertNull(groupNode.getParent());
 
     assertEquals("Root [0, 2, 3]", groupNode.toString());
@@ -99,42 +89,45 @@ public class UsageNodeTreeBuilderTest extends LightPlatformTestCase {
   }
 
   private GroupNode buildUsageTree(int[] indices, UsageGroupingRule[] rules) {
-    Usage[] usages = new Usage[indices.length];
-    for (int i = 0; i < usages.length; i++) {
-      usages[i] = createUsage(indices[i]);
-    }
+    List<Usage> usages = IntStream.of(indices).mapToObj(UsageNodeTreeBuilderTest::createUsage).collect(Collectors.toList());
 
     UsageViewPresentation presentation = new UsageViewPresentation();
     presentation.setUsagesString("searching for mock usages");
 
-    ExtensionsArea area = Extensions.getRootArea();
-    ExtensionPoint<UsageGroupingRuleProvider> point = area.getExtensionPoint(UsageGroupingRuleProvider.EP_NAME);
+    ExtensionPoint<UsageGroupingRuleProvider> point = UsageGroupingRuleProvider.EP_NAME.getPoint(null);
     UsageGroupingRuleProvider provider = new UsageGroupingRuleProvider() {
       @NotNull
       @Override
-      public UsageGroupingRule[] getActiveRules(Project project) {
+      public UsageGroupingRule[] getActiveRules(@NotNull Project project) {
         return rules;
       }
 
       @NotNull
       @Override
-      public AnAction[] createGroupingActions(UsageView view) {
+      public AnAction[] createGroupingActions(@NotNull UsageView view) {
         return AnAction.EMPTY_ARRAY;
       }
     };
-    point.registerExtension(provider);
+
+    Disposable disposable = Disposer.newDisposable();
+    point.registerExtension(provider, disposable);
     try {
       UsageViewImpl usageView = new UsageViewImpl(getProject(), presentation, UsageTarget.EMPTY_ARRAY, null);
       Disposer.register(getTestRootDisposable(), usageView);
-      for (Usage usage : usages) {
-        usageView.appendUsage(usage);
-      }
+      usageView.appendUsagesInBulk(usages);
+      UIUtil.dispatchAllInvocationEvents();
+      ProgressManager.getInstance().run(new Task.Modal(getProject(), "Waiting", false) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          usageView.waitForUpdateRequestsCompletion();
+        }
+      });
       UIUtil.dispatchAllInvocationEvents();
 
       return usageView.getRoot();
     }
     finally {
-      point.unregisterExtension(provider);
+      Disposer.dispose(disposable);
     }
   }
 

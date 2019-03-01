@@ -20,7 +20,8 @@ import com.intellij.find.FindManager;
 import com.intellij.find.FindModel;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.lang.injection.InjectedLanguageManager;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
@@ -28,8 +29,11 @@ import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.event.VisibleAreaEvent;
 import com.intellij.openapi.editor.event.VisibleAreaListener;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.markup.*;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.BalloonBuilder;
@@ -38,6 +42,9 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
@@ -66,7 +73,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
   private Editor myEditor;
   private final boolean myIsEditor;
   private int myLineHeight;
-  private List<UsageInfo> myCachedSelectedUsageInfos;
+  private List<? extends UsageInfo> myCachedSelectedUsageInfos;
   private Pattern myCachedSearchPattern = null;
   private Pattern myCachedReplacePattern = null;
 
@@ -83,9 +90,16 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
-    if (CommonDataKeys.EDITOR.getName().equals(dataId) && myEditor != null) {
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (CommonDataKeys.EDITOR.is(dataId) && myEditor != null) {
       return myEditor;
+    }
+    if (Registry.is("ide.find.preview.navigate.to.caret") && CommonDataKeys.NAVIGATABLE_ARRAY.is(dataId) && myEditor instanceof EditorEx) {
+      LogicalPosition position = myEditor.getCaretModel().getLogicalPosition();
+      VirtualFile file = FileDocumentManager.getInstance().getFile(myEditor.getDocument());
+      if (file != null) {
+        return new Navigatable[] {new OpenFileDescriptor(myProject, file, position.line, position.column)};
+      }
     }
     return null;
   }
@@ -108,7 +122,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
     }
   }
 
-  private void resetEditor(@NotNull final List<UsageInfo> infos) {
+  private void resetEditor(@NotNull final List<? extends UsageInfo> infos) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     PsiElement psiElement = infos.get(0).getElement();
     if (psiElement == null) return;
@@ -154,7 +168,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
 
   private static final Key<Boolean> IN_PREVIEW_USAGE_FLAG = Key.create("IN_PREVIEW_USAGE_FLAG");
 
-  public static void highlight(@NotNull final List<UsageInfo> infos,
+  public static void highlight(@NotNull final List<? extends UsageInfo> infos,
                                @NotNull final Editor editor,
                                @NotNull final Project project,
                                boolean highlightOnlyNameElements,
@@ -172,7 +186,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
       Disposer.dispose(balloon);
       editor.putUserData(REPLACEMENT_BALLOON_KEY, null);
     }
-    FindModel findModel = getFindModel(editor);
+    FindModel findModel = getReplacementModel(editor);
     for (int i = infos.size()-1; i>=0; i--) { // finish with the first usage so that caret end up there
       UsageInfo info = infos.get(i);
       PsiElement psiElement = info.getElement();
@@ -224,14 +238,18 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
     }
     editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
   }
-  private static Key<Balloon> REPLACEMENT_BALLOON_KEY = Key.create("REPLACEMENT_BALLOON_KEY");
+  private static final Key<Balloon> REPLACEMENT_BALLOON_KEY = Key.create("REPLACEMENT_BALLOON_KEY");
 
   private static void showBalloon(Project project, Editor editor, TextRange range, @NotNull FindModel findModel) {
-
     try {
       String replacementPreviewText = FindManager.getInstance(project)
-        .getStringToReplace(editor.getDocument().getText(range), findModel, range.getStartOffset(), editor.getDocument().getText());
-      ReplacementView replacementView = new ReplacementView(replacementPreviewText);
+                                                 .getStringToReplace(editor.getDocument().getText(range), findModel, range.getStartOffset(),
+                                                                     editor.getDocument().getText());
+    if (!Registry.is("ide.find.show.replacement.hint.for.simple.regexp")
+        && (Comparing.equal(replacementPreviewText, findModel.getStringToReplace()))) {
+      return;
+    }
+    ReplacementView replacementView = new ReplacementView(replacementPreviewText);
 
       BalloonBuilder balloonBuilder = JBPopupFactory.getInstance().createBalloonBuilder(replacementView);
       balloonBuilder.setFadeoutTime(0);
@@ -254,7 +272,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
   }
 
   @Nullable
-  private static FindModel getFindModel(@NotNull Editor editor) {
+  private static FindModel getReplacementModel(@NotNull Editor editor) {
     UsagePreviewPanel panel = editor.getUserData(PREVIEW_EDITOR_FLAG);
     Pattern searchPattern = null;
     Pattern replacePattern = null;
@@ -278,7 +296,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
     if (isDisposed) return null;
     Project project = psiFile.getProject();
 
-    Editor editor = EditorFactory.getInstance().createEditor(document, project, psiFile.getVirtualFile(), !myIsEditor, EditorKind.PREVIEW);
+    Editor editor = EditorFactory.getInstance().createEditor(document, project, psiFile.getVirtualFile(), !myIsEditor, getEditorKind());
 
     EditorSettings settings = editor.getSettings();
     customizeEditorSettings(settings);
@@ -287,12 +305,18 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
     return editor;
   }
 
+  @NotNull
+  protected EditorKind getEditorKind() {
+    return EditorKind.PREVIEW;
+  }
+
   protected void customizeEditorSettings(EditorSettings settings) {
     settings.setLineMarkerAreaShown(myIsEditor);
     settings.setFoldingOutlineShown(false);
     settings.setAdditionalColumnsCount(0);
     settings.setAdditionalLinesCount(0);
     settings.setAnimatedScrolling(false);
+    settings.setAutoCodeFoldingEnabled(false);
   }
 
   @Override
@@ -317,21 +341,25 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
   }
 
   @Nullable
-  public final String getCannotPreviewMessage(@Nullable final List<UsageInfo> infos) {
+  public final String getCannotPreviewMessage(@Nullable final List<? extends UsageInfo> infos) {
+    return cannotPreviewMessage(infos);
+  }
+
+  @Nullable
+  private String cannotPreviewMessage(@Nullable List<? extends UsageInfo> infos) {
     if (infos == null || infos.isEmpty()) {
       return UsageViewBundle.message("select.the.usage.to.preview", myPresentation.getUsagesWord());
-    } else {
-      PsiFile psiFile = null;
-      for (UsageInfo info : infos) {
-        PsiElement element = info.getElement();
-        if (element == null) continue;
-        PsiFile file = element.getContainingFile();
-        if (psiFile == null) {
-          psiFile = file;
-        } else {
-          if (psiFile != file) {
-            return UsageViewBundle.message("several.occurrences.selected");
-          }
+    }
+    PsiFile psiFile = null;
+    for (UsageInfo info : infos) {
+      PsiElement element = info.getElement();
+      if (element == null) continue;
+      PsiFile file = element.getContainingFile();
+      if (psiFile == null) {
+        psiFile = file;
+      } else {
+        if (psiFile != file) {
+          return UsageViewBundle.message("several.occurrences.selected");
         }
       }
     }
@@ -339,8 +367,8 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
   }
 
   @Override
-  public void updateLayoutLater(@Nullable final List<UsageInfo> infos) {
-    String cannotPreviewMessage = getCannotPreviewMessage(infos);
+  public void updateLayoutLater(@Nullable final List<? extends UsageInfo> infos) {
+    String cannotPreviewMessage = cannotPreviewMessage(infos);
     if (cannotPreviewMessage != null) {
       releaseEditor();
       removeAll();
@@ -366,7 +394,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
     protected void paintComponent(@NotNull Graphics graphics) {
     }
 
-    public ReplacementView(@Nullable String replacement) {
+    ReplacementView(@Nullable String replacement) {
       String textToShow = replacement;
       if (replacement == null) {
         textToShow = MALFORMED_REPLACEMENT_STRING;
@@ -403,7 +431,7 @@ public class UsagePreviewPanel extends UsageContextPanelBase implements DataProv
 
         VisibleAreaListener visibleAreaListener = new VisibleAreaListener() {
           @Override
-          public void visibleAreaChanged(VisibleAreaEvent e) {
+          public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
             if (insideVisibleArea(myEditor, myRange)) {
               showBalloon(myProject, myEditor, myRange, myFindModel);
               final VisibleAreaListener visibleAreaListener = this;

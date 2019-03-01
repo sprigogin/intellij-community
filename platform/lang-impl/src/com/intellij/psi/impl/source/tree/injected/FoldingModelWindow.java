@@ -63,7 +63,7 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
 
   @Override
   public void removeFoldRegion(@NotNull FoldRegion region) {
-    myDelegate.removeFoldRegion((FoldRegion)((FoldingRegionWindow)region).getDelegate());
+    myDelegate.removeFoldRegion(((FoldingRegionWindow)region).getDelegate());
   }
 
   @Override
@@ -77,7 +77,7 @@ class FoldingModelWindow implements FoldingModelEx, ModificationTracker {
         result.add(window);
       }
     }
-    return result.toArray(new FoldRegion[result.size()]);
+    return result.toArray(FoldRegion.EMPTY_ARRAY);
   }
 
   @Override

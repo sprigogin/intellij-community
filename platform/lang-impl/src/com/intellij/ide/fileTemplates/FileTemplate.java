@@ -38,6 +38,9 @@ public interface FileTemplate extends Cloneable {
   String ATTRIBUTE_DESCRIPTION = "DESCRIPTION";
   String ATTRIBUTE_DISPLAY_NAME = "DISPLAY_NAME";
 
+  String ATTRIBUTE_EXPRESSION = "EXPRESSION";
+  String ATTRIBUTE_EXPRESSION_TYPE = "EXPRESSION_TYPE";
+
   String ATTRIBUTE_RETURN_TYPE = "RETURN_TYPE";
   String ATTRIBUTE_DEFAULT_RETURN_VALUE = "DEFAULT_RETURN_VALUE";
   String ATTRIBUTE_CALL_SUPER = "CALL_SUPER";
@@ -47,7 +50,12 @@ public interface FileTemplate extends Cloneable {
   String ATTRIBUTE_SIMPLE_CLASS_NAME = "SIMPLE_CLASS_NAME";
   String ATTRIBUTE_METHOD_NAME = "METHOD_NAME";
   String ATTRIBUTE_PACKAGE_NAME = "PACKAGE_NAME";
+
   String ATTRIBUTE_NAME = "NAME";
+
+  /** Relative path of containing directory */
+  String ATTRIBUTE_DIR_PATH = "DIR_PATH";
+  /** File name with extension */
   String ATTRIBUTE_FILE_NAME = "FILE_NAME";
 
   /** Name without extension */

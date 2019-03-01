@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.history;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -28,9 +14,9 @@ import com.intellij.openapi.vcs.changes.committed.CommittedChangesNavigation;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.info.Info;
-import org.tmatesoft.svn.core.wc.SVNRevision;
 
 import java.util.*;
 
@@ -60,7 +46,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
 
     Runnable process = () -> {
       try {
-        infoRef.set(vcs.getInfo(location.toSvnUrl(), SVNRevision.HEAD));
+        infoRef.set(vcs.getInfo(location.toSvnUrl(), Revision.HEAD));
       }
       catch (SvnBindException e) {
         exception[0] = e;
@@ -69,7 +55,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
     underProgress(exception, process);
 
     Info info = infoRef.get();
-    if (info == null || info.getRevision() == null || info.getRepositoryRootURL() == null) {
+    if (info == null || !info.getRevision().isValid() || info.getRepositoryRootUrl() == null) {
       throw new VcsException("Could not get head info for " + location);
     }
 
@@ -84,8 +70,8 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
 
     myChunkFactory = new BunchFactory(myInternallyCached, myVisuallyCached, new LiveProvider(vcs, location, info.getRevision().getNumber(),
                                                                                              new SvnLogUtil(myProject, vcs, location,
-                                                                                                            info.getRepositoryRootURL()),
-                                                                                             info.getRepositoryRootURL()));
+                                                                                                            info.getRepositoryRootUrl()),
+                                                                                             info.getRepositoryRootUrl()));
 
     myCurrentIdx = -1;
 
@@ -112,14 +98,17 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
     }
   }
 
+  @Override
   public boolean canGoBack() {
     return ((myCurrentIdx + 1) < myChunks.size()) || (!myCanNotGoBack);
   }
 
+  @Override
   public boolean canGoForward() {
     return myCurrentIdx > 0;
   }
 
+  @Override
   public void goBack() throws VcsException {
     if ((myCurrentIdx + 1) < myChunks.size()) {
       ++myCurrentIdx;
@@ -137,6 +126,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
     }
   }
 
+  @Override
   public void goForward() {
     --myCurrentIdx;
   }
@@ -166,6 +156,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
     return result;
   }
 
+  @Override
   public void onBeforeClose() {
     if ((myVisuallyCached != null) && (myVisuallyCached.hadBeenSuccessfullyAccessed())) {
       myVisuallyCached.doCacheUpdate(myChunks);
@@ -190,6 +181,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
       myLocation = location;
     }
 
+    @Override
     public void doCacheUpdate(final List<List<Fragment>> fragmentsListList) {
       final List<CommittedChangeList> lists = getAllBeforeVisuallyCached(fragmentsListList);
       CommittedChangesCache.getInstance(myProject).submitExternallyLoaded(myLocation, myAlreadyReaded.getList().get(0).getNumber(), lists);
@@ -218,6 +210,7 @@ public class SvnRevisionsNavigationMediator implements CommittedChangesNavigatio
       }
     }
 
+    @Override
     public void doCacheUpdate(final List<List<Fragment>> fragmentsListList) {
       final List<CommittedChangeList> lists = new ArrayList<>();
       LoadedRevisionsCache.Bunch bindAddress = null;

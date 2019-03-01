@@ -26,7 +26,9 @@ import com.intellij.diff.tools.util.text.FineMergeLineFragment;
 import com.intellij.diff.tools.util.text.MergeInnerDifferences;
 import com.intellij.diff.tools.util.text.SimpleThreesideTextDiffProvider;
 import com.intellij.diff.util.*;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -55,16 +57,23 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   @NotNull
   @Override
   protected List<AnAction> createToolbarActions() {
-    List<AnAction> group = new ArrayList<>(myTextDiffProvider.getToolbarActions());
+    List<AnAction> group = new ArrayList<>();
+
+    DefaultActionGroup diffGroup = new DefaultActionGroup("Compare Contents", true);
+    diffGroup.getTemplatePresentation().setIcon(AllIcons.Actions.Diff);
+    diffGroup.add(Separator.create("Compare Contents"));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_LEFT, false));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_RIGHT, false));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.LEFT_RIGHT, false));
+    group.add(diffGroup);
+    group.add(Separator.getInstance());
+
+    group.addAll(myTextDiffProvider.getToolbarActions());
+
     group.add(new MyToggleExpandByDefaultAction());
     group.add(new MyToggleAutoScrollAction());
     group.add(new MyEditorReadOnlyLockAction());
     group.add(myEditorSettingsAction);
-
-    group.add(Separator.getInstance());
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_LEFT, false));
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_RIGHT, false));
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.LEFT_RIGHT, false));
 
     group.add(Separator.getInstance());
     group.addAll(super.createToolbarActions());
@@ -102,9 +111,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
     try {
       indicator.checkCanceled();
 
-      List<CharSequence> sequences = ContainerUtil.map(getContents(), content -> {
-        return content.getDocument().getImmutableCharSequence();
-      });
+      List<CharSequence> sequences = ContainerUtil.map(getContents(), content -> content.getDocument().getImmutableCharSequence());
 
       List<FineMergeLineFragment> lineFragments = myTextDiffProvider.compare(sequences.get(0), sequences.get(1), sequences.get(2),
                                                                              indicator);
@@ -260,7 +267,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   private class MyDividerPaintable implements DiffDividerDrawUtil.DividerPaintable {
     @NotNull private final Side mySide;
 
-    public MyDividerPaintable(@NotNull Side side) {
+    MyDividerPaintable(@NotNull Side side) {
       mySide = side;
     }
 

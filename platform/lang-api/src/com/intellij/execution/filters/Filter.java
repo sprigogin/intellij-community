@@ -155,12 +155,9 @@ public interface Filter {
     static {
       Application application = ApplicationManager.getApplication();
       if (application != null) {
-        application.getMessageBus().connect().subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
-          @Override
-          public void globalSchemeChange(EditorColorsScheme scheme) {
-            // invalidate cache on Appearance Theme/Editor Scheme change
-            GRAYED_BY_NORMAL_CACHE.clear();
-          }
+        application.getMessageBus().connect().subscribe(EditorColorsManager.TOPIC, __ -> {
+          // invalidate cache on Appearance Theme/Editor Scheme change
+          GRAYED_BY_NORMAL_CACHE.clear();
         });
       }
     }
@@ -188,12 +185,10 @@ public interface Filter {
     
     private final TextAttributes myFollowedHyperlinkAttributes;
 
-    @SuppressWarnings("deprecation")
     public ResultItem(final int highlightStartOffset, final int highlightEndOffset, @Nullable final HyperlinkInfo hyperlinkInfo) {
       this(highlightStartOffset, highlightEndOffset, hyperlinkInfo, null, null);
     }
 
-    @SuppressWarnings("deprecation")
     public ResultItem(final int highlightStartOffset,
                       final int highlightEndOffset,
                       @Nullable final HyperlinkInfo hyperlinkInfo,
@@ -224,18 +219,15 @@ public interface Filter {
     }
 
     public int getHighlightStartOffset() {
-      //noinspection deprecation
       return highlightStartOffset;
     }
 
     public int getHighlightEndOffset() {
-      //noinspection deprecation
       return highlightEndOffset;
     }
 
     @Nullable
     public TextAttributes getHighlightAttributes() {
-      //noinspection deprecation
       return highlightAttributes;
     }
 
@@ -246,7 +238,6 @@ public interface Filter {
 
     @Nullable
     public HyperlinkInfo getHyperlinkInfo() {
-      //noinspection deprecation
       return hyperlinkInfo;
     }
 
@@ -283,5 +274,5 @@ public interface Filter {
    * @return <tt>null</tt>, if there was no match, otherwise, an instance of {@link Result}
    */
   @Nullable
-  Result applyFilter(String line, int entireLength);
+  Result applyFilter(@NotNull String line, int entireLength);
 }

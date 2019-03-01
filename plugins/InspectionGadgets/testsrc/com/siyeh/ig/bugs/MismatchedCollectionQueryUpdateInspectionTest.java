@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.intellij.ToolExtensionPoints;
 import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.openapi.extensions.Extensions;
@@ -40,7 +41,7 @@ public class MismatchedCollectionQueryUpdateInspectionTest extends LightInspecti
 
     @Override
     public boolean isImplicitWrite(PsiElement element) {
-      return element instanceof PsiField && ((PsiField)element).getName().equals("injected");
+      return element instanceof PsiField && "injected".equals(((PsiField)element).getName());
     }
   };
 
@@ -48,40 +49,17 @@ public class MismatchedCollectionQueryUpdateInspectionTest extends LightInspecti
   protected void setUp() throws Exception {
     super.setUp();
     PlatformTestUtil.registerExtension(Extensions.getRootArea(), ImplicitUsageProvider.EP_NAME, TEST_PROVIDER, myFixture.getTestRootDisposable());
+    Extensions.getExtensions(ToolExtensionPoints.DEAD_CODE_TOOL);
   }
 
   public void testMismatchedCollectionQueryUpdate() {
     doTest();
   }
 
-  @Override
-  protected String[] getEnvironmentClasses() {
-    return new String[] {
-      "package java.util;" +
-      "public class HashSet<E> implements Set<E> {" +
-      "  public HashSet() {}" +
-      "  public HashSet(Collection<? extends E> collection) {}" +
-      "}",
-      "package java.util.concurrent;" +
-      "public interface BlockingDeque<E> {" +
-      "  E takeFirst() throws InterruptedException;" +
-      "  void putLast(E e) throws InterruptedException;" +
-      "}",
-      "package java.util.concurrent;" +
-      "public class LinkedBlockingDeque<E> implements BlockingDeque {}",
-      "package java.lang;" +
-      "public class InterruptedException extends Exception {}",
-      "package java.util.concurrent;" +
-      "public interface BlockingQueue<E> {" +
-      "  int drainTo(java.util.Collection<? super E> c);" +
-      "}"
-    };
-  }
-
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return JAVA_8;
+    return JAVA_9_ANNOTATED;
   }
 
   @Override

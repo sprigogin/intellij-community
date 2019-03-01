@@ -1,5 +1,5 @@
 /*
- * Copyright 2005-2017 Bas Leijdekkers
+ * Copyright 2005-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +28,9 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.psiutils.EquivalenceChecker;
 import com.siyeh.ig.psiutils.MethodCallUtils;
-import com.siyeh.ig.psiutils.MethodUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.TrackingEquivalenceChecker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -85,69 +84,40 @@ public class RedundantMethodOverrideInspection extends BaseInspection {
     @Override
     public void visitMethod(PsiMethod method) {
       super.visitMethod(method);
+      if (method.isConstructor()) {
+        return;
+      }
       final PsiCodeBlock body = method.getBody();
-      if (body == null) {
+      if (body == null || method.getNameIdentifier() == null) {
         return;
       }
-      if (method.getNameIdentifier() == null) {
+      final PsiMethod[] methods = method.findSuperMethods();
+      if (methods.length == 0) {
         return;
       }
-      final PsiMethod superMethod = MethodUtils.getSuper(method);
-      if (superMethod == null) {
+      final PsiMethod superMethod = methods[0];
+      if (superMethod.hasModifierProperty(PsiModifier.DEFAULT) && methods.length > 1) {
         return;
       }
-      if (!MethodUtils.haveEquivalentModifierLists(method, superMethod)) {
-        return;
-      }
-      final PsiType superReturnType = superMethod.getReturnType();
-      if (superReturnType == null || !superReturnType.equals(method.getReturnType())) {
+      if (!AbstractMethodOverridesAbstractMethodInspection.methodsHaveSameAnnotationsAndModifiers(method, superMethod) ||
+          !AbstractMethodOverridesAbstractMethodInspection.methodsHaveSameReturnTypes(method, superMethod) ||
+          !AbstractMethodOverridesAbstractMethodInspection.haveSameExceptionSignatures(method, superMethod) ||
+          method.isVarArgs() != superMethod.isVarArgs()) {
         return;
       }
       final PsiCodeBlock superBody = superMethod.getBody();
 
-      final EquivalenceChecker checker = new ParameterEquivalenceChecker(method, superMethod);
+      final TrackingEquivalenceChecker checker = new TrackingEquivalenceChecker();
+      final PsiParameter[] parameters = method.getParameterList().getParameters();
+      final PsiParameter[] superParameters = superMethod.getParameterList().getParameters();
+      for (int i = 0; i < parameters.length; i++) {
+        final PsiParameter parameter = parameters[i];
+        final PsiParameter superParameter = superParameters[i];
+        checker.markDeclarationsAsEquivalent(parameter, superParameter);
+      }
+      checker.markDeclarationsAsEquivalent(method, superMethod);
       if (checker.codeBlocksAreEquivalent(body, superBody) || isSuperCallWithSameArguments(body, method, superMethod)) {
         registerMethodError(method);
-      }
-    }
-
-    private static class ParameterEquivalenceChecker extends EquivalenceChecker {
-      private final PsiMethod myMethod;
-      private final PsiMethod mySuperMethod;
-
-      ParameterEquivalenceChecker(@NotNull PsiMethod method, @NotNull PsiMethod superMethod) {
-        myMethod = method;
-        mySuperMethod = superMethod;
-      }
-
-      @Override
-      protected Match referenceExpressionsMatch(PsiReferenceExpression referenceExpression1,
-                                                                PsiReferenceExpression referenceExpression2) {
-        if (areSameParameters(referenceExpression1, referenceExpression2)) {
-          return EXACT_MATCH;
-        }
-        return super.referenceExpressionsMatch(referenceExpression1, referenceExpression2);
-      }
-
-      private boolean areSameParameters(PsiReferenceExpression referenceExpression1, PsiReferenceExpression referenceExpression2) {
-        // parameters of super method and overridden method should be considered the same
-        PsiElement resolved1 = referenceExpression1.resolve();
-        PsiElement resolved2 = referenceExpression2.resolve();
-        if (!(resolved1 instanceof PsiParameter) || !(resolved2 instanceof PsiParameter)) return false;
-        PsiElement scope1 = ((PsiParameter)resolved1).getDeclarationScope();
-        PsiElement scope2 = ((PsiParameter)resolved2).getDeclarationScope();
-        if (scope1 == scope2 || scope1 != myMethod && scope1 != mySuperMethod || scope2 != myMethod && scope2 != mySuperMethod) {
-          return false;
-        }
-        PsiElement parent1 = resolved1.getParent();
-        PsiElement parent2 = resolved2.getParent();
-        if (!(parent1 instanceof PsiParameterList) || !(parent2 instanceof PsiParameterList)) {
-          return false;
-        }
-        int index1 = ((PsiParameterList)parent1).getParameterIndex((PsiParameter)resolved1);
-        int index2 = ((PsiParameterList)parent2).getParameterIndex((PsiParameter)resolved2);
-
-        return index1 == index2;
       }
     }
 
@@ -191,7 +161,7 @@ public class RedundantMethodOverrideInspection extends BaseInspection {
         }
         final PackageScope scope = new PackageScope(aPackage, false, false);
         if (isOnTheFly()) {
-          final PsiSearchHelper searchHelper = PsiSearchHelper.SERVICE.getInstance(method.getProject());
+          final PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(method.getProject());
           final PsiSearchHelper.SearchCostResult cost =
             searchHelper.isCheapEnoughToSearch(method.getName(), scope, null, null);
           if (cost == PsiSearchHelper.SearchCostResult.ZERO_OCCURRENCES) {

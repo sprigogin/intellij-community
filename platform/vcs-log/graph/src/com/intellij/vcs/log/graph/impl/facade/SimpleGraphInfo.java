@@ -44,17 +44,15 @@ import java.util.Set;
 import static com.intellij.vcs.log.graph.utils.LinearGraphUtils.asLiteLinearGraph;
 
 public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
-  private static final int VISIBLE_RANGE = 1000;
-
   @NotNull private final LinearGraph myLinearGraph;
   @NotNull private final GraphLayout myGraphLayout;
-  @NotNull private final NotNullFunction<Integer, CommitId> myFunction;
+  @NotNull private final NotNullFunction<? super Integer, ? extends CommitId> myFunction;
   @NotNull private final TimestampGetter myTimestampGetter;
   @NotNull private final Set<Integer> myBranchNodeIds;
 
   private SimpleGraphInfo(@NotNull LinearGraph linearGraph,
                           @NotNull GraphLayout graphLayout,
-                          @NotNull NotNullFunction<Integer, CommitId> function,
+                          @NotNull NotNullFunction<? super Integer, ? extends CommitId> function,
                           @NotNull TimestampGetter timestampGetter,
                           @NotNull Set<Integer> branchNodeIds) {
     myLinearGraph = linearGraph;
@@ -68,11 +66,11 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
                                                            @NotNull GraphLayout oldLayout,
                                                            @NotNull PermanentCommitsInfo<CommitId> permanentCommitsInfo,
                                                            int permanentGraphSize,
-                                                           @NotNull Set<Integer> branchNodeIds) {
-    int firstVisibleRow = VISIBLE_RANGE; // todo get first visible row from table somehow
-
-    int start = Math.max(0, firstVisibleRow - VISIBLE_RANGE);
-    int end = Math.min(linearGraph.nodesCount(), start + 2 * VISIBLE_RANGE); // no more than 2*1000 commits;
+                                                           @NotNull Set<Integer> branchNodeIds,
+                                                           int visibleRow,
+                                                           int visibleRange) {
+    int start = Math.max(0, visibleRow - visibleRange);
+    int end = Math.min(linearGraph.nodesCount(), start + 2 * visibleRange); // no more than 2*visibleRange commits;
 
     List<GraphCommit<CommitId>> graphCommits = ContainerUtil.newArrayListWithCapacity(end - start);
     List<CommitId> commitsIdMap = ContainerUtil.newArrayListWithCapacity(end - start);
@@ -91,7 +89,7 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
     }
     IntTimestampGetter timestampGetter = PermanentCommitsInfoImpl.createTimestampGetter(graphCommits);
 
-    NotNullFunction<Integer, CommitId> function = createCommitIdMapFunction(commitsIdMap);
+    NotNullFunction<Integer, CommitId> commitIdMapping = createCommitIdMapFunction(commitsIdMap);
     PermanentLinearGraphImpl newLinearGraph = PermanentLinearGraphBuilder.newInstance(graphCommits).build();
 
     int[] layoutIndexes = new int[end - start];
@@ -115,28 +113,24 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
 
     GraphLayoutImpl newLayout = new GraphLayoutImpl(layoutIndexes, headNodeIndexes, starts);
 
-    return new SimpleGraphInfo<>(newLinearGraph, newLayout, function, timestampGetter,
+    return new SimpleGraphInfo<>(newLinearGraph, newLayout, commitIdMapping, timestampGetter,
                                  LinearGraphUtils.convertIdsToNodeIndexes(linearGraph, branchNodeIds));
   }
 
   @NotNull
-  private static <CommitId> NotNullFunction<Integer, CommitId> createCommitIdMapFunction(List<CommitId> commitsIdMap) {
-    NotNullFunction<Integer, CommitId> function;
+  private static <CommitId> NotNullFunction<Integer, CommitId> createCommitIdMapFunction(@NotNull List<? extends CommitId> commitsIdMap) {
     if (!commitsIdMap.isEmpty() && commitsIdMap.get(0) instanceof Integer) {
       int[] ints = new int[commitsIdMap.size()];
       for (int row = 0; row < commitsIdMap.size(); row++) {
         ints[row] = (Integer)commitsIdMap.get(row);
       }
-      function = (NotNullFunction<Integer, CommitId>)new IntegerCommitIdMapFunction(CompressedIntList.newInstance(ints));
+      return (NotNullFunction<Integer, CommitId>)new IntegerCommitIdMapFunction(CompressedIntList.newInstance(ints));
     }
-    else {
-      function = new CommitIdMapFunction<>(commitsIdMap);
-    }
-    return function;
+    return new CommitIdMapFunction<>(commitsIdMap);
   }
 
   @NotNull
-  private static <CommitId> TObjectIntHashMap<CommitId> reverseCommitIdMap(PermanentCommitsInfo<CommitId> permanentCommitsInfo, int size) {
+  private static <CommitId> TObjectIntHashMap<CommitId> reverseCommitIdMap(@NotNull PermanentCommitsInfo<CommitId> permanentCommitsInfo, int size) {
     TObjectIntHashMap<CommitId> result = new TObjectIntHashMap<>();
     for (int i = 0; i < size; i++) {
       result.put(permanentCommitsInfo.getCommitId(i), i);
@@ -171,7 +165,7 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
 
       @NotNull
       @Override
-      public Set<Integer> convertToNodeIds(@NotNull Collection<CommitId> heads) {
+      public Set<Integer> convertToNodeIds(@NotNull Collection<? extends CommitId> heads) {
         Set<Integer> result = ContainerUtil.newHashSet();
         for (int id = 0; id < myLinearGraph.nodesCount(); id++) {
           if (heads.contains(myFunction.fun(id))) {
@@ -202,9 +196,9 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
   }
 
   private static class CommitIdMapFunction<CommitId> implements NotNullFunction<Integer, CommitId> {
-    private final List<CommitId> myCommitsIdMap;
+    private final List<? extends CommitId> myCommitsIdMap;
 
-    public CommitIdMapFunction(List<CommitId> commitsIdMap) {
+    CommitIdMapFunction(List<? extends CommitId> commitsIdMap) {
       myCommitsIdMap = commitsIdMap;
     }
 
@@ -218,7 +212,7 @@ public class SimpleGraphInfo<CommitId> implements PermanentGraphInfo<CommitId> {
   private static class IntegerCommitIdMapFunction implements NotNullFunction<Integer, Integer> {
     private final IntList myCommitsIdMap;
 
-    public IntegerCommitIdMapFunction(IntList commitsIdMap) {
+    IntegerCommitIdMapFunction(IntList commitsIdMap) {
       myCommitsIdMap = commitsIdMap;
     }
 

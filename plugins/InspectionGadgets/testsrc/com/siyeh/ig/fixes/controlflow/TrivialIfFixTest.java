@@ -30,6 +30,9 @@ public class TrivialIfFixTest extends IGQuickFixesTestCase {
 
   public void testComments() { doTest(); }
   public void testCommentsInAssignment() { doTest(); }
+  public void testAssignmentNegated() { doTest(); }
+  public void testImplicitAssignment() { doTest(); }
+  public void testImplicitAssignmentAnd() { assertQuickfixNotAvailable(); }
   public void testNegatedConditional() { doTest(); }
   public void testNegatedConditional1() { doTest(); }
   public void testAssert1() { doTest(); }
@@ -37,4 +40,11 @@ public class TrivialIfFixTest extends IGQuickFixesTestCase {
   public void testParentheses() { doTest(); }
   public void testNested() { doTest(); }
   public void testInCodeBlock() { doTest(); }
+  public void testInSwitch() { doTest(); }
+  public void testRedundantComparison1() { doTest(); }
+  public void testRedundantComparison2() { doTest(); }
+  public void testRedundantComparisonNested() { doTest(); }
+  public void testRedundantComparisonNested2() { doTest(); }
+  public void testRedundantComparisonNested3() { doTest(); }
+  public void testRedundantComparisonDouble() { assertQuickfixNotAvailable(); }
 }

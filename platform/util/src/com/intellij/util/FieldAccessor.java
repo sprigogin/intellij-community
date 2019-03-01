@@ -43,7 +43,7 @@ public class FieldAccessor<E, T> {
   public boolean isAvailable() {
     if (myFieldRef == null) {
       try {
-        myFieldRef = new Ref<Field>();
+        myFieldRef = new Ref<>();
         myFieldRef.set(myClass.getDeclaredField(myName));
         myFieldRef.get().setAccessible(true);
       }
@@ -55,11 +55,10 @@ public class FieldAccessor<E, T> {
   }
 
   public T get(@Nullable E object) {
-    if (!isAvailable() || object == null) return null;
+    if (!isAvailable()) return null;
     try {
-      @SuppressWarnings("unchecked")
-      T value = (T)myFieldRef.get().get(object);
-      return value;
+      //noinspection unchecked
+      return (T)myFieldRef.get().get(object);
     }
     catch (IllegalAccessException e) {
       LOG.warn("Field not accessible: " + myClass.getName() + "." + myName);
@@ -68,7 +67,7 @@ public class FieldAccessor<E, T> {
   }
 
   public void set(@Nullable E object, @Nullable T value) {
-    if (!isAvailable() || object == null) return;
+    if (!isAvailable()) return;
     try {
       myFieldRef.get().set(object, value);
     }

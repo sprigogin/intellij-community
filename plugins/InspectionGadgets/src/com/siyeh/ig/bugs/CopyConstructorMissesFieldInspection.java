@@ -5,7 +5,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.refactoring.util.RefactoringChangeUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtilRt;
 import com.siyeh.InspectionGadgetsBundle;
@@ -50,7 +50,6 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       return InspectionGadgetsBundle.message("copy.constructor.misses.field.problem.descriptor.3",
                                              fields.get(0).getName(), fields.get(1).getName(), fields.get(2).getName());
     }
-    System.out.println("fields = " + fields);
     return InspectionGadgetsBundle.message("copy.constructor.misses.field.problem.descriptor.many", fields.size());
   }
 
@@ -85,7 +84,7 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       for (PsiMethod calledMethod : methodsOneLevelDeep) {
         if (!PsiTreeUtil.processElements(calledMethod, e -> collectAssignedFields(e, parameter, null, assignedFields))) {
           return;
-        };
+        }
       }
       for (PsiField assignedField : assignedFields) {
         if (aClass == PsiUtil.resolveClassInClassTypeOnly(assignedField.getType())) {
@@ -100,7 +99,7 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
     }
 
     private static boolean collectAssignedFields(PsiElement element, PsiParameter parameter,
-                                                 @Nullable Set<PsiMethod> methods, List<PsiField> assignedFields) {
+                                                 @Nullable Set<? super PsiMethod> methods, List<? super PsiField> assignedFields) {
       if (element instanceof PsiAssignmentExpression) {
         final PsiExpression lhs = ParenthesesUtils.stripParentheses(((PsiAssignmentExpression)element).getLExpression());
         final PsiVariable variable = resolveVariable(lhs, null);
@@ -108,7 +107,7 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
           assignedFields.add((PsiField)variable);
         }
       }
-      else if (RefactoringChangeUtil.isSuperOrThisMethodCall(element)) {
+      else if (JavaPsiConstructorUtil.isConstructorCall(element)) {
         final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)element;
         for (PsiExpression argument : methodCallExpression.getArgumentList().getExpressions()) {
           argument = ParenthesesUtils.stripParentheses(argument);

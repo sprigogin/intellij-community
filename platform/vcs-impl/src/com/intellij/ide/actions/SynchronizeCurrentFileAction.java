@@ -25,6 +25,7 @@ import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
+import com.intellij.openapi.vfs.newvfs.VfsPresentationUtil;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.containers.JBIterable;
@@ -32,32 +33,30 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-import static com.intellij.openapi.util.text.StringUtil.escapeMnemonics;
-import static com.intellij.openapi.util.text.StringUtil.firstLast;
-
 public class SynchronizeCurrentFileAction extends AnAction implements DumbAware {
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     List<VirtualFile> files = getFiles(e).take(2).toList();
-    if (e.getProject() == null || files.isEmpty()) {
+    Project project = e.getProject();
+    if (project == null || files.isEmpty()) {
       e.getPresentation().setEnabledAndVisible(false);
     }
     else {
       e.getPresentation().setEnabledAndVisible(true);
-      e.getPresentation().setText(getMessage(files));
+      e.getPresentation().setText(getMessage(project, files));
     }
   }
 
   @NotNull
-  private static String getMessage(@NotNull List<VirtualFile> files) {
-    VirtualFile theOnlyOne = files.size() == 1 ? files.get(0) : null;
-    return theOnlyOne != null ?
-           IdeBundle.message("action.synchronize.file", escapeMnemonics(firstLast(theOnlyOne.getName(), 20))) :
+  private static String getMessage(@NotNull Project project, @NotNull List<? extends VirtualFile> files) {
+    VirtualFile single = files.size() == 1 ? files.get(0) : null;
+    return single != null ?
+           IdeBundle.message("action.synchronize.file", VfsPresentationUtil.getPresentableNameForAction(project, single)) :
            IdeBundle.message("action.synchronize.selected.files");
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = getEventProject(e);
     List<VirtualFile> files = getFiles(e).toList();
     if (project == null || files.isEmpty()) return;
@@ -73,7 +72,7 @@ public class SynchronizeCurrentFileAction extends AnAction implements DumbAware 
     RefreshQueue.getInstance().refresh(true, true, () -> postRefresh(project, files), files);
   }
 
-  private static void postRefresh(Project project, List<VirtualFile> files) {
+  private static void postRefresh(Project project, List<? extends VirtualFile> files) {
     VcsDirtyScopeManager dirtyScopeManager = VcsDirtyScopeManager.getInstance(project);
     for (VirtualFile f : files) {
       if (f.isDirectory()) {
@@ -86,12 +85,12 @@ public class SynchronizeCurrentFileAction extends AnAction implements DumbAware 
 
     StatusBar statusBar = WindowManager.getInstance().getStatusBar(project);
     if (statusBar != null) {
-      statusBar.setInfo(IdeBundle.message("action.sync.completed.successfully", getMessage(files)));
+      statusBar.setInfo(IdeBundle.message("action.sync.completed.successfully", getMessage(project, files)));
     }
   }
 
   @NotNull
-  private static JBIterable<VirtualFile> getFiles(AnActionEvent e) {
+  private static JBIterable<VirtualFile> getFiles(@NotNull AnActionEvent e) {
     return JBIterable.of(e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY))
       .filter(o -> o.isInLocalFileSystem());
   }

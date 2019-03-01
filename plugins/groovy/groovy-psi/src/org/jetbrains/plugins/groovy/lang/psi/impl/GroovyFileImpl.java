@@ -1,7 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.lang.ASTNode;
@@ -9,7 +6,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.scope.ElementClassHint;
-import com.intellij.psi.scope.NameHint;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.util.CachedValueProvider;
@@ -21,7 +17,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration;
@@ -42,7 +38,6 @@ import org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyFileImports;
 import org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyImports;
 
 import static org.jetbrains.plugins.groovy.lang.resolve.ResolveUtilKt.processLocals;
-import static org.jetbrains.plugins.groovy.lang.resolve.ResolveUtilKt.shouldProcessPackages;
 import static org.jetbrains.plugins.groovy.lang.resolve.bindings.BindingsKt.processBindings;
 
 /**
@@ -88,7 +83,7 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
       return null;
     }
 
-    ASTNode node = calcTreeElement().findChildByType(GroovyElementTypes.PACKAGE_DEFINITION);
+    ASTNode node = calcTreeElement().findChildByType(GroovyStubElementTypes.PACKAGE_DEFINITION);
     return node != null ? (GrPackageDefinition)node.getPsi() : null;
   }
 
@@ -128,27 +123,6 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
 
     if (!super.processDeclarations(processor, state, lastParent, place)) return false;
 
-    if (shouldProcessPackages(processor)) {
-      NameHint nameHint = processor.getHint(NameHint.KEY);
-      String expectedName = nameHint != null ? nameHint.getName(state) : null;
-
-      final JavaPsiFacade facade = JavaPsiFacade.getInstance(getProject());
-      if (expectedName != null) {
-        final PsiPackage pkg = facade.findPackage(expectedName);
-        if (pkg != null && !processor.execute(pkg, state)) {
-          return false;
-        }
-      }
-      else {
-        PsiPackage defaultPackage = facade.findPackage("");
-        if (defaultPackage != null) {
-          for (PsiPackage subPackage : defaultPackage.getSubPackages(getResolveScope())) {
-            if (!ResolveUtil.processElement(processor, subPackage, state)) return false;
-          }
-        }
-      }
-    }
-
     if (ResolveUtil.shouldProcessProperties(classHint)) {
       if (lastParent != null && !(lastParent instanceof GrTypeDefinition) && scriptClass != null) {
         if (!ResolveUtil.processElement(processor, getSyntheticArgsParameter(), state)) return false;
@@ -167,10 +141,10 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
   public GrImportStatement[] getImportStatements() {
     final StubElement<?> stub = getStub();
     if (stub != null) {
-      return stub.getChildrenByType(GroovyElementTypes.IMPORT_STATEMENT, GrImportStatement.ARRAY_FACTORY);
+      return stub.getChildrenByType(GroovyStubElementTypes.IMPORT, GrImportStatement.ARRAY_FACTORY);
     }
 
-    return calcTreeElement().getChildrenAsPsiElements(GroovyElementTypes.IMPORT_STATEMENT, GrImportStatement.ARRAY_FACTORY);
+    return calcTreeElement().getChildrenAsPsiElements(GroovyStubElementTypes.IMPORT, GrImportStatement.ARRAY_FACTORY);
   }
 
   @Override
@@ -336,7 +310,6 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
   }
 
   @Override
-  @SuppressWarnings({"CloneDoesntDeclareCloneNotSupportedException"})
   protected GroovyFileImpl clone() {
     GroovyFileImpl clone = (GroovyFileImpl)super.clone();
     clone.myContext = myContext;
@@ -393,8 +366,10 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
     return !isScript() || PsiTreeUtil.getParentOfType(place, GrTypeDefinition.class, GrVariableDeclaration.class) != null;
   }
 
-  protected GroovyFileImports getImports() {
-    return GroovyImports.getImports(this);
+  @NotNull
+  @Override
+  public GroovyFileImports getImports() {
+    return GroovyImports.getFileImports(this);
   }
 
   @Override

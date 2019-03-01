@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui;
 
 import com.intellij.icons.AllIcons;
@@ -9,7 +7,6 @@ import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
@@ -428,6 +425,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
 
     myExpandedPopup = JBPopupFactory.getInstance()
       .createComponentPopupBuilder(component, expressionEditor.getPreferredFocusedComponent())
+      .setMayBeParent(true)
       .setFocusable(true)
       .setResizable(true)
       .setRequestFocus(true)
@@ -443,9 +441,10 @@ public abstract class XDebuggerEditorBase implements Expandable {
         }
       }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_MASK))))
       .setCancelCallback(() -> {
+        setExpression(expressionEditor.getExpression());
+        requestFocusInEditor();
         Editor baseEditor = getEditor();
         if (baseEditor != null) {
-          WriteAction.run(() -> baseEditor.getDocument().setText(expressionEditor.getExpression().getExpression()));
           foldNewLines((EditorEx)baseEditor);
           Editor newEditor = expressionEditor.getEditor();
           if (newEditor != null) {
@@ -526,8 +525,9 @@ public abstract class XDebuggerEditorBase implements Expandable {
 
   @NotNull
   private static String getAdText() {
-    return DebuggerUIUtil.getShortcutsAdText("xdebugger.evaluate.history.navigate.ad",
-                                             IdeActions.ACTION_NEXT_OCCURENCE, IdeActions.ACTION_PREVIOUS_OCCURENCE);
+    return XDebuggerBundle.message("xdebugger.evaluate.history.navigate.ad",
+                                   KeymapUtil.getKeystrokeText(KeymapUtil.getKeyStroke(CommonShortcuts.MOVE_DOWN)) + ", " +
+                                   KeymapUtil.getKeystrokeText(KeymapUtil.getKeyStroke(CommonShortcuts.MOVE_UP)));
   }
 
   public static void copyCaretPosition(@Nullable Editor source, @Nullable Editor destination) {
@@ -553,7 +553,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
     static final Color ENABLED_COLOR = new Color(0x787878);
     static final Color DISABLED_COLOR = new JBColor(0xB2B2B2, 0x5C5D5F);
 
-    public LanguageChooser() {
+    LanguageChooser() {
       setHorizontalTextPosition(SwingConstants.LEFT);
       setIconTextGap(0);
       setToolTipText(XDebuggerBundle.message("xdebugger.evaluate.language.hint"));

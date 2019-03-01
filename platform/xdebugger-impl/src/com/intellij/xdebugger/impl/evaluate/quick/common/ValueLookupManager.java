@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class ValueLookupManager
@@ -24,9 +10,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.event.EditorMouseAdapter;
 import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.event.EditorMouseEventArea;
+import com.intellij.openapi.editor.event.EditorMouseListener;
 import com.intellij.openapi.editor.event.EditorMouseMotionListener;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
@@ -42,7 +28,7 @@ import org.jetbrains.concurrency.Promise;
 
 import java.awt.*;
 
-public class ValueLookupManager extends EditorMouseAdapter implements EditorMouseMotionListener {
+public class ValueLookupManager implements EditorMouseMotionListener, EditorMouseListener {
   /**
    * @see XDebuggerUtil#disableValueLookup(Editor)
    */
@@ -69,16 +55,12 @@ public class ValueLookupManager extends EditorMouseAdapter implements EditorMous
   }
 
   @Override
-  public void mouseDragged(EditorMouseEvent e) {
-  }
-
-  @Override
-  public void mouseExited(EditorMouseEvent e) {
+  public void mouseExited(@NotNull EditorMouseEvent e) {
     myAlarm.cancelAllRequests();
   }
 
   @Override
-  public void mouseMoved(EditorMouseEvent e) {
+  public void mouseMoved(@NotNull EditorMouseEvent e) {
     if (e.isConsumed()) {
       return;
     }
@@ -173,7 +155,7 @@ public class ValueLookupManager extends EditorMouseAdapter implements EditorMous
     catch (IndexNotReadyException e) {
       return;
     }
-    hintPromise.done(hint -> {
+    hintPromise.onSuccess(hint -> {
       if (hint == null)
         return;
       if (myRequest != null && myRequest.equals(hint)) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.lookup.impl;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -40,16 +26,15 @@ import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.ClickListener;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.ScreenUtil;
-import com.intellij.ui.ScrollPaneFactory;
+import com.intellij.ui.*;
+import com.intellij.ui.border.CustomLineBorder;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.Alarm;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.ui.AbstractLayoutManager;
 import com.intellij.util.ui.AsyncProcessIcon;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,8 +42,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
+import javax.swing.border.CompoundBorder;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import java.awt.*;
@@ -98,7 +82,6 @@ class LookupUi {
     myIconPanel.add(myProcessIcon);
 
     JComponent adComponent = advertiser.getAdComponent();
-    adComponent.setBorder(new EmptyBorder(0, 1, 1, 2 + AllIcons.Ide.LookupRelevance.getIconWidth()));
     myLayeredPane.mainPanel.add(adComponent, BorderLayout.SOUTH);
 
     myScrollPane = ScrollPaneFactory.createScrollPane(lookup.getList(), true);
@@ -110,7 +93,7 @@ class LookupUi {
 
     myLayeredPane.mainPanel.add(myScrollPane, BorderLayout.CENTER);
 
-    mySortingLabel.setBorder(new LineBorder(new JBColor(Color.LIGHT_GRAY, JBColor.background())));
+    mySortingLabel.setBorder(new CustomLineBorder(new JBColor(Gray._192, JBColor.background()), JBUI.insets(1)));
     mySortingLabel.setOpaque(true);
     new ChangeLookupSorting().installOn(mySortingLabel);
     updateSorting();
@@ -129,7 +112,7 @@ class LookupUi {
       @Override
       public void valueChanged(ListSelectionEvent e) {
         if (myLookup.isLookupDisposed()) return;
-        
+
         myHintAlarm.cancelAllRequests();
 
         final LookupElement item = myLookup.getCurrentItem();
@@ -323,10 +306,7 @@ class LookupUi {
 
           Dimension adSize = myAdvertiser.getAdComponent().getPreferredSize();
 
-          int panelHeight = myList.getPreferredScrollableViewportSize().height + adSize.height;
-          if (myList.getModel().getSize() > myList.getVisibleRowCount() && myList.getVisibleRowCount() >= 5) {
-            panelHeight -= myList.getFixedCellHeight() / 2;
-          }
+          int panelHeight = myScrollPane.getPreferredSize().height + adSize.height;
           int width = Math.max(listWidth, adSize.width);
           width = Math.min(width, Registry.intValue("ide.completion.max.width"));
           int height = Math.min(panelHeight, myMaximumHeight);
@@ -389,8 +369,8 @@ class LookupUi {
   }
 
   private class LookupHint extends JLabel {
-    private final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
-    private final Border ACTIVE_BORDER = BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(Color.BLACK, 1), BorderFactory.createEmptyBorder(1, 1, 1, 1));
+    private final Border INACTIVE_BORDER = JBUI.Borders.empty(2);
+    private final Border ACTIVE_BORDER = new CompoundBorder(new CustomLineBorder(JBColor.BLACK, JBUI.insets(1)), JBUI.Borders.empty(1));
     private LookupHint() {
       setOpaque(false);
       setBorder(INACTIVE_BORDER);
@@ -435,16 +415,21 @@ class LookupUi {
     }
 
     private AnAction createSortingAction(boolean checked) {
-      boolean currentSetting = UISettings.getInstance().getSortLookupElementsLexicographically();
-      final boolean newSetting = checked == currentSetting;
-      return new DumbAwareAction(newSetting ? "Sort lexicographically" : "Sort by relevance", null, checked ? PlatformIcons.CHECK_ICON : null) {
+      boolean isAlpha = UISettings.getInstance().getSortLookupElementsLexicographically();
+      boolean makeAlpha = checked == isAlpha;
+      class ChangeSortingAction extends DumbAwareAction implements HintManagerImpl.ActionToIgnore {
+        ChangeSortingAction() {
+          super(makeAlpha ? "Sort alphabetically" : "Sort by relevance", null, checked ? PlatformIcons.CHECK_ICON : null);
+        }
+
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           FeatureUsageTracker.getInstance().triggerFeatureUsed(CodeCompletionFeatures.EDITING_COMPLETION_CHANGE_SORTING);
-          UISettings.getInstance().setSortLookupElementsLexicographically(newSetting);
+          UISettings.getInstance().setSortLookupElementsLexicographically(makeAlpha);
           updateSorting();
         }
-      };
+      }
+      return new ChangeSortingAction();
     }
   }
 

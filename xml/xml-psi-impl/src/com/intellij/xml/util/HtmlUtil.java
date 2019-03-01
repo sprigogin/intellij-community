@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.codeInspection.InspectionProfile;
@@ -51,10 +37,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xml.Html5SchemaProvider;
-import com.intellij.xml.XmlAttributeDescriptor;
-import com.intellij.xml.XmlElementDescriptor;
-import com.intellij.xml.XmlNSDescriptor;
+import com.intellij.xml.*;
 import com.intellij.xml.impl.schema.XmlAttributeDescriptorImpl;
 import com.intellij.xml.impl.schema.XmlElementDescriptorImpl;
 import com.intellij.xml.util.documentation.MimeTypeDictionary;
@@ -74,7 +57,7 @@ public class HtmlUtil {
   @NonNls private static final String JSFC = "jsfc";
   @NonNls private static final String CHARSET = "charset";
   @NonNls private static final String CHARSET_PREFIX = CHARSET+"=";
-  @NonNls private static final String HTML5_DATA_ATTR_PREFIX = "data-";
+  @NonNls public static final String HTML5_DATA_ATTR_PREFIX = "data-";
 
   public static final String SCRIPT_TAG_NAME = "script";
   public static final String STYLE_TAG_NAME = "style";
@@ -150,6 +133,13 @@ public class HtmlUtil {
     ContainerUtil.addAll(HTML5_TAGS_SET, HTML5_TAGS);
   }
 
+  public static boolean isSingleHtmlTag(@NotNull XmlTag tag, boolean lowerCase) {
+    final XmlExtension extension = XmlExtension.getExtensionByElement(tag);
+    final String name = tag.getName();
+    boolean result = EMPTY_TAGS_MAP.contains(lowerCase ? name.toLowerCase(Locale.US) : name);
+    return result && (extension == null || !extension.isSingleTagException(tag));
+  }
+
   public static boolean isSingleHtmlTag(String tagName) {
     return EMPTY_TAGS_MAP.contains(tagName.toLowerCase(Locale.US));
   }
@@ -193,12 +183,16 @@ public class HtmlUtil {
 
   public static void addHtmlSpecificCompletions(final XmlElementDescriptor descriptor,
                                                 final XmlTag element,
-                                                final List<XmlElementDescriptor> variants) {
+                                                final List<? super XmlElementDescriptor> variants) {
     // add html block completions for tags with optional ends!
     String name = descriptor.getName(element);
 
     if (name != null && isOptionalEndForHtmlTag(name)) {
       PsiElement parent = element.getParent();
+
+      if (parent instanceof XmlTag && XmlChildRole.CLOSING_TAG_START_FINDER.findChild(parent.getNode()) != null) {
+        return;
+      }
 
       if (parent != null) {
         // we need grand parent since completion already uses parent's descriptor
@@ -434,7 +428,7 @@ public class HtmlUtil {
   }
 
   public static boolean isHtmlTag(@NotNull XmlTag tag) {
-    if (tag.getLanguage() != HTMLLanguage.INSTANCE) return false;
+    if (!tag.getLanguage().isKindOf(HTMLLanguage.INSTANCE)) return false;
 
     XmlDocument doc = PsiTreeUtil.getParentOfType(tag, XmlDocument.class);
 
@@ -592,7 +586,7 @@ public class HtmlUtil {
         }
 
         @Override
-        public void error(String message, int startOffset, int endOffset) {
+        public void error(@NotNull String message, int startOffset, int endOffset) {
         }
       });
     }

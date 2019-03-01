@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search.scope.packageSet;
 
 import com.intellij.icons.AllIcons;
@@ -14,6 +12,7 @@ import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.util.xmlb.annotations.XCollection;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.ArrayList;
@@ -27,16 +26,18 @@ public class NamedScopeManager extends NamedScopesHolder {
     super(project);
   }
 
+  @NotNull
   public static NamedScopeManager getInstance(Project project) {
     return ServiceManager.getService(project, NamedScopeManager.class);
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     super.loadState(state);
     XmlSerializer.deserializeInto(myOrderState, state);
   }
 
+  @NotNull
   @Override
   public Element getState() {
     Element state = super.getState();
@@ -44,6 +45,7 @@ public class NamedScopeManager extends NamedScopesHolder {
     return state;
   }
 
+  @NotNull
   @Override
   public String getDisplayName() {
     return IdeBundle.message("local.scopes.node.text");

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex.util;
 
 import com.intellij.lexer.FlexAdapter;
@@ -36,13 +22,12 @@ import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileTypes.PlainSyntaxHighlighter;
 import com.intellij.openapi.fileTypes.SyntaxHighlighter;
 import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.text.ImmutableCharSequence;
-import com.intellij.util.text.MergingCharSequence;
 import com.intellij.util.text.SingleCharSequence;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -137,7 +122,7 @@ public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDoc
     Project project = myEditor.getProject();
     return project != null && !project.isDisposed();
   }
-  
+
   private boolean isInSyncWithDocument() {
     Document document = getDocument();
     return document == null || document.getTextLength() == 0 || mySegments.getSegmentCount() > 0;
@@ -152,7 +137,7 @@ public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDoc
   }
 
   @Override
-  public synchronized void documentChanged(DocumentEvent e) {
+  public synchronized void documentChanged(@NotNull DocumentEvent e) {
     try {
       final Document document = e.getDocument();
       CharSequence text = document.getImmutableCharSequence();
@@ -389,13 +374,13 @@ public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDoc
       myLexer.advance();
     }
     processor.finish();
-    
+
     if (textLength > 0 && (mySegments.mySegmentCount == 0 || mySegments.myEnds[mySegments.mySegmentCount - 1] != textLength)) {
       throw new IllegalStateException("Unexpected termination offset for lexer " + myLexer);
     }
 
     if(myEditor != null && !ApplicationManager.getApplication().isHeadlessEnvironment()) {
-      UIUtil.invokeLaterIfNeeded((DumbAwareRunnable)() -> myEditor.repaint(0, textLength));
+      UIUtil.invokeLaterIfNeeded(() -> myEditor.repaint(0, textLength));
     }
   }
 
@@ -422,9 +407,7 @@ public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDoc
   public List<TextAttributes> getAttributesForPreviousAndTypedChars(@NotNull Document document, int offset, char c) {
     final CharSequence text = document.getImmutableCharSequence();
 
-    final CharSequence newText = new MergingCharSequence(
-      new MergingCharSequence(text.subSequence(0, offset), new SingleCharSequence(c)),
-      text.subSequence(offset, text.length()));
+    CharSequence newText = StringUtil.replaceSubSequence(text, offset, offset, new SingleCharSequence(c));
 
     final List<IElementType> tokenTypes = getTokenType(newText, offset);
 
@@ -495,14 +478,22 @@ public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDoc
 
   @NotNull
   TextAttributes convertAttributes(@NotNull TextAttributesKey[] keys) {
-    TextAttributes attrs = new TextAttributes();
+    TextAttributes resultAttributes = new TextAttributes();
+    boolean firstPass = true;
     for (TextAttributesKey key : keys) {
-      TextAttributes attrs2 = myScheme.getAttributes(key);
-      if (attrs2 != null) {
-        attrs = TextAttributes.merge(attrs, attrs2);
+      TextAttributes attributesByKey = myScheme.getAttributes(key);
+      if (attributesByKey == null) {
+        continue;
+      }
+      if (firstPass) {
+        resultAttributes.copyFrom(attributesByKey);
+        firstPass = false;
+      }
+      else {
+        resultAttributes = TextAttributes.merge(resultAttributes, attributesByKey);
       }
     }
-    return attrs;
+    return resultAttributes;
   }
 
   @Override

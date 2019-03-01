@@ -9,7 +9,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public class GetDescriptionCommand extends AbstractFrameCommand {
 
-  private String myActionToken;
+  private final String myActionToken;
   private String result = null;
 
   public GetDescriptionCommand(final RemoteDebugger debugger, String threadId, String frameId, final String myActionToken) {
@@ -21,6 +21,11 @@ public class GetDescriptionCommand extends AbstractFrameCommand {
   @Override
   public boolean isResponseExpected() {
     return true;
+  }
+
+  @Override
+  protected long getResponseTimeout() {
+    return RemoteDebugger.SHORT_TIMEOUT;
   }
 
   @Override

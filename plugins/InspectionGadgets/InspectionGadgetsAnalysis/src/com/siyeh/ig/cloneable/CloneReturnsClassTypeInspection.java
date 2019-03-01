@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.cloneable;
 
 import com.intellij.codeInspection.ProblemDescriptor;
@@ -63,7 +49,7 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
 
     final String myClassName;
 
-    public CloneReturnsClassTypeFix(String className) {
+    CloneReturnsClassTypeFix(String className) {
       myClassName = className;
     }
 
@@ -106,7 +92,7 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
             return;
           }
           CommentTracker commentTracker = new CommentTracker();
-          PsiReplacementUtil.replaceStatement(statement, "return (" + myClassName + ')' + commentTracker.markUnchanged(returnValue).getText() + ';', commentTracker);
+          PsiReplacementUtil.replaceStatement(statement, "return (" + myClassName + ')' + commentTracker.text(returnValue) + ';', commentTracker);
         }
       });
       element.replace(newTypeElement);
@@ -132,7 +118,12 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
       }
       final PsiType returnType = typeElement.getType();
       final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(returnType);
-      final PsiClass containingClass = method.getContainingClass();
+      PsiClass containingClass = method.getContainingClass();
+      if (containingClass instanceof PsiAnonymousClass) {
+        final PsiAnonymousClass anonymousClass = (PsiAnonymousClass)containingClass;
+        final PsiClassType baseClassType = anonymousClass.getBaseClassType();
+        containingClass = PsiUtil.resolveClassInClassTypeOnly(baseClassType);
+      }
       if (containingClass == null || containingClass.equals(aClass)) {
         return;
       }

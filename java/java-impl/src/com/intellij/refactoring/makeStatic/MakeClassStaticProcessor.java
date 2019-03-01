@@ -18,7 +18,10 @@ package com.intellij.refactoring.makeStatic;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -48,6 +51,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     super(project, aClass, settings);
   }
 
+  @Override
   protected void changeSelf(final PsiElementFactory factory, final UsageInfo[] usages) throws IncorrectOperationException {
     PsiClass containingClass = myMember.getContainingClass();
 
@@ -77,8 +81,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
       constructors = new PsiMethod[]{defConstructor};
     }
 
-    boolean generateFinalParams =
-      CodeStyleSettingsManager.getSettings(myProject).getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_PARAMETERS;
+    boolean generateFinalParams = JavaCodeStyleSettings.getInstance(myMember.getContainingFile()).GENERATE_FINAL_PARAMETERS;
     for (PsiMethod constructor : constructors) {
       final MethodJavaDocHelper javaDocHelper = new MethodJavaDocHelper(constructor);
       PsiParameterList paramList = constructor.getParameterList();
@@ -140,7 +143,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
   private void addAssignmentToField(final String parameterName, final PsiMethod constructor) {
     @NonNls String fieldName = convertToFieldName(parameterName);
     final PsiManager manager = PsiManager.getInstance(myProject);
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     final PsiCodeBlock body = constructor.getBody();
     if (body != null) {
       try {
@@ -163,11 +166,12 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     return fieldName;
   }
 
+  @Override
   protected void changeSelfUsage(final SelfUsageInfo usageInfo) throws IncorrectOperationException {
     PsiElement parent = usageInfo.getElement().getParent();
     LOG.assertTrue(parent instanceof PsiCallExpression); //either this() or new()
     PsiCallExpression call = (PsiCallExpression) parent;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(call.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(call.getProject());
     PsiExpressionList args = call.getArgumentList();
     PsiElement addParameterAfter = null;
 
@@ -190,6 +194,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     }
   }
 
+  @Override
   protected void changeInternalUsage(final InternalUsageInfo usage, final PsiElementFactory factory) throws IncorrectOperationException {
     if (!mySettings.isChangeSignature()) return;
 
@@ -240,6 +245,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     }
   }
 
+  @Override
   protected void changeExternalUsage(final UsageInfo usage, final PsiElementFactory factory) throws IncorrectOperationException {
     final PsiElement element = usage.getElement();
     if (!(element instanceof PsiJavaCodeReferenceElement)) return;
@@ -352,6 +358,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     }
   }
 
+  @Override
   protected MultiMap<PsiElement,String> getConflictDescriptions(final UsageInfo[] usages) {
     final MultiMap<PsiElement, String> conflicts = super.getConflictDescriptions(usages);
 
@@ -383,6 +390,7 @@ public class MakeClassStaticProcessor extends MakeMethodOrClassStaticProcessor<P
     return conflicts;
   }
 
+  @Override
   protected void findExternalUsages(final ArrayList<UsageInfo> result) {
     PsiMethod[] constructors = myMember.getConstructors();
     if (constructors.length > 0) {

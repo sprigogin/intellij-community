@@ -1,8 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.psi
 
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.PsiJavaFile
+import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
 import com.intellij.util.ThrowableRunnable
 import groovy.transform.CompileStatic
@@ -28,13 +29,13 @@ class JavaPsiTest extends LightCodeInsightFixtureTestCase {
     def file = configureFile("module M { opens pkg; }")
     def statement = file.moduleDeclaration.opens.first()
     def facade = myFixture.javaFacade.parserFacade
-    runCommand { statement.add(facade.createModuleReferenceFromText("M1")) }
+    runCommand { statement.add(facade.createModuleReferenceFromText("M1", null)) }
     assert statement.text == "opens pkg to M1;"
-    runCommand { statement.add(facade.createModuleReferenceFromText("M2")) }
+    runCommand { statement.add(facade.createModuleReferenceFromText("M2", null)) }
     assert statement.text == "opens pkg to M1, M2;"
     runCommand { statement.lastChild.delete() }
     assert statement.text == "opens pkg to M1, M2"
-    runCommand { statement.add(facade.createModuleReferenceFromText("M3")) }
+    runCommand { statement.add(facade.createModuleReferenceFromText("M3", null)) }
     assert statement.text == "opens pkg to M1, M2, M3"
   }
 
@@ -49,6 +50,29 @@ class JavaPsiTest extends LightCodeInsightFixtureTestCase {
     assert statement.text == "exports pkg to M2;"
     runCommand { refs[1].delete() }
     assert statement.text == "exports pkg;"
+  }
+
+  void testReferenceQualifierDeletion() {
+    def file = configureFile("class C {\n  Qualifier /*comment*/ . /*another*/ ref r;\n}")
+    def ref = file.classes[0].fields[0].typeElement.firstChild
+    assert ref != null
+    runCommand { ref.firstChild.delete() }
+    assert ref.text == "ref"
+  }
+
+  void testExpressionQualifierDeletion() {
+    def file = configureFile("class C {\n  Object o = qualifier /*comment*/ . /*another*/ expr;\n}")
+    def expr = file.classes[0].fields[0].initializer
+    assert expr != null
+    runCommand { expr.firstChild.delete() }
+    assert expr.text == "expr"
+  }
+
+  void "test add package statement into file with broken package"() {
+    def file = configureFile("package ;")
+    runCommand { file.setPackageName('foo') }
+    PsiTestUtil.checkFileStructure(file)
+    assert myFixture.editor.document.text.startsWith('package foo;')
   }
 
   private PsiJavaFile configureFile(String text) {

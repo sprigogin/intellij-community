@@ -84,11 +84,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
 
     private final OrderEntry myEntry;
 
-    @Override
-    public void update() {
-    }
-
-    public LibraryUsageGroup(@NotNull OrderEntry entry) {
+    LibraryUsageGroup(@NotNull OrderEntry entry) {
       super(2);
       myEntry = entry;
     }
@@ -117,11 +113,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
   private static class SyntheticLibraryUsageGroup extends UsageGroupBase {
     @NotNull private final ItemPresentation myItemPresentation;
 
-    @Override
-    public void update() {
-    }
-
-    public SyntheticLibraryUsageGroup(@NotNull ItemPresentation itemPresentation) {
+    SyntheticLibraryUsageGroup(@NotNull ItemPresentation itemPresentation) {
       super(2);
       myItemPresentation = itemPresentation;
     }
@@ -151,7 +143,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     private final Module myModule;
     private final ModuleGrouper myGrouper;
 
-    public ModuleUsageGroup(@NotNull Module module, @Nullable ModuleGrouper grouper) {
+    ModuleUsageGroup(@NotNull Module module, @Nullable ModuleGrouper grouper) {
       super(1);
       myModule = module;
       myGrouper = grouper;
@@ -191,7 +183,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     }
 
     @Override
-    public void calcData(final DataKey key, final DataSink sink) {
+    public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
       if (!isValid()) return;
       if (LangDataKeys.MODULE_CONTEXT == key) {
         sink.put(LangDataKeys.MODULE_CONTEXT, myModule);
@@ -202,7 +194,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
   private static class ModuleGroupUsageGroup extends UsageGroupBase {
     private final List<String> myGroupPath;
 
-    public ModuleGroupUsageGroup(@NotNull List<String> groupPath) {
+    ModuleGroupUsageGroup(@NotNull List<String> groupPath) {
       super(0);
       myGroupPath = groupPath;
     }

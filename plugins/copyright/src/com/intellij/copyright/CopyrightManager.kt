@@ -1,10 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.copyright
 
 import com.intellij.configurationStore.*
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.AppUIExecutor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.PersistentStateComponent
@@ -28,8 +27,6 @@ import com.intellij.packageDependencies.DependencyValidationManager
 import com.intellij.project.isDirectoryBased
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
-import com.intellij.util.attribute
-import com.intellij.util.element
 import com.maddyhome.idea.copyright.CopyrightProfile
 import com.maddyhome.idea.copyright.actions.UpdateCopyrightProcessor
 import com.maddyhome.idea.copyright.options.LanguageOptions
@@ -49,7 +46,7 @@ private const val MODULE = "module"
 
 private val LOG = Logger.getInstance(CopyrightManager::class.java)
 
-@State(name = "CopyrightManager", storages = arrayOf(Storage(value = "copyright/profiles_settings.xml", exclusive = true)))
+@State(name = "CopyrightManager", storages = [(Storage(value = "copyright/profiles_settings.xml", exclusive = true))])
 class CopyrightManager @JvmOverloads constructor(private val project: Project, schemeManagerFactory: SchemeManagerFactory, isSupportIprProjects: Boolean = true) : PersistentStateComponent<Element> {
   companion object {
     @JvmStatic
@@ -77,12 +74,21 @@ class CopyrightManager @JvmOverloads constructor(private val project: Project, s
   private val schemeManager = schemeManagerFactory.create("copyright", object : LazySchemeProcessor<SchemeWrapper<CopyrightProfile>, SchemeWrapper<CopyrightProfile>>("myName") {
     override fun createScheme(dataHolder: SchemeDataHolder<SchemeWrapper<CopyrightProfile>>,
                               name: String,
-                              attributeProvider: Function<String, String?>,
+                              attributeProvider: Function<in String, String?>,
                               isBundled: Boolean): SchemeWrapper<CopyrightProfile> {
       return CopyrightLazySchemeWrapper(name, dataHolder, schemeWriter)
     }
 
     override fun isSchemeFile(name: CharSequence) = !StringUtil.equals(name, "profiles_settings.xml")
+
+    override fun getSchemeKey(attributeProvider: Function<String, String?>, fileNameWithoutExtension: String): String {
+      val schemeKey = super.getSchemeKey(attributeProvider, fileNameWithoutExtension)
+      if (schemeKey != null) {
+        return schemeKey
+      }
+      LOG.warn("Name is not specified for scheme $fileNameWithoutExtension, file name will be used instead")
+      return fileNameWithoutExtension
+    }
   }, schemeNameToFileName = OLD_NAME_CONVERTER, streamProvider = schemeManagerIprProvider)
 
   init {
@@ -118,9 +124,11 @@ class CopyrightManager @JvmOverloads constructor(private val project: Project, s
       if (!scopeToCopyright.isEmpty()) {
         val map = Element(MODULE_TO_COPYRIGHT)
         for ((scopeName, profileName) in scopeToCopyright) {
-          map.element(ELEMENT)
-              .attribute(MODULE, scopeName)
-              .attribute(COPYRIGHT, profileName)
+          val e = Element(ELEMENT)
+          e
+            .setAttribute(MODULE, scopeName)
+            .setAttribute(COPYRIGHT, profileName)
+          map.addContent(e)
         }
         result.addContent(map)
       }
@@ -220,9 +228,9 @@ private class CopyrightManagerPostStartupActivity : StartupActivity {
           return
         }
 
-        ApplicationManager.getApplication().invokeLater(Runnable {
+        AppUIExecutor.onUiThread(ModalityState.NON_MODAL).later().withDocumentsCommitted(project).execute {
           if (!virtualFile.isValid) {
-            return@Runnable
+            return@execute
           }
 
           val file = PsiManager.getInstance(project).findFile(virtualFile)
@@ -231,7 +239,7 @@ private class CopyrightManagerPostStartupActivity : StartupActivity {
               UpdateCopyrightProcessor(project, module, file).run()
             }
           }
-        }, ModalityState.NON_MODAL, project.disposed)
+        }
       }
     }, project)
   }
@@ -239,7 +247,7 @@ private class CopyrightManagerPostStartupActivity : StartupActivity {
 
 private fun wrapScheme(element: Element): Element {
   val wrapper = Element("component")
-      .attribute("name", "CopyrightManager")
+      .setAttribute("name", "CopyrightManager")
   wrapper.addContent(element)
   return wrapper
 }
@@ -258,6 +266,9 @@ private class CopyrightLazySchemeWrapper(name: String,
     }
 
     element.deserializeInto(scheme)
+    // use effective name instead of probably missed from the serialized
+    // https://youtrack.jetbrains.com/v2/issue/IDEA-186546
+    scheme.profileName = name
 
     @Suppress("DEPRECATION")
     val allowReplaceKeyword = scheme.allowReplaceKeyword

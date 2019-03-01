@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
  */
 package com.siyeh.ipp.shift;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
-import com.siyeh.IntentionPowerPackBundle;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
@@ -41,9 +41,7 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
       else {
         operatorString = "/";
       }
-      return IntentionPowerPackBundle.message(
-        "replace.some.operator.with.other.intention.name",
-        sign.getText(), operatorString);
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", sign.getText(), operatorString);
     }
     else {
       final PsiAssignmentExpression exp =
@@ -57,9 +55,7 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
       else {
         assignString = "/=";
       }
-      return IntentionPowerPackBundle.message(
-        "replace.some.operator.with.other.intention.name",
-        sign.getText(), assignString);
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", sign.getText(), assignString);
     }
   }
 
@@ -70,8 +66,7 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
   }
 
   @Override
-  public void processIntention(PsiElement element)
-    throws IncorrectOperationException {
+  public void processIntention(@NotNull PsiElement element) {
     if (element instanceof PsiBinaryExpression) {
       replaceShiftWithMultiplyOrDivide(element);
     }
@@ -80,13 +75,11 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
     }
   }
 
-  private static void replaceShiftAssignWithMultiplyOrDivideAssign(
-    PsiElement element)
-    throws IncorrectOperationException {
+  private static void replaceShiftAssignWithMultiplyOrDivideAssign(PsiElement element) {
     final PsiAssignmentExpression exp =
       (PsiAssignmentExpression)element;
     final PsiExpression lhs = exp.getLExpression();
-    final PsiExpression rhs = exp.getRExpression();
+    final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(exp.getRExpression());
     final IElementType tokenType = exp.getOperationTokenType();
     final String assignString;
     if (tokenType.equals(JavaTokenType.LTLTEQ)) {
@@ -97,16 +90,14 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
     }
     CommentTracker commentTracker = new CommentTracker();
     final String expString =
-      commentTracker.markUnchanged(lhs).getText() + assignString + ShiftUtils.getExpBase2(rhs);
+      commentTracker.text(lhs) + assignString + ShiftUtils.getExpBase2(rhs);
     PsiReplacementUtil.replaceExpression(exp, expString, commentTracker);
   }
 
-  private static void replaceShiftWithMultiplyOrDivide(PsiElement element)
-    throws IncorrectOperationException {
-    final PsiBinaryExpression exp =
-      (PsiBinaryExpression)element;
+  private static void replaceShiftWithMultiplyOrDivide(PsiElement element) {
+    final PsiBinaryExpression exp = (PsiBinaryExpression)element;
     final PsiExpression lhs = exp.getLOperand();
-    final PsiExpression rhs = exp.getROperand();
+    final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(exp.getROperand());
     final IElementType tokenType = exp.getOperationTokenType();
     final String operatorString;
     if (tokenType.equals(JavaTokenType.LTLT)) {
@@ -115,23 +106,13 @@ public class ReplaceShiftWithMultiplyIntention extends MutablyNamedIntention {
     else {
       operatorString = "/";
     }
-    final String lhsText;
-    if (ParenthesesUtils.getPrecedence(lhs) >
-        ParenthesesUtils.MULTIPLICATIVE_PRECEDENCE) {
-      lhsText = '(' + lhs.getText() + ')';
-    }
-    else {
-      lhsText = lhs.getText();
-    }
     CommentTracker commentTracker = new CommentTracker();
-    commentTracker.markUnchanged(lhs);
-    String expString =
-      lhsText + operatorString + ShiftUtils.getExpBase2(rhs);
+    final String lhsText = commentTracker.text(lhs, ParenthesesUtils.MULTIPLICATIVE_PRECEDENCE);
+    String expString = lhsText + operatorString + ShiftUtils.getExpBase2(rhs);
     final PsiElement parent = exp.getParent();
     if (parent instanceof PsiExpression) {
       if (!(parent instanceof PsiParenthesizedExpression) &&
-          ParenthesesUtils.getPrecedence((PsiExpression)parent) <
-          ParenthesesUtils.MULTIPLICATIVE_PRECEDENCE) {
+          ParenthesesUtils.getPrecedence((PsiExpression)parent) < ParenthesesUtils.MULTIPLICATIVE_PRECEDENCE) {
         expString = '(' + expString + ')';
       }
     }

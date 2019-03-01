@@ -39,11 +39,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * @author Denis Zhdanov
- * @since 4/15/13 8:37 AM
  */
 @Order(ExternalSystemConstants.BUILTIN_SERVICE_ORDER)
 public class ModuleDependencyDataService extends AbstractDependencyDataService<ModuleDependencyData, ModuleOrderEntry> {
@@ -67,10 +65,7 @@ public class ModuleDependencyDataService extends AbstractDependencyDataService<M
     String moduleName = orderEntry.getModuleName();
     final Module orderEntryModule = orderEntry.getModule();
     if(orderEntryModule != null) {
-      final String newName = modelsProvider.getModifiableModuleModel().getNewName(orderEntryModule);
-      if (newName != null) {
-        moduleName = newName;
-      }
+      moduleName = modelsProvider.getModifiableModuleModel().getActualName(orderEntryModule);
     }
     return moduleName;
   }
@@ -149,13 +144,13 @@ public class ModuleDependencyDataService extends AbstractDependencyDataService<M
                             @NotNull IdeModifiableModelsProvider modelsProvider) {
 
     // do not remove 'invalid' module dependencies on unloaded modules
-    List<? extends ExportableOrderEntry> filteredList = toRemove.stream().filter(o -> {
+    List<? extends ExportableOrderEntry> filteredList = ContainerUtil.filter(toRemove, o -> {
       if (o instanceof ModuleOrderEntry) {
         String moduleName = ((ModuleOrderEntry)o).getModuleName();
         return ModuleManager.getInstance(module.getProject()).getUnloadedModuleDescription(moduleName) == null;
       }
       return true;
-    }).collect(Collectors.toList());
+    });
     super.removeData(filteredList, module, modelsProvider);
   }
 }

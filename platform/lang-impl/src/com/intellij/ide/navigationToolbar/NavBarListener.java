@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.navigationToolbar;
 
 import com.intellij.ProjectTopics;
@@ -21,7 +7,10 @@ import com.intellij.ide.actions.CutAction;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.PopupAction;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -38,7 +27,7 @@ import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.problems.WolfTheProblemSolver;
+import com.intellij.problems.ProblemListener;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiTreeChangeEvent;
 import com.intellij.psi.PsiTreeChangeListener;
@@ -57,14 +46,14 @@ import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public class NavBarListener extends WolfTheProblemSolver.ProblemListener
-  implements ActionListener, FocusListener, FileStatusListener, AnActionListener, FileEditorManagerListener,
+public class NavBarListener
+  implements ProblemListener, ActionListener, FocusListener, FileStatusListener, AnActionListener, FileEditorManagerListener,
              PsiTreeChangeListener, ModuleRootListener, NavBarModelListener, PropertyChangeListener, KeyListener, WindowFocusListener,
              LafManagerListener {
   private static final String LISTENER = "NavBarListener";
   private static final String BUS = "NavBarMessageBus";
   private final NavBarPanel myPanel;
-  private boolean shouldFocusEditor = false;
+  private boolean shouldFocusEditor;
 
   static void subscribeTo(NavBarPanel panel) {
     if (panel.getClientProperty(LISTENER) != null) {
@@ -77,12 +66,12 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
     KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener(listener);
     FileStatusManager.getInstance(project).addFileStatusListener(listener);
     PsiManager.getInstance(project).addPsiTreeChangeListener(listener);
-    WolfTheProblemSolver.getInstance(project).addProblemListener(listener);
-    ActionManager.getInstance().addAnActionListener(listener);
 
     final MessageBusConnection connection = project.getMessageBus().connect();
+    connection.subscribe(AnActionListener.TOPIC, listener);
     connection.subscribe(ProjectTopics.PROJECT_ROOTS, listener);
     connection.subscribe(NavBarModelListener.NAV_BAR, listener);
+    connection.subscribe(ProblemListener.TOPIC, listener);
     connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, listener);
     panel.putClientProperty(BUS, connection);
     panel.addKeyListener(listener);
@@ -105,8 +94,6 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
       KeyboardFocusManager.getCurrentKeyboardFocusManager().removePropertyChangeListener(listener);
       FileStatusManager.getInstance(project).removeFileStatusListener(listener);
       PsiManager.getInstance(project).removePsiTreeChangeListener(listener);
-      WolfTheProblemSolver.getInstance(project).removeProblemListener(listener);
-      ActionManager.getInstance().removeAnActionListener(listener);
       final MessageBusConnection connection = (MessageBusConnection)panel.getClientProperty(BUS);
       panel.putClientProperty(BUS, null);
       if (connection != null) {
@@ -192,14 +179,18 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
     final DialogWrapper dialog = DialogWrapper.findInstance(e.getOppositeComponent());
     shouldFocusEditor =  dialog != null;
     if (dialog != null) {
-      Disposer.register(dialog.getDisposable(), new Disposable() {
-        @Override
-        public void dispose() {
-          if (dialog.getExitCode() == DialogWrapper.CANCEL_EXIT_CODE) {
-            shouldFocusEditor = false;
-          }
+      Disposable parent = dialog.getDisposable();
+      Disposable onParentDispose = () -> {
+        if (dialog.getExitCode() == DialogWrapper.CANCEL_EXIT_CODE) {
+          shouldFocusEditor = false;
         }
-      });
+      };
+      if (dialog.isDisposed()) {
+        Disposer.dispose(onParentDispose);
+      }
+      else {
+        Disposer.register(parent, onParentDispose);
+      }
     }
 
     // required invokeLater since in current call sequence KeyboardFocusManager is not initialized yet
@@ -277,7 +268,7 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
   }
 
   @Override
-  public void rootsChanged(ModuleRootEvent event) {
+  public void rootsChanged(@NotNull ModuleRootEvent event) {
     updateModel();
   }
 
@@ -312,7 +303,7 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
     }
   }
   @Override
-  public void afterActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event) {
+  public void afterActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
     if (shouldSkipAction(action)) return;
 
     if (myPanel.isInFloatingMode()) {
@@ -371,7 +362,7 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
   }
 
   @Override
-  public void lookAndFeelChanged(LafManager source) {
+  public void lookAndFeelChanged(@NotNull LafManager source) {
     myPanel.getNavBarUI().clearItems();
     myPanel.revalidate();
     myPanel.repaint();
@@ -390,12 +381,6 @@ public class NavBarListener extends WolfTheProblemSolver.ProblemListener
 
   @Override
   public void keyReleased(KeyEvent e) {}
-
-  @Override
-  public void beforeActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event) {}
-
-  @Override
-  public void beforeEditorTyping(char c, DataContext dataContext) {}
 
   @Override
   public void beforeChildAddition(@NotNull PsiTreeChangeEvent event) {}

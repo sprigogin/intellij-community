@@ -76,10 +76,10 @@ public class BuildoutUnresolvedPartInspection extends LocalInspectionTool {
         problems.add(d);
       }
     }
-    return problems.toArray(new ProblemDescriptor[problems.size()]);
+    return problems.toArray(ProblemDescriptor.EMPTY_ARRAY);
   }
 
-  private class Visitor extends PsiRecursiveElementVisitor {
+  private static class Visitor extends PsiRecursiveElementVisitor {
     private final List<BuildoutPartReference> unresolvedParts = Lists.newArrayList();
 
     @Override

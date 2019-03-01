@@ -1,26 +1,19 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.dataFlow;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.dataFlow.instructions.*;
+import com.intellij.codeInspection.dataFlow.value.DfaExpressionFactory;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValueFactory;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
@@ -28,21 +21,27 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.siyeh.ig.psiutils.VariableAccessUtils;
 import gnu.trove.THashSet;
+import one.util.streamex.IntStreamEx;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class DataFlowRunner {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.dataFlow.DataFlowRunner");
+  private static final int MERGING_BACK_BRANCHES_THRESHOLD = 50;
 
   private Instruction[] myInstructions;
   private final MultiMap<PsiElement, DfaMemoryState> myNestedClosures = new MultiMap<>();
@@ -50,16 +49,17 @@ public class DataFlowRunner {
   private final DfaValueFactory myValueFactory;
   private boolean myInlining = true;
   private boolean myCancelled = false;
+  private boolean myWasForciblyMerged = false;
   // Maximum allowed attempts to process instruction. Fail as too complex to process if certain instruction
   // is executed more than this limit times.
   static final int MAX_STATES_PER_BRANCH = 300;
 
   protected DataFlowRunner() {
-    this(false, true);
+    this(false, null);
   }
 
-  protected DataFlowRunner(boolean unknownMembersAreNullable, boolean honorFieldInitializers) {
-    myValueFactory = new DfaValueFactory(honorFieldInitializers, unknownMembersAreNullable);
+  protected DataFlowRunner(boolean unknownMembersAreNullable, PsiElement context) {
+    myValueFactory = new DfaValueFactory(context, unknownMembersAreNullable);
   }
 
   @NotNull
@@ -141,7 +141,7 @@ public class DataFlowRunner {
 
   public final RunnerResult analyzeCodeBlock(@NotNull PsiCodeBlock block,
                                              @NotNull InstructionVisitor visitor,
-                                             Consumer<DfaMemoryState> initialStateAdjuster) {
+                                             Consumer<? super DfaMemoryState> initialStateAdjuster) {
     final DfaMemoryState state = createMemoryState();
     initialStateAdjuster.accept(state);
     return analyzeMethod(block, visitor, false, Collections.singleton(state));
@@ -152,34 +152,23 @@ public class DataFlowRunner {
                                    @NotNull InstructionVisitor visitor,
                                    boolean ignoreAssertions,
                                    @NotNull Collection<? extends DfaMemoryState> initialStates) {
+    ControlFlow flow = null;
+    DfaInstructionState lastInstructionState = null;
     try {
-      final ControlFlow flow = new ControlFlowAnalyzer(myValueFactory, psiBlock, ignoreAssertions, myInlining).buildControlFlow();
+      TimeStats stats = new TimeStats();
+      flow = new ControlFlowAnalyzer(myValueFactory, psiBlock, ignoreAssertions, myInlining).buildControlFlow();
+      stats.endFlow();
       if (flow == null) return RunnerResult.NOT_APPLICABLE;
       int[] loopNumber = LoopAnalyzer.calcInLoop(flow);
 
-      Map<DfaVariableValue, DfaValue> initialValues = StreamEx.of(flow.accessedVariables())
-        .mapToEntry(var -> makeInitialValue(var, psiBlock)).nonNullValues().toMap();
-      for (DfaMemoryState state : initialStates) {
-        initialValues.forEach(state::setVarValue);
-      }
+      initializeVariables(psiBlock, initialStates, flow);
 
       int endOffset = flow.getInstructionCount();
       myInstructions = flow.getInstructions();
       myNestedClosures.clear();
+      myWasForciblyMerged = false;
 
-      Set<Instruction> joinInstructions = ContainerUtil.newHashSet();
-      for (int index = 0; index < myInstructions.length; index++) {
-        Instruction instruction = myInstructions[index];
-        if (instruction instanceof GotoInstruction) {
-          joinInstructions.add(myInstructions[((GotoInstruction)instruction).getOffset()]);
-        } else if (instruction instanceof ConditionalGotoInstruction) {
-          joinInstructions.add(myInstructions[((ConditionalGotoInstruction)instruction).getOffset()]);
-        } else if (instruction instanceof ControlTransferInstruction) {
-          joinInstructions.addAll(((ControlTransferInstruction)instruction).getPossibleTargetInstructions(myInstructions));
-        } else if (instruction instanceof MethodCallInstruction && !((MethodCallInstruction)instruction).getContracts().isEmpty()) {
-          joinInstructions.add(myInstructions[index + 1]);
-        }
-      }
+      Set<Instruction> joinInstructions = getJoinInstructions();
 
       if (LOG.isTraceEnabled()) {
         LOG.trace("Analyzing code block: " + psiBlock.getText());
@@ -199,12 +188,15 @@ public class DataFlowRunner {
       int stateLimit = Registry.intValue("ide.dfa.state.limit");
       int count = 0;
       while (!queue.isEmpty()) {
+        stats.startMerge();
         List<DfaInstructionState> states = queue.getNextInstructionStates(joinInstructions);
+        stats.endMerge();
         if (states.size() > MAX_STATES_PER_BRANCH) {
           LOG.trace("Too complex because too many different possible states");
           return RunnerResult.TOO_COMPLEX;
         }
         for (DfaInstructionState instructionState : states) {
+          lastInstructionState = instructionState;
           if (count++ > stateLimit) {
             LOG.trace("Too complex data flow: too many instruction states processed");
             return RunnerResult.TOO_COMPLEX;
@@ -225,6 +217,14 @@ public class DataFlowRunner {
             if (containsState(processed, instructionState)) {
               continue;
             }
+            if (processed.size() > MERGING_BACK_BRANCHES_THRESHOLD) {
+              stats.startMerge();
+              instructionState = mergeBackBranches(instructionState, processed);
+              stats.endMerge();
+              if (containsState(processed, instructionState)) {
+                continue;
+              }
+            }
             if (processed.size() > MAX_STATES_PER_BRANCH) {
               LOG.trace("Too complex because too many different possible states");
               return RunnerResult.TOO_COMPLEX;
@@ -238,9 +238,12 @@ public class DataFlowRunner {
           if (LOG.isDebugEnabled() && instruction instanceof ControlTransferInstruction && after.length == 0) {
             DfaMemoryState memoryState = instructionState.getMemoryState();
             if (!memoryState.isEmptyStack()) {
+              // can pop safely as this memory state is unnecessary anymore (after is empty)
               DfaValue topValue = memoryState.pop();
               if (!(topValue instanceof DfaControlTransferValue || psiBlock instanceof PsiCodeFragment && memoryState.isEmptyStack())) {
-                LOG.error("Stack is corrupted at " + instructionState);
+                // push back so error report includes this entry
+                memoryState.push(topValue);
+                reportDfaProblem(psiBlock, flow, instructionState, new RuntimeException("Stack is corrupted"));
               }
             }
           }
@@ -269,23 +272,99 @@ public class DataFlowRunner {
       }
 
       LOG.trace("Analysis ok");
+      myWasForciblyMerged |= queue.wasForciblyMerged();
+      stats.endProcess();
+      if (stats.isTooSlow()) {
+        String message = "Too slow DFA\nIf you report this problem, please consider including the attachments\n" + stats;
+        reportDfaProblem(psiBlock, flow, null, new RuntimeException(message));
+      }
       return RunnerResult.OK;
     }
-    catch (ArrayIndexOutOfBoundsException | EmptyStackException e) {
-      LOG.error(psiBlock.getText(), e);
+    catch (ProcessCanceledException ex) {
+      throw ex;
+    }
+    catch (RuntimeException e) {
+      reportDfaProblem(psiBlock, flow, lastInstructionState, e);
       return RunnerResult.ABORTED;
     }
   }
 
-  public RunnerResult analyzeMethodRecursively(PsiElement block, StandardInstructionVisitor visitor) {
+  @NotNull
+  private DfaInstructionState mergeBackBranches(DfaInstructionState instructionState, Collection<DfaMemoryState> processed) {
+    DfaMemoryStateImpl curState = (DfaMemoryStateImpl)instructionState.getMemoryState();
+    Object key = curState.getMergeabilityKey();
+    DfaMemoryStateImpl mergedState =
+      StreamEx.of(processed).select(DfaMemoryStateImpl.class).filterBy(DfaMemoryStateImpl::getMergeabilityKey, key)
+        .foldLeft(curState, (s1, s2) -> {
+          s1.merge(s2);
+          return s1;
+        });
+    instructionState = new DfaInstructionState(instructionState.getInstruction(), mergedState);
+    myWasForciblyMerged = true;
+    return instructionState;
+  }
+
+  boolean wasForciblyMerged() {
+    return myWasForciblyMerged;
+  }
+
+  @NotNull
+  private Set<Instruction> getJoinInstructions() {
+    Set<Instruction> joinInstructions = ContainerUtil.newHashSet();
+    for (int index = 0; index < myInstructions.length; index++) {
+      Instruction instruction = myInstructions[index];
+      if (instruction instanceof GotoInstruction) {
+        joinInstructions.add(myInstructions[((GotoInstruction)instruction).getOffset()]);
+      } else if (instruction instanceof ConditionalGotoInstruction) {
+        joinInstructions.add(myInstructions[((ConditionalGotoInstruction)instruction).getOffset()]);
+      } else if (instruction instanceof ControlTransferInstruction) {
+        IntStreamEx.of(((ControlTransferInstruction)instruction).getPossibleTargetIndices()).elements(myInstructions)
+                   .into(joinInstructions);
+      } else if (instruction instanceof MethodCallInstruction && !((MethodCallInstruction)instruction).getContracts().isEmpty()) {
+        joinInstructions.add(myInstructions[index + 1]);
+      }
+    }
+    return joinInstructions;
+  }
+
+  private static void reportDfaProblem(@NotNull PsiElement psiBlock,
+                                       ControlFlow flow,
+                                       DfaInstructionState lastInstructionState, RuntimeException e) {
+    Attachment[] attachments = {new Attachment("method_body.txt", psiBlock.getText())};
+    if (flow != null) {
+      String flowText = flow.toString();
+      if (lastInstructionState != null) {
+        int index = lastInstructionState.getInstruction().getIndex();
+        flowText = flowText.replaceAll("(?m)^", "  ");
+        flowText = flowText.replaceFirst("(?m)^ {2}" + index + ": ", "* " + index + ": ");
+      }
+      attachments = ArrayUtil.append(attachments, new Attachment("flow.txt", flowText));
+      if (lastInstructionState != null) {
+        DfaMemoryState memoryState = lastInstructionState.getMemoryState();
+        String memStateText = null;
+        try {
+          memStateText = memoryState.toString();
+        }
+        catch (RuntimeException second) {
+          e.addSuppressed(second);
+        }
+        if (memStateText != null) {
+          attachments = ArrayUtil.append(attachments, new Attachment("memory_state.txt", memStateText));
+        }
+      }
+    }
+    LOG.error(new RuntimeExceptionWithAttachments(e, attachments));
+  }
+
+  public RunnerResult analyzeMethodRecursively(@NotNull PsiElement block, StandardInstructionVisitor visitor) {
     Collection<DfaMemoryState> states = createInitialStates(block, visitor, false);
     if (states == null) return RunnerResult.NOT_APPLICABLE;
     return analyzeBlockRecursively(block, states, visitor);
   }
 
-  private RunnerResult analyzeBlockRecursively(PsiElement block,
-                                               Collection<? extends DfaMemoryState> states,
-                                               StandardInstructionVisitor visitor) {
+  public RunnerResult analyzeBlockRecursively(@NotNull PsiElement block,
+                                              Collection<? extends DfaMemoryState> states,
+                                              StandardInstructionVisitor visitor) {
     RunnerResult result = analyzeMethod(block, visitor, false, states);
     if (result != RunnerResult.OK) return result;
 
@@ -299,12 +378,44 @@ public class DataFlowRunner {
     return ref.get();
   }
 
+  private void initializeVariables(@NotNull PsiElement psiBlock,
+                                   @NotNull Collection<? extends DfaMemoryState> initialStates,
+                                   ControlFlow flow) {
+    if (psiBlock instanceof PsiClass) {
+      DfaVariableValue thisValue = getFactory().getVarFactory().createThisValue((PsiClass)psiBlock);
+      // In class initializer this variable is local until escaped
+      for (DfaMemoryState state : initialStates) {
+        state.applyFact(thisValue, DfaFactType.LOCALITY, true);
+      }
+      return;
+    }
+    PsiElement parent = psiBlock.getParent();
+    if (parent instanceof PsiMethod && !(((PsiMethod)parent).isConstructor())) {
+      Map<DfaVariableValue, DfaValue> initialValues = StreamEx.of(flow.accessedVariables()).mapToEntry(
+        var -> makeInitialValue(var, (PsiMethod)parent)).nonNullValues().toMap();
+      for (DfaMemoryState state : initialStates) {
+        initialValues.forEach(state::setVarValue);
+      }
+    }
+  }
+
   @Nullable
-  private static DfaValue makeInitialValue(DfaVariableValue var, PsiElement block) {
-    if(var.getQualifier() != null) return null;
+  private static DfaValue makeInitialValue(DfaVariableValue var, @NotNull PsiMethod method) {
+    DfaValueFactory factory = var.getFactory();
+    if (var.getDescriptor() instanceof DfaExpressionFactory.ThisDescriptor) {
+      PsiClass aClass = ((DfaExpressionFactory.ThisDescriptor)var.getDescriptor()).getPsiElement();
+      DfaValue value = factory.createTypeValue(var.getType(), Nullability.NOT_NULL);
+      if (method.getContainingClass() == aClass && MutationSignature.fromMethod(method).preservesThis()) {
+        // Unmodifiable view, because we cannot call mutating methods, but it's not guaranteed that all fields are stable
+        // as fields may not contribute to the visible state
+        return factory.withFact(value, DfaFactType.MUTABILITY, Mutability.UNMODIFIABLE_VIEW);
+      }
+      return null;
+    }
+    if (!DfaUtil.isEffectivelyUnqualified(var)) return null;
     PsiField field = ObjectUtils.tryCast(var.getPsiVariable(), PsiField.class);
-    if (field == null || DfaUtil.hasInitializationHacks(field)) return null;
-    return DfaUtil.getPossiblyNonInitializedValue(var.getFactory(), field, block);
+    if (field == null || DfaUtil.ignoreInitializer(field) || DfaUtil.hasInitializationHacks(field)) return null;
+    return DfaUtil.getPossiblyNonInitializedValue(factory, field, method);
   }
 
   private static boolean containsState(Collection<DfaMemoryState> processed,
@@ -428,7 +539,7 @@ public class DataFlowRunner {
     return myInstructions[index];
   }
 
-  public void forNestedClosures(BiConsumer<PsiElement, Collection<? extends DfaMemoryState>> consumer) {
+  public void forNestedClosures(BiConsumer<? super PsiElement, ? super Collection<? extends DfaMemoryState>> consumer) {
     // Copy to avoid concurrent modifications
     MultiMap<PsiElement, DfaMemoryState> closures = new MultiMap<>(myNestedClosures);
     for (PsiElement closure : closures.keySet()) {
@@ -482,5 +593,61 @@ public class DataFlowRunner {
     }
 
     return Pair.create(trueSet, falseSet);
+  }
+  
+  private static class TimeStats {
+    private static final long DFA_EXECUTION_TIME_TO_REPORT_NANOS = TimeUnit.SECONDS.toNanos(30);
+    private final @Nullable ThreadMXBean myMxBean;
+    private final long myStart;
+    private long myMergeStart, myFlowTime, myMergeTime, myProcessTime;
+
+    TimeStats() {
+      Application application = ApplicationManager.getApplication();
+      if (application.isInternal() || application.isEAP()) {
+        myMxBean = ManagementFactory.getThreadMXBean();
+        myStart = myMxBean.getCurrentThreadCpuTime();
+      } else {
+        myMxBean = null;
+        myStart = 0;
+      }
+    }
+    
+    void endFlow() {
+      if (myMxBean != null) {
+        myFlowTime = myMxBean.getCurrentThreadCpuTime() - myStart;
+      }
+    }
+    
+    void startMerge() {
+      if (myMxBean != null) {
+        myMergeStart = System.nanoTime();
+      }
+    }
+    
+    void endMerge() {
+      if (myMxBean != null) {
+        myMergeTime += System.nanoTime() - myMergeStart;
+      }
+    }
+    
+    void endProcess() {
+      if (myMxBean != null) {
+        myProcessTime = myMxBean.getCurrentThreadCpuTime() - myStart;
+      }
+    }
+    
+    boolean isTooSlow() {
+      return myProcessTime > DFA_EXECUTION_TIME_TO_REPORT_NANOS; 
+    }
+
+    @Override
+    public String toString() {
+      double flowTime = myFlowTime/1e9;
+      double mergeTime = myMergeTime/1e9;
+      double interpretTime = (myProcessTime - myFlowTime - myMergeTime)/1e9;
+      double totalTime = myProcessTime/1e9;
+      return String.format(Locale.ENGLISH, "Building ControlFlow: %.2fs\nMerging states: %.2fs\nInterpreting: %.2fs\nTotal: %.2fs", 
+                           flowTime, mergeTime, interpretTime, totalTime);
+    }
   }
 }

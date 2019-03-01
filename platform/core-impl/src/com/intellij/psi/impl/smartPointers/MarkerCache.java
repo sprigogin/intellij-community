@@ -15,13 +15,19 @@
  */
 package com.intellij.psi.impl.smartPointers;
 
+import com.intellij.lang.Language;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.impl.FrozenDocument;
 import com.intellij.openapi.editor.impl.ManualRangeMarker;
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
 import com.intellij.openapi.editor.impl.event.RetargetRangeMarkers;
+import com.intellij.openapi.util.ProperTextRange;
+import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UnfairTextRange;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,7 +58,7 @@ class MarkerCache {
     myPointers = pointers;
   }
 
-  private UpdatedRanges getUpdatedMarkers(@NotNull FrozenDocument frozen, @NotNull List<DocumentEvent> events) {
+  private UpdatedRanges getUpdatedMarkers(@NotNull FrozenDocument frozen, @NotNull List<? extends DocumentEvent> events) {
     int eventCount = events.size();
     assert eventCount > 0;
 
@@ -75,7 +81,7 @@ class MarkerCache {
   }
 
   @NotNull
-  private static ManualRangeMarker[] createMarkers(List<SelfElementInfo> infos) {
+  private static ManualRangeMarker[] createMarkers(List<? extends SelfElementInfo> infos) {
     ManualRangeMarker[] markers = new ManualRangeMarker[infos.size()];
     int i = 0;
     while (i < markers.length) {
@@ -98,7 +104,7 @@ class MarkerCache {
     return start == info.getPsiStartOffset() && end == info.getPsiEndOffset() && greedy == info.isGreedy();
   }
 
-  private static UpdatedRanges applyEvents(@NotNull List<DocumentEvent> events, final UpdatedRanges struct) {
+  private static UpdatedRanges applyEvents(@NotNull List<? extends DocumentEvent> events, final UpdatedRanges struct) {
     FrozenDocument frozen = struct.myResultDocument;
     ManualRangeMarker[] resultMarkers = struct.myMarkers.clone();
     for (DocumentEvent event : events) {
@@ -134,7 +140,7 @@ class MarkerCache {
     return new UpdatedRanges(struct.myEventCount + events.size(), frozen, struct.mySortedInfos, resultMarkers);
   }
 
-  boolean updateMarkers(@NotNull FrozenDocument frozen, @NotNull List<DocumentEvent> events) {
+  boolean updateMarkers(@NotNull FrozenDocument frozen, @NotNull List<? extends DocumentEvent> events) {
     UpdatedRanges updated = getUpdatedMarkers(frozen, events);
 
     boolean sorted = true;
@@ -151,11 +157,59 @@ class MarkerCache {
   }
 
   @Nullable
-  TextRange getUpdatedRange(@NotNull SelfElementInfo info, @NotNull FrozenDocument frozen, @NotNull List<DocumentEvent> events) {
+  TextRange getUpdatedRange(@NotNull SelfElementInfo info, @NotNull FrozenDocument frozen, @NotNull List<? extends DocumentEvent> events) {
     UpdatedRanges struct = getUpdatedMarkers(frozen, events);
     int i = Collections.binarySearch(struct.mySortedInfos, info, INFO_COMPARATOR);
     ManualRangeMarker updated = i >= 0 ? struct.myMarkers[i] : null;
     return updated == null ? null : new UnfairTextRange(updated.getStartOffset(), updated.getEndOffset());
+  }
+
+  @Nullable
+  static Segment getUpdatedRange(@NotNull PsiFile containingFile,
+                                 @NotNull Segment segment,
+                                 boolean isSegmentGreedy,
+                                 @NotNull FrozenDocument frozen,
+                                 @NotNull List<? extends DocumentEvent> events) {
+    SelfElementInfo info = new SelfElementInfo(ProperTextRange.create(segment), new Identikit() {
+      @Nullable
+      @Override
+      public PsiElement findPsiElement(@NotNull PsiFile file, int startOffset, int endOffset) {
+        return null;
+      }
+
+      @NotNull
+      @Override
+      public Language getFileLanguage() {
+        throw new IllegalStateException();
+      }
+
+      @Override
+      public boolean isForPsiFile() {
+        return false;
+      }
+    }, containingFile, isSegmentGreedy);
+    List<SelfElementInfo> infos = Collections.singletonList(info);
+
+    boolean greedy = info.isGreedy();
+    int start = info.getPsiStartOffset();
+    int end = info.getPsiEndOffset();
+    boolean surviveOnExternalChange = events.stream().anyMatch(event-> isWholeDocumentReplace(frozen, (DocumentEventImpl)event));
+    ManualRangeMarker marker = new ManualRangeMarker(start, end, greedy, greedy, surviveOnExternalChange, null);
+
+    UpdatedRanges ranges = new UpdatedRanges(0, frozen, infos, new ManualRangeMarker[]{marker});
+    // NB: convert events from completion to whole doc change event to more precise translation
+    List<DocumentEvent> newEvents =
+      ContainerUtil.map(events, event -> isWholeDocumentReplace(frozen, (DocumentEventImpl)event)
+                                         ? new DocumentEventImpl(event.getDocument(), event.getOffset(), event.getOldFragment(),
+                                                                 event.getNewFragment(), event.getOldTimeStamp(), true,
+                                                                 ((DocumentEventImpl)event).getInitialStartOffset(),
+                                                                 ((DocumentEventImpl)event).getInitialOldLength()) : event);
+    UpdatedRanges updated = applyEvents(newEvents, ranges);
+    return updated.myMarkers[0];
+  }
+
+  private static boolean isWholeDocumentReplace(@NotNull FrozenDocument frozen, @NotNull DocumentEventImpl event) {
+    return event.getInitialStartOffset() == 0 && event.getInitialOldLength() == frozen.getTextLength();
   }
 
   void rangeChanged() {
@@ -168,9 +222,10 @@ class MarkerCache {
     private final List<SelfElementInfo> mySortedInfos;
     private final ManualRangeMarker[] myMarkers;
 
-    public UpdatedRanges(int eventCount,
-                         FrozenDocument resultDocument,
-                         List<SelfElementInfo> sortedInfos, ManualRangeMarker[] markers) {
+    UpdatedRanges(int eventCount,
+                  @NotNull FrozenDocument resultDocument,
+                  @NotNull List<SelfElementInfo> sortedInfos,
+                  @NotNull ManualRangeMarker[] markers) {
       myEventCount = eventCount;
       myResultDocument = resultDocument;
       mySortedInfos = sortedInfos;

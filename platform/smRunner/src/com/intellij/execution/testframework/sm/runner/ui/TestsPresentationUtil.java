@@ -20,7 +20,6 @@ import com.intellij.execution.testframework.TestConsoleProperties;
 import com.intellij.execution.testframework.sm.SMTestsRunnerBundle;
 import com.intellij.execution.testframework.sm.runner.SMTestProxy;
 import com.intellij.execution.testframework.sm.runner.states.TestStateInfo;
-import com.intellij.execution.testframework.ui.TestsProgressAnimator;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleTextAttributes;
@@ -167,6 +166,12 @@ public class TestsPresentationUtil {
           "sm.test.runner.ui.tests.tree.presentation.labels.all.tests.passed"),
                       SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }
+    else if (magnitude == TestStateInfo.Magnitude.IGNORED_INDEX && !testProxy.hasErrors()) {
+      renderer.setIcon(PoolOfTestIcons.IGNORED_ICON);
+      renderer.append(SMTestsRunnerBundle.message(
+        "sm.test.runner.ui.tests.tree.presentation.labels.all.but.ignored.passed"),
+                      SimpleTextAttributes.REGULAR_ATTRIBUTES );
+    }
     else {
       if (!testProxy.getChildren().isEmpty()) {
         // some times test proxy may be updated faster than tests tree
@@ -199,7 +204,7 @@ public class TestsPresentationUtil {
     }
 
     String presentationCandidate = name;
-    if (parent != null) {
+    if (parent != null && !testProxy.isSuite()) {
       String parentName = parent.getName();
       if (parentName != null) {
         boolean parentStartsWith = name.startsWith(parentName);
@@ -276,8 +281,7 @@ public class TestsPresentationUtil {
           return hasErrors ? PAUSED_E_ICON : AllIcons.RunConfigurations.TestPaused;
         }
         else {
-          final int frameIndex = TestsProgressAnimator.getCurrentFrameIndex();
-          return hasErrors ? FRAMES_E[frameIndex] : TestsProgressAnimator.FRAMES[frameIndex];
+          return hasErrors ? RUNNING_E_ICON : RUNNING_ICON;
         }
       case SKIPPED_INDEX:
         return hasErrors ? SKIPPED_E_ICON : SKIPPED_ICON;

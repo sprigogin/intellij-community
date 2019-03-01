@@ -121,7 +121,7 @@ public class LocalChangeListImpl extends LocalChangeList {
 
   @Override
   public String toString() {
-    return myName.trim();
+    return myName;
   }
 
   @Override
@@ -187,7 +187,7 @@ public class LocalChangeListImpl extends LocalChangeList {
       return this;
     }
 
-    public Builder setChanges(@NotNull Collection<Change> changes) {
+    public Builder setChanges(@NotNull Collection<? extends Change> changes) {
       myChanges.clear();
       myChanges.addAll(changes);
       return this;

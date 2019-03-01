@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.chainsSearch.completion;
 
 import com.intellij.codeInsight.completion.*;
@@ -21,6 +21,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.util.ProcessingContext;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,7 +44,7 @@ public class MethodChainCompletionContributor extends CompletionContributor {
     extend(CompletionType.SMART, pattern, new CompletionProvider<CompletionParameters>() {
       @Override
       protected void addCompletions(@NotNull CompletionParameters parameters,
-                                    ProcessingContext context,
+                                    @NotNull ProcessingContext context,
                                     @NotNull CompletionResultSet result) {
         try {
           if (!Registry.is(REGISTRY_KEY)) return;
@@ -62,10 +63,11 @@ public class MethodChainCompletionContributor extends CompletionContributor {
           result = JavaCompletionSorting.addJavaSorting(parameters, result);
           List<LookupElement> elementsFoundByMethodsChainsSearch = searchForLookups(completionContext);
           if (!UNIT_TEST_MODE && !alreadySuggested.isEmpty()) {
-            elementsFoundByMethodsChainsSearch = elementsFoundByMethodsChainsSearch.stream().filter(lookupElement -> {
-              PsiElement psi = lookupElement.getPsiElement();
-              return !(psi instanceof PsiMethod) || !alreadySuggested.contains(psi);
-            }).collect(Collectors.toList());
+            elementsFoundByMethodsChainsSearch =
+              ContainerUtil.filter(elementsFoundByMethodsChainsSearch, lookupElement -> {
+                PsiElement psi = lookupElement.getPsiElement();
+                return !(psi instanceof PsiMethod) || !alreadySuggested.contains(psi);
+              });
           }
           result.addAllElements(elementsFoundByMethodsChainsSearch);
         }
@@ -183,7 +185,7 @@ public class MethodChainCompletionContributor extends CompletionContributor {
   }
 
   private static ElementPattern<PsiElement> patternForReturnExpression() {
-    return psiElement().withSuperParent(2, PsiReturnStatement.class);
+    return psiElement().withParent(psiElement(PsiReferenceExpression.class).withText(CompletionUtilCore.DUMMY_IDENTIFIER_TRIMMED)).withSuperParent(2, PsiReturnStatement.class);
   }
 
   private static boolean suggestIterators(@NotNull CompletionParameters parameters) {

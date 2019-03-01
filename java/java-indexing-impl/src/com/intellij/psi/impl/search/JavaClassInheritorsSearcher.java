@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.search;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -42,7 +28,7 @@ import java.util.concurrent.ConcurrentMap;
 
 public class JavaClassInheritorsSearcher extends QueryExecutorBase<PsiClass, ClassInheritorsSearch.SearchParameters> {
   @Override
-  public void processQuery(@NotNull ClassInheritorsSearch.SearchParameters parameters, @NotNull Processor<PsiClass> consumer) {
+  public void processQuery(@NotNull ClassInheritorsSearch.SearchParameters parameters, @NotNull Processor<? super PsiClass> consumer) {
     final PsiClass baseClass = parameters.getClassToProcess();
     assert parameters.isCheckDeep();
     assert parameters.isCheckInheritance();
@@ -67,14 +53,14 @@ public class JavaClassInheritorsSearcher extends QueryExecutorBase<PsiClass, Cla
   }
 
   private static void processInheritors(@NotNull final ClassInheritorsSearch.SearchParameters parameters,
-                                        @NotNull final Processor<PsiClass> consumer) {
+                                        @NotNull final Processor<? super PsiClass> consumer) {
     @NotNull final PsiClass baseClass = parameters.getClassToProcess();
     if (baseClass instanceof PsiAnonymousClass || isFinal(baseClass)) return;
 
     final SearchScope searchScope = parameters.getScope();
     Project project = PsiUtilCore.getProjectInReadAction(baseClass);
     if (isJavaLangObject(baseClass)) {
-      AllClassesSearch.search(searchScope, project, parameters.getNameCondition()).forEach(aClass -> {
+      AllClassesSearch.search(searchScope, project, parameters.getNameCondition()).allowParallelProcessing().forEach(aClass -> {
         ProgressManager.checkCanceled();
         return isJavaLangObject(aClass) || consumer.process(aClass);
       });
@@ -119,7 +105,7 @@ public class JavaClassInheritorsSearcher extends QueryExecutorBase<PsiClass, Cla
       boolean isPhysical = ReadAction.compute(baseClass::isPhysical);
       SearchScope scopeToUse = isPhysical ? GlobalSearchScope.allScope(project) : searchScopeForNonPhysical;
       LazyConcurrentCollection.MoreElementsGenerator<PsiAnchor, PsiClass> generator = (candidate, processor) ->
-        DirectClassInheritorsSearch.search(candidate, scopeToUse).forEach(subClass -> {
+        DirectClassInheritorsSearch.search(candidate, scopeToUse).allowParallelProcessing().forEach(subClass -> {
           ProgressManager.checkCanceled();
           PsiAnchor pointer = ReadAction.compute(() -> PsiAnchor.create(subClass));
           // append found result to subClasses as early as possible to allow other waiting threads to continue
@@ -140,7 +126,7 @@ public class JavaClassInheritorsSearcher extends QueryExecutorBase<PsiClass, Cla
                                         @NotNull final ClassInheritorsSearch.SearchParameters parameters,
                                         @NotNull LocalSearchScope searchScope,
                                         @NotNull PsiClass baseClass,
-                                        @NotNull Processor<PsiClass> consumer) {
+                                        @NotNull Processor<? super PsiClass> consumer) {
     // optimisation: in case of local scope it's considered cheaper to enumerate all scope files and check if there is an inheritor there,
     // instead of traversing the (potentially huge) class hierarchy and filter out almost everything by scope.
     VirtualFile[] virtualFiles = searchScope.getVirtualFiles();

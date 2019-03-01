@@ -56,9 +56,10 @@ public class FoldersImportingTest extends MavenImportingTestCase {
   }
 
   public void testInvalidProjectHasContentRoot() {
-    importProject("<groupId>test</groupId>" +
-                  "<artifactId>project</artifactId>" +
-                  "<version>1");
+    createProjectPom("<groupId>test</groupId>" +
+                     "<artifactId>project</artifactId>" +
+                     "<version>1");
+    importProjectWithErrors();
 
     assertModules("project");
     assertContentRoots("project", getProjectPath());
@@ -456,6 +457,7 @@ public class FoldersImportingTest extends MavenImportingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<modules>" +
                      "  <module>m1</module>" +
@@ -1003,6 +1005,7 @@ public class FoldersImportingTest extends MavenImportingTestCase {
     assertResources("project", "src/main/resources");
 
     ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
       public void run() {
         try {
           subDir.delete(this);
@@ -1065,6 +1068,7 @@ public class FoldersImportingTest extends MavenImportingTestCase {
     testAssertions.run();
 
     ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
       public void run() {
         try {
           target.delete(this);

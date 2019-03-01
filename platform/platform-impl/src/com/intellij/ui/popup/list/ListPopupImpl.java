@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup.list;
 
 import com.intellij.icons.AllIcons;
@@ -15,6 +15,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.statistics.StatisticsInfo;
 import com.intellij.psi.statistics.StatisticsManager;
+import com.intellij.ui.ListActions;
 import com.intellij.ui.ScrollingUtil;
 import com.intellij.ui.SeparatorWithText;
 import com.intellij.ui.awt.RelativePoint;
@@ -23,6 +24,7 @@ import com.intellij.ui.popup.ClosableByLeftArrow;
 import com.intellij.ui.popup.HintUpdateSupply;
 import com.intellij.ui.popup.NextStepHandler;
 import com.intellij.ui.popup.WizardPopup;
+import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -47,7 +49,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
   private ListPopupModel myListModel;
 
   private int myIndexForShowingChild = -1;
-  private int myMaxRowCount = 20;
+  private int myMaxRowCount = 30;
   private boolean myAutoHandleBeforeShow;
 
   public ListPopupImpl(@NotNull ListPopupStep aStep, int maxRowCount) {
@@ -241,9 +243,6 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
 
     myList.setCellRenderer(getListElementRenderer());
 
-    myList.getActionMap().get("selectNextColumn").setEnabled(false);
-    myList.getActionMap().get("selectPreviousColumn").setEnabled(false);
-
     registerAction("handleSelection1", KeyEvent.VK_ENTER, 0, new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -251,14 +250,14 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
       }
     });
 
-    registerAction("handleSelection2", KeyEvent.VK_RIGHT, 0, new AbstractAction() {
+    myList.getActionMap().put(ListActions.Right.ID, new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
         handleSelect(false);
       }
     });
 
-    registerAction("goBack2", KeyEvent.VK_LEFT, 0, new AbstractAction() {
+    myList.getActionMap().put(ListActions.Left.ID, new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
         if (isClosableByLeftArrow()) {
@@ -408,6 +407,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     }
   }
 
+  @Override
   public void handleNextStep(final PopupStep nextStep, Object parentValue) {
     handleNextStep(nextStep, parentValue, null);
   }
@@ -424,7 +424,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
       }
       final JComponent container = getContent();
       assert container != null : "container == null";
-      
+
       int y = point.y;
       if (parentValue != null && getListModel().isSeparatorAboveOf(parentValue)) {
         SeparatorWithText swt = new SeparatorWithText();
@@ -510,6 +510,9 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
   private boolean isOnNextStepButton(MouseEvent e) {
     final int index = myList.getSelectedIndex();
     final Rectangle bounds = myList.getCellBounds(index, index);
+    if (bounds != null) {
+      JBInsets.removeFrom(bounds, UIUtil.getListCellPadding());
+    }
     final Point point = e.getPoint();
     return bounds != null && point.getX() > bounds.width + bounds.getX() - AllIcons.Icons.Ide.NextStep.getIconWidth();
   }
@@ -528,22 +531,9 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
   }
 
   private class MyList extends JBList implements DataProvider {
-    public MyList() {
+    MyList() {
       super(myListModel);
       HintUpdateSupply.installSimpleHintUpdateSupply(this);
-    }
-
-    @Override
-    public Dimension getPreferredScrollableViewportSize() {
-      Dimension result = super.getPreferredScrollableViewportSize();
-      int rowCount = getVisibleRowCount();
-      int size = getModel().getSize();
-      if (rowCount < size) {
-        // Note: labeled separators are not counted in this branch
-        return result;
-      }
-      result.height = getPreferredSize().height;
-      return result;
     }
 
     @Override
@@ -566,7 +556,7 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     }
 
     @Override
-    public Object getData(String dataId) {
+    public Object getData(@NotNull String dataId) {
        if (PlatformDataKeys.SELECTED_ITEM.is(dataId)){
         return myList.getSelectedValue();
       }

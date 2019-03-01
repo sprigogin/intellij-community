@@ -22,6 +22,7 @@ import com.intellij.ide.dnd.aware.DnDAwareTree;
 import com.intellij.ide.projectView.impl.ModuleGroup;
 import com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper;
 import com.intellij.ide.scopeView.nodes.BasePsiNode;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleGrouper;
@@ -42,7 +43,6 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,10 +52,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.MutableTreeNode;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class FileTreeModelBuilder {
   public static final Key<Integer> FILE_COUNT = Key.create("FILE_COUNT");
@@ -109,7 +106,7 @@ public class FileTreeModelBuilder {
     myTree = tree;
   }
 
-  public static synchronized TreeModel createTreeModel(Project project, boolean showProgress, Set<PsiFile> files, Marker marker, DependenciesPanel.DependencyPanelSettings settings) {
+  public static synchronized TreeModel createTreeModel(Project project, boolean showProgress, Set<? extends PsiFile> files, Marker marker, DependenciesPanel.DependencyPanelSettings settings) {
     return new FileTreeModelBuilder(project, marker, settings).build(files, showProgress);
   }
 
@@ -206,7 +203,7 @@ public class FileTreeModelBuilder {
     }
   }
 
-  private TreeModel build(final Set<PsiFile> files, boolean showProgress) {
+  private TreeModel build(final Set<? extends PsiFile> files, boolean showProgress) {
     if (files.size() == 1) {
       myShowFiles = true;
     }
@@ -214,7 +211,7 @@ public class FileTreeModelBuilder {
     Runnable buildingRunnable = () -> {
       for (final PsiFile file : files) {
         if (file != null) {
-          buildFileNode(file.getVirtualFile(), null);
+          ReadAction.run(() -> buildFileNode(file.getVirtualFile(), null));
         }
       }
     };
@@ -334,11 +331,11 @@ public class FileTreeModelBuilder {
 
   @Nullable
   public PackageDependenciesNode addFileNode(final PsiFile file){
-    boolean isMarked = myMarker != null && myMarker.isMarked(file.getVirtualFile());
-    if (!isMarked) return null;
-
     final VirtualFile vFile = file.getVirtualFile();
     LOG.assertTrue(vFile != null);
+    boolean isMarked = myMarker != null && myMarker.isMarked(vFile);
+    if (!isMarked) return null;
+
     VirtualFile dirToReload = vFile.getParent();
     PackageDependenciesNode rootToReload = myModuleDirNodes.get(dirToReload);
     if (rootToReload == null && myFlattenPackages) {
@@ -386,7 +383,7 @@ public class FileTreeModelBuilder {
     }
     myFileIndex.iterateContentUnderDirectory(vFile, new MyContentIterator() {
       @Override
-      public boolean processFile(VirtualFile fileOrDir) {
+      public boolean processFile(@NotNull VirtualFile fileOrDir) {
         isMarked[0] |= myMarker.isMarked(fileOrDir);
         return super.processFile(fileOrDir);
       }
@@ -440,7 +437,7 @@ public class FileTreeModelBuilder {
         }
       }
     }
-    return result.isEmpty() ? null : result.toArray(new PackageDependenciesNode[result.size()]);
+    return result.isEmpty() ? null : result.toArray(new PackageDependenciesNode[0]);
   }
 
   private PackageDependenciesNode getModuleDirNode(VirtualFile virtualFile, Module module, DirectoryNode childNode) {
@@ -591,16 +588,18 @@ public class FileTreeModelBuilder {
     VirtualFile dir;
 
     @Override
-    public boolean processFile(VirtualFile fileOrDir) {
-      if (!fileOrDir.isDirectory()) {
-        if (lastParent != null && !Comparing.equal(dir, fileOrDir.getParent())) {
+    public boolean processFile(@NotNull VirtualFile fileOrDir) {
+      ReadAction.run(() -> {
+        if (!fileOrDir.isDirectory()) {
+          if (lastParent != null && !Comparing.equal(dir, fileOrDir.getParent())) {
+            lastParent = null;
+          }
+          lastParent = buildFileNode(fileOrDir, lastParent);
+          dir = fileOrDir.getParent();
+        } else {
           lastParent = null;
         }
-        lastParent = buildFileNode(fileOrDir, lastParent);
-        dir = fileOrDir.getParent();
-      } else {
-        lastParent = null;
-      }
+      });
       return true;
     }
   }

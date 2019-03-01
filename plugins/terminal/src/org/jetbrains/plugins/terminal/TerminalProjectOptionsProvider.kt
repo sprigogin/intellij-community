@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.terminal
 
 import com.intellij.openapi.components.PersistentStateComponent
@@ -30,7 +16,7 @@ import kotlin.reflect.KProperty
 /**
  * @author traff
  */
-@State(name = "TerminalProjectOptionsProvider", storages = arrayOf(Storage("terminal.xml")))
+@State(name = "TerminalProjectOptionsProvider", storages = [(Storage("terminal.xml"))])
 class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComponent<TerminalProjectOptionsProvider.State> {
 
   private val myState = State()
@@ -64,46 +50,20 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
         }
       }
 
-      return directory ?: currentProjectFolder()
+      return directory ?: getDefaultWorkingDirectory()
     }
 
-
-  private fun currentProjectFolder(): String? {
-    val projectRootManager = ProjectRootManager.getInstance(project)
-
-    val roots = projectRootManager.contentRoots
-    if (roots.size == 1) {
-      roots[0].canonicalPath
-    }
-    val baseDir = project.baseDir
-    return baseDir?.canonicalPath
+  private fun getDefaultWorkingDirectory(): String? {
+    val roots = ProjectRootManager.getInstance(project).contentRoots
+    @Suppress("DEPRECATION")
+    val dir = if (roots.size == 1 && roots[0] != null && roots[0].isDirectory) roots[0] else project.baseDir
+    return dir?.canonicalPath
   }
-
-  val defaultShellPath: String
-    get() {
-      val shell = System.getenv("SHELL")
-
-      if (shell != null && File(shell).canExecute()) {
-        return shell
-      }
-
-      if (SystemInfo.isUnix) {
-        if (File("/bin/bash").exists()) {
-          return "/bin/bash"
-        }
-        else {
-          return "/bin/sh"
-        }
-      }
-      else {
-        return "cmd.exe"
-      }
-    }
 
   companion object {
     private val LOG = Logger.getInstance(TerminalProjectOptionsProvider::class.java)
 
-
+    @JvmStatic
     fun getInstance(project: Project): TerminalProjectOptionsProvider {
       return ServiceManager.getService(project, TerminalProjectOptionsProvider::class.java)
     }
@@ -111,7 +71,7 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
 
 }
 
-// TODO: In Kotlin 1.1 it will be possible to pass references to instance properties. Until then we need 'state' argument as a reciever for
+// TODO: In Kotlin 1.1 it will be possible to pass references to instance properties. Until then we need 'state' argument as a receiver for
 // to property to apply
 class ValueWithDefault<S>(val prop: KMutableProperty1<S, String?>, val state: S, val default: () -> String?) {
   operator fun getValue(thisRef: Any?, property: KProperty<*>): String? {
@@ -122,6 +82,3 @@ class ValueWithDefault<S>(val prop: KMutableProperty1<S, String?>, val state: S,
     prop.set(state, if (value == default() || value.isNullOrEmpty()) null else value)
   }
 }
-
-
-

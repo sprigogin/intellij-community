@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,7 +88,7 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
       }
       CommentTracker commentTracker = new CommentTracker();
       @NonNls
-      final String newExpression = '(' + expectedType.getCanonicalText() + ')' + commentTracker.markUnchanged(operand).getText();
+      final String newExpression = '(' + expectedType.getCanonicalText() + ')' + commentTracker.text(operand);
       PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression, commentTracker);
     }
   }
@@ -167,8 +167,14 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
       if (castTypeElement == null) {
         return;
       }
-      if (operand instanceof PsiFunctionalExpression && !LambdaUtil.isFunctionalType(expectedType)) {
-        return;
+      if (operand instanceof PsiFunctionalExpression) {
+        if (!LambdaUtil.isFunctionalType(expectedType)) {
+          return;
+        }
+        PsiType interfaceReturnType = LambdaUtil.getFunctionalInterfaceReturnType(expectedType);
+        if (interfaceReturnType instanceof PsiPrimitiveType || PsiPrimitiveType.getUnboxedType(interfaceReturnType) != null) {
+          return;
+        }
       }
       registerError(castTypeElement, expectedType);
     }

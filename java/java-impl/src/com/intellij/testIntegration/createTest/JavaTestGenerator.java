@@ -18,6 +18,7 @@ package com.intellij.testIntegration.createTest;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.daemon.impl.analysis.ImportsHighlightUtil;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
@@ -31,10 +32,12 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScopesCore;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.testIntegration.TestFramework;
 import com.intellij.testIntegration.TestIntegrationUtils;
@@ -52,9 +55,11 @@ public class JavaTestGenerator implements TestGenerator {
   public JavaTestGenerator() {
   }
 
+  @Override
   public PsiElement generateTest(final Project project, final CreateTestDialog d) {
     return PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(
       () -> ApplicationManager.getApplication().runWriteAction(new Computable<PsiElement>() {
+        @Override
         public PsiElement compute() {
           try {
             IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
@@ -70,7 +75,8 @@ public class JavaTestGenerator implements TestGenerator {
               addSuperClass(targetClass, project, superClassName);
             }
 
-            Editor editor = CodeInsightUtil.positionCursorAtLBrace(project, targetClass.getContainingFile(), targetClass);
+            PsiFile file = targetClass.getContainingFile();
+            Editor editor = CodeInsightUtil.positionCursorAtLBrace(project, file, targetClass);
             addTestMethods(editor,
                            targetClass,
                            d.getTargetClass(),
@@ -78,6 +84,24 @@ public class JavaTestGenerator implements TestGenerator {
                            d.getSelectedMethods(),
                            d.shouldGeneratedBefore(),
                            d.shouldGeneratedAfter());
+
+            if (file instanceof PsiJavaFile) {
+              PsiImportList list = ((PsiJavaFile)file).getImportList();
+              if (list != null) {
+                PsiImportStatementBase[] importStatements = list.getAllImportStatements();
+                if (importStatements.length > 0) {
+                  VirtualFile virtualFile = PsiUtilCore.getVirtualFile(list);
+                  if (virtualFile != null) {
+                    Set<String> imports = new HashSet<>();
+                    for (PsiImportStatementBase base : importStatements) {
+                      imports.add(base.getText());
+                    }
+                    virtualFile.putCopyableUserData(ImportsHighlightUtil.IMPORTS_FROM_TEMPLATE, imports);
+                  }
+                }
+              }
+            }
+
             return targetClass;
           }
           catch (IncorrectOperationException e) {
@@ -145,7 +169,7 @@ public class JavaTestGenerator implements TestGenerator {
     final PsiReferenceList extendsList = targetClass.getExtendsList();
     if (extendsList == null) return;
 
-    PsiElementFactory ef = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory ef = JavaPsiFacade.getElementFactory(project);
     PsiJavaCodeReferenceElement superClassRef;
 
     PsiClass superClass = findClass(project, superClassName);
@@ -172,7 +196,7 @@ public class JavaTestGenerator implements TestGenerator {
   public static void addTestMethods(Editor editor,
                                     PsiClass targetClass,
                                     final TestFramework descriptor,
-                                    Collection<MemberInfo> methods,
+                                    Collection<? extends MemberInfo> methods,
                                     boolean generateBefore,
                                     boolean generateAfter) throws IncorrectOperationException {
     addTestMethods(editor, targetClass, null, descriptor, methods, generateBefore, generateAfter);
@@ -182,7 +206,7 @@ public class JavaTestGenerator implements TestGenerator {
                                     PsiClass targetClass,
                                     @Nullable PsiClass sourceClass,
                                     final TestFramework descriptor,
-                                    Collection<MemberInfo> methods,
+                                    Collection<? extends MemberInfo> methods,
                                     boolean generateBefore,
                                     boolean generateAfter) throws IncorrectOperationException {
     final Set<String> existingNames = new HashSet<>();
@@ -199,7 +223,7 @@ public class JavaTestGenerator implements TestGenerator {
                                                                             targetClass, sourceClass, null, true, existingNames);
     JVMElementFactory elementFactory = JVMElementFactories.getFactory(targetClass.getLanguage(), targetClass.getProject());
     final String prefix = elementFactory != null ? elementFactory.createMethodFromText(template.getTemplateText(), targetClass).getName() : "";
-    existingNames.addAll(ContainerUtil.map(targetClass.getMethods(), method -> StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix))));
+    existingNames.addAll(ContainerUtil.map(targetClass.getAllMethods(), method -> StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix))));
 
     for (MemberInfo m : methods) {
       anchor = generateMethod(TestIntegrationUtils.MethodKind.TEST, descriptor, targetClass, sourceClass, editor, m.getMember().getName(), existingNames, anchor);
@@ -218,7 +242,7 @@ public class JavaTestGenerator implements TestGenerator {
                                           @Nullable PsiClass sourceClass,
                                           Editor editor,
                                           @Nullable String name,
-                                          Set<String> existingNames, PsiMethod anchor) {
+                                          Set<? super String> existingNames, PsiMethod anchor) {
     PsiMethod dummyMethod = TestIntegrationUtils.createDummyMethod(targetClass);
     PsiMethod method = (PsiMethod)(anchor == null ? targetClass.add(dummyMethod) : targetClass.addAfter(dummyMethod, anchor));
     PsiDocumentManager.getInstance(targetClass.getProject()).doPostponedOperationsAndUnblockDocument(editor.getDocument());

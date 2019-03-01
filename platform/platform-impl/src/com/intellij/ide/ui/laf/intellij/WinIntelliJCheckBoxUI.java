@@ -1,32 +1,26 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.intellij;
 
+import com.intellij.ide.ui.laf.darcula.DarculaUIUtil;
+import com.intellij.ide.ui.laf.darcula.ui.DarculaCheckBoxUI;
 import com.intellij.util.ui.EmptyIcon;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JBInsets;
+import com.intellij.util.ui.LafIconLookup;
 import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
 import javax.swing.plaf.ComponentUI;
 import java.awt.*;
+import java.awt.geom.Path2D;
+import java.awt.geom.Rectangle2D;
+
+import static com.intellij.util.ui.JBUI.scale;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class WinIntelliJCheckBoxUI extends IntelliJCheckBoxUI {
+public class WinIntelliJCheckBoxUI extends DarculaCheckBoxUI {
+  private static final Icon DEFAULT_ICON = scale(EmptyIcon.create(13)).asUIResource();
 
   @SuppressWarnings({"MethodOverridesStaticMethodOfSuperclass", "UnusedDeclaration"})
   public static ComponentUI createUI(JComponent c) {
@@ -36,25 +30,40 @@ public class WinIntelliJCheckBoxUI extends IntelliJCheckBoxUI {
   }
 
   @Override
-  protected void drawCheckIcon(JComponent c, Graphics2D g, AbstractButton b, Rectangle iconRect, boolean selected, boolean enabled) {
-    ButtonModel bm = b.getModel();
-    boolean focused = c.hasFocus() || bm.isRollover() || isCellRollover(b);
-    boolean pressed = bm.isPressed() || isCellPressed(b);
-
-    String iconName = isIndeterminate(b) ? "checkBoxIndeterminate" : "checkBox";
-    Icon icon = MacIntelliJIconCache.getIcon(iconName, false, selected || isIndeterminate(b), focused, enabled, pressed);
-
-    if (icon != null) {
-      int x = (iconRect.width - icon.getIconWidth()) / 2 + iconRect.x;
-      int y = (iconRect.height - icon.getIconHeight()) / 2 + iconRect.y;
-      icon.paintIcon(c, g, x, y);
-    }
+  protected Rectangle updateViewRect(AbstractButton b, Rectangle viewRect) {
+    JBInsets.removeFrom(viewRect, b.getInsets());
+    return viewRect;
   }
 
   @Override
-  protected void drawText(JComponent c, Graphics2D g, AbstractButton b, FontMetrics fm, Rectangle textRect, String text) {
-    textRect.y -= JBUI.scale(1); // Move one pixel up
-    super.drawText(c, g, b, fm, textRect, text);
+  protected Dimension updatePreferredSize(JComponent c, Dimension size) {
+    return size;
+  }
+
+  @Override
+  protected void drawCheckIcon(JComponent c, Graphics2D g, AbstractButton b, Rectangle iconRect, boolean selected, boolean enabled) {
+    Graphics2D g2 = (Graphics2D)g.create();
+    try {
+      ButtonModel bm = b.getModel();
+
+      String iconName = isIndeterminate(b) ? "checkBoxIndeterminate" : "checkBox";
+      Object op = b.getClientProperty("JComponent.outline");
+      boolean focused = op == null && c.hasFocus() || bm.isRollover() || isCellRollover(b);
+      boolean pressed = bm.isPressed() || isCellPressed(b);
+      Icon icon = LafIconLookup.getIcon(iconName, selected || isIndeterminate(b), focused, enabled, false, pressed);
+      icon.paintIcon(c, g, iconRect.x, iconRect.y);
+
+      if (op != null) {
+        DarculaUIUtil.Outline.valueOf(op.toString()).setGraphicsColor(g2, b.hasFocus());
+        Path2D outline = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+
+        outline.append(new Rectangle2D.Float(iconRect.x - scale(1), iconRect.y - scale(1), scale(15), scale(15)), false);
+        outline.append(new Rectangle2D.Float(iconRect.x + scale(1), iconRect.y + scale(1), scale(11), scale(11)), false);
+        g2.fill(outline);
+      }
+    } finally {
+      g2.dispose();
+    }
   }
 
   private static boolean isCellRollover(AbstractButton checkBox) {
@@ -69,11 +78,11 @@ public class WinIntelliJCheckBoxUI extends IntelliJCheckBoxUI {
 
   @Override
   public Icon getDefaultIcon() {
-    return JBUI.scale(EmptyIcon.create(18)).asUIResource();
+    return DEFAULT_ICON;
   }
 
   @Override
-  protected boolean fillBackgroundForIndeterminateSameAsForSelected() {
-    return false;
+  protected int textIconGap() {
+    return scale(4);
   }
 }

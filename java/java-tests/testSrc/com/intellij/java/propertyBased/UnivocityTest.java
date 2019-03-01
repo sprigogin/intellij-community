@@ -15,24 +15,33 @@
  */
 package com.intellij.java.propertyBased;
 
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiManager;
+import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiDocumentManagerImpl;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.testFramework.propertyBased.*;
-import com.intellij.util.SystemProperties;
-import com.intellij.util.containers.ContainerUtil;
-import jetCheck.Generator;
-import jetCheck.IntDistribution;
-import jetCheck.PropertyChecker;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jetCheck.Generator;
+import org.jetbrains.jetCheck.IntDistribution;
+import org.jetbrains.jetCheck.PropertyChecker;
+import org.junit.Assume;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 @SkipSlowTestLocally
 public class UnivocityTest extends AbstractApplyAndRevertTestCase {
-
   @Override
   public void setUp() throws Exception {
     super.setUp();
@@ -41,59 +50,98 @@ public class UnivocityTest extends AbstractApplyAndRevertTestCase {
   }
 
   public void testCompilabilityAfterIntentions() {
+    Assume.assumeTrue("Maven import failed", JavaPsiFacade.getInstance(myProject).findClass("org.testng.Assert", GlobalSearchScope.allScope(myProject)) != null);
+
     initCompiler();
     PsiModificationTracker tracker = PsiManager.getInstance(myProject).getModificationTracker();
 
     AtomicLong rebuildStamp = new AtomicLong();
 
-    Generator<MadTestingAction> genIntention = psiJavaFiles().flatMap(
-      file -> Generator.frequency(5, InvokeIntention.randomIntentions(file, new JavaGreenIntentionPolicy()),
-                                  1, Generator.constant(new InvalidateAllPsi(myProject)),
-                                  10, Generator.constant(new FilePropertiesChanged(file))));
-    PropertyChecker.forAll(Generator.listsOf(genIntention.noShrink())).withIterationCount(30).shouldHold(list -> {
+    PropertyChecker.customized()
+      .withIterationCount(30).checkScenarios(() -> env -> {
       long startModCount = tracker.getModificationCount();
       if (rebuildStamp.getAndSet(startModCount) != startModCount) {
         checkCompiles(myCompilerTester.rebuild());
       }
 
       MadTestingUtil.changeAndRevert(myProject, () -> {
-        MadTestingAction.runActions(list);
-        
+        env.executeCommands(Generator.constant(env1 -> {
+          PsiJavaFile file = env1.generateValue(psiJavaFiles(), "Open %s in editor");
+          env1.executeCommands(IntDistribution.uniform(1, 5), Generator.constant(new InvokeIntention(file, new JavaGreenIntentionPolicy())));
+        }));
+
         if (tracker.getModificationCount() != startModCount) {
           checkCompiles(myCompilerTester.make());
         }
       });
-      return true;
     });
   }
 
   public void testRandomActivity() {
-    Generator<List<MadTestingAction>> genActionGroup = psiJavaFiles().flatMap(
-      file -> {
-        Generator<MadTestingAction> mutation = Generator.anyOf(DeleteRange.psiRangeDeletions(file),
-                                                               Generator.constant(new AddNullArgument(file)),
-                                                               Generator.constant(new DeleteForeachInitializers(file)),
-                                                               Generator.constant(new DeleteSecondArgument(file)),
-                                                               InvokeCompletion.completions(file, new JavaCompletionPolicy()),
-                                                               Generator.constant(new MakeAllMethodsVoid(file)));
-        Generator<MadTestingAction> allActions = Generator.frequency(2, InvokeIntention.randomIntentions(file, new JavaIntentionPolicy()),
-                                                                     1, Generator.constant(new RehighlightAllEditors(myProject)),
-                                                                     1, mutation);
-        return Generator.listsOf(IntDistribution.uniform(0, 5), allActions.noShrink());
-      });
+    Generator<PsiJavaFile> javaFiles = psiJavaFiles();
+    PropertyChecker.customized()
+      .withIterationCount(30).checkScenarios(() -> env ->
+      MadTestingUtil.changeAndRevert(myProject, () ->
+        env.executeCommands(Generator.constant(env1 -> {
+          PsiJavaFile file = env1.generateValue(javaFiles, "Open %s in editor");
 
-    PropertyChecker.forAll(Generator.listsOf(genActionGroup).map(ContainerUtil::flatten)).withIterationCount(50).shouldHold(list -> {
-      MadTestingUtil.changeAndRevert(myProject, () -> {
-        //System.out.println(list);
-        MadTestingAction.runActions(list);
-      });
-      return true;
-    });
+          Map<Generator<? extends MadTestingAction>, Integer> actionWeights = new HashMap<>();
+
+          List<ActionOnFile> psiMutations = Arrays.asList(new DeleteRange(file),
+                                                          new AddNullArgument(file),
+                                                          new DeleteForeachInitializers(file),
+                                                          new DeleteSecondArgument(file),
+                                                          new MakeAllMethodsVoid(file));
+          for (ActionOnFile mutation : psiMutations) {
+            actionWeights.put(Generator.constant(mutation), 1);
+          }
+
+          actionWeights.put(Generator.constant(new InvokeCompletion(file, new JavaCompletionPolicy())), 1);
+          actionWeights.put(Generator.constant(new RehighlightAllEditors(myProject)), 2);
+          actionWeights.put(javaFiles.flatMap(f -> Generator.sampledFrom(new FilePropertiesChanged(f), new AddImportExternally(f))), 5);
+          actionWeights.put(Generator.constant(new InvokeIntention(file, new JavaIntentionPolicy())), 10);
+
+          env1.executeCommands(IntDistribution.uniform(1, 7), Generator.frequency(actionWeights));
+        }))));
   }
 
   @Override
   protected String getTestDataPath() {
-    return SystemProperties.getUserHome() + "/IdeaProjects/univocity-parsers";
+    File file = new File(PathManager.getHomePath(), "univocity-parsers");
+    if (!file.exists()) {
+      fail("Cannot find univocity project, execute this in project home: git clone https://github.com/JetBrains/univocity-parsers.git");
+    }
+    return file.getAbsolutePath();
   }
 
+  private static class AddImportExternally extends ActionOnFile {
+    AddImportExternally(PsiJavaFile file) {super(file);}
+
+    @Override
+    public void performCommand(@NotNull Environment env) {
+      PsiDocumentManager.getInstance(getProject()).commitDocument(getDocument());
+      PsiFile file = getFile();
+      if (file instanceof PsiJavaFile) {
+        PsiImportList importList = ((PsiJavaFile)file).getImportList();
+        if (importList != null) {
+          PsiImportStatement[] statements = importList.getImportStatements();
+          if (statements.length > 0) {
+            int offset = statements[0].getTextRange().getStartOffset();
+
+            String text = file.getText();
+            String toInsert = "import unresolved.*;\n";
+            env.logMessage("AddImportExternally: inserting " + StringUtil.escapeStringCharacters(toInsert) + " at " + file.getName() + ":" + offset);
+            FileDocumentManager.getInstance().saveDocument(getDocument());
+
+            try {
+              WriteAction.run(() -> VfsUtil.saveText(getVirtualFile(), text.substring(0, offset) + toInsert + text.substring(offset)));
+            }
+            catch (IOException e) {
+              throw new RuntimeException(e);
+            }
+          }
+        }
+      }
+    }
+  }
 }

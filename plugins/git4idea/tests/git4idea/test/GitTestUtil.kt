@@ -1,30 +1,16 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("GitTestUtil")
 
 package git4idea.test
 
 import com.intellij.dvcs.push.PushSpec
-import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.Executor.*
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.PlatformTestCase
 import com.intellij.vcs.log.VcsLogObjectsFactory
 import com.intellij.vcs.log.VcsLogProvider
 import com.intellij.vcs.log.VcsRef
@@ -120,19 +106,27 @@ fun createRepository(project: Project, root: String, makeInitialCommit: Boolean)
   return registerRepo(project, root)
 }
 
+fun GitRepository.createSubRepository(name: String): GitRepository {
+  val childRoot = File(this.root.path, name)
+  PlatformTestCase.assertTrue(childRoot.mkdir())
+  val repo = createRepository(this.project, childRoot.path)
+  this.tac(".gitignore", name)
+  return repo
+}
+
 fun registerRepo(project: Project, root: String): GitRepository {
   val vcsManager = ProjectLevelVcsManager.getInstance(project) as ProjectLevelVcsManagerImpl
   vcsManager.setDirectoryMapping(root, GitVcs.NAME)
   val file = LocalFileSystem.getInstance().findFileByIoFile(File(root))
   assertFalse(vcsManager.allVcsRoots.isEmpty())
   val repository = GitUtil.getRepositoryManager(project).getRepositoryForRoot(file)
-  assertNotNull("Couldn't find repository for root " + root, repository)
+  assertNotNull("Couldn't find repository for root $root", repository)
   return repository!!
 }
 
 fun assumeSupportedGitVersion(vcs: GitVcs) {
   val version = vcs.version
-  assumeTrue("Unsupported Git version: " + version, version.isSupported)
+  assumeTrue("Unsupported Git version: $version", version.isSupported)
 }
 
 fun GitPlatformTest.readAllRefs(root: VirtualFile, objectsFactory: VcsLogObjectsFactory): Set<VcsRef> {
@@ -151,7 +145,7 @@ fun GitPlatformTest.makeCommit(file: String): String {
 }
 
 fun findGitLogProvider(project: Project): GitLogProvider {
-  val providers = Extensions.getExtensions(VcsLogProvider.LOG_PROVIDER_EP, project)
+  val providers = VcsLogProvider.LOG_PROVIDER_EP.getExtensions(project)
     .filter { provider -> provider.supportedVcs == GitVcs.getKey() }
   assertEquals("Incorrect number of GitLogProviders", 1, providers.size)
   return providers[0] as GitLogProvider
@@ -179,4 +173,4 @@ fun GitRepository.resolveConflicts() {
 }
 
 fun getPrettyFormatTagForFullCommitMessage(project: Project) =
-  if (GitVersionSpecialty.STARTED_USING_RAW_BODY_IN_FORMAT.existsIn(GitVcs.getInstance(project).version)) "%B" else "%s%n%n%-b"
+  if (GitVersionSpecialty.STARTED_USING_RAW_BODY_IN_FORMAT.existsIn(project)) "%B" else "%s%n%n%-b"

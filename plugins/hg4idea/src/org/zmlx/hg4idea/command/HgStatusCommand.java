@@ -17,7 +17,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ObjectsConvertor;
-import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsFileUtil;
@@ -59,10 +58,10 @@ public class HgStatusCommand {
   }
 
   public static class Builder {
-    private boolean includeAdded;
-    private boolean includeModified;
+    private final boolean includeAdded;
+    private final boolean includeModified;
     private boolean includeRemoved;
-    private boolean includeDeleted;
+    private final boolean includeDeleted;
     private boolean includeUnknown;
     private boolean includeIgnored;
     private boolean includeCopySource;
@@ -220,7 +219,7 @@ public class HgStatusCommand {
       char statusChar = line.charAt(STATUS_INDEX);
       HgFileStatusEnum status = HgFileStatusEnum.parse(statusChar);
       if (status == null) {
-        LOG.error("Unknown status [" + statusChar + "] in line [" + line + "]" + "\n with arguments " + args);
+        LOG.warn("Unknown status [" + statusChar + "] in line [" + line + "]" + "\n with arguments " + args);
         continue;
       }
       File ioFile = new File(repo.getPath(), line.substring(2));
@@ -239,10 +238,18 @@ public class HgStatusCommand {
 
   @NotNull
   public Collection<VirtualFile> getFiles(@NotNull VirtualFile repo, @Nullable List<VirtualFile> files) {
+    return getFiles(repo, files != null ? ObjectsConvertor.vf2fp(files): null);
+  }
+
+  @NotNull
+  public Collection<VirtualFile> getFiles(@NotNull VirtualFile repo, @Nullable Collection<FilePath> paths) {
     Collection<VirtualFile> resultFiles = new HashSet<>();
-    Set<HgChange> change = executeInCurrentThread(repo, files != null ? ObjectsConvertor.vf2fp(files) : null);
+    Set<HgChange> change = executeInCurrentThread(repo, paths);
     for (HgChange hgChange : change) {
-      resultFiles.add(hgChange.afterFile().toFilePath().getVirtualFile());
+      VirtualFile file = hgChange.afterFile().toFilePath().getVirtualFile();
+      if (file != null) {
+        resultFiles.add(file);
+      }
     }
     return resultFiles;
   }

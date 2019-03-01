@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.actions;
 
 import com.intellij.debugger.SourcePosition;
@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
 public class JumpToObjectAction extends DebuggerAction{
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.actions.JumpToObjectAction");
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     DebuggerTreeNodeImpl selectedNode = getSelectedNode(e.getDataContext());
     if(selectedNode == null) {
       return;
@@ -46,7 +46,7 @@ public class JumpToObjectAction extends DebuggerAction{
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     if(!isFirstStart(e)) {
       return;
     }
@@ -134,7 +134,7 @@ public class JumpToObjectAction extends DebuggerAction{
   }
 
   private static class EnableCommand extends SourcePositionCommand {
-    public EnableCommand(final DebuggerContextImpl debuggerContext, final ValueDescriptor descriptor, final DebugProcessImpl debugProcess, final AnActionEvent e) {
+    EnableCommand(final DebuggerContextImpl debuggerContext, final ValueDescriptor descriptor, final DebugProcessImpl debugProcess, final AnActionEvent e) {
       super(debuggerContext, descriptor, debugProcess, e);
     }
     @Override
@@ -165,7 +165,7 @@ public class JumpToObjectAction extends DebuggerAction{
     }
 
     @Override
-    public void contextAction(@NotNull SuspendContextImpl suspendContext) throws Exception {
+    public void contextAction(@NotNull SuspendContextImpl suspendContext) {
       try {
         doAction(calcPosition(myDescriptor, myDebugProcess));
       }

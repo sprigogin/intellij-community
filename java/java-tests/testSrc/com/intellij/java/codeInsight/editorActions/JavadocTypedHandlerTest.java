@@ -22,7 +22,6 @@ import static org.junit.Assert.assertEquals;
 
 /**
  * @author Denis Zhdanov
- * @since 02/02/2011
  */
 public class JavadocTypedHandlerTest {
 
@@ -61,7 +60,7 @@ public class JavadocTypedHandlerTest {
   private static void doTest(String text, String expected) {
     StringBuilder normalized = new StringBuilder();
     int offset = text.indexOf(CARET_MARKER);
-    normalized.append(text.substring(0, offset));
+    normalized.append(text, 0, offset);
     normalized.append(text.substring(offset + CARET_MARKER.length()));
     CharSequence actual = JavadocTypedHandler.getTagName(normalized.toString(), offset);
     assertEquals(expected, actual);

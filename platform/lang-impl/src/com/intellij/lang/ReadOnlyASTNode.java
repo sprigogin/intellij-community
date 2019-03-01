@@ -127,7 +127,7 @@ public abstract class ReadOnlyASTNode extends UserDataHolderBase implements ASTN
   }
 
   @Override
-  public void addLeaf(@NotNull IElementType leafType, CharSequence leafText, @Nullable ASTNode anchorBefore) {
+  public void addLeaf(@NotNull IElementType leafType, @NotNull CharSequence leafText, @Nullable ASTNode anchorBefore) {
     throw new UnsupportedOperationException();
   }
 
@@ -147,12 +147,12 @@ public abstract class ReadOnlyASTNode extends UserDataHolderBase implements ASTN
   }
 
   @Override
-  public void replaceAllChildrenToChildrenOf(ASTNode anotherParent) {
+  public void replaceAllChildrenToChildrenOf(@NotNull ASTNode anotherParent) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void addChildren(ASTNode firstChild, ASTNode firstChildToNotAdd, ASTNode anchorBefore) {
+  public void addChildren(@NotNull ASTNode firstChild, ASTNode firstChildToNotAdd, ASTNode anchorBefore) {
     throw new UnsupportedOperationException();
   }
 
@@ -173,13 +173,13 @@ public abstract class ReadOnlyASTNode extends UserDataHolderBase implements ASTN
 
   @Nullable
   @Override
-  public ASTNode findChildByType(IElementType type) {
+  public ASTNode findChildByType(@NotNull IElementType type) {
     return findChildByType(type, null);
   }
 
   @Nullable
   @Override
-  public ASTNode findChildByType(IElementType type, @Nullable ASTNode anchor) {
+  public ASTNode findChildByType(@NotNull IElementType type, @Nullable ASTNode anchor) {
     boolean flag = anchor == null;
     for (ASTNode node : getChildren(null)) {
       if (!flag && node.equals(anchor)) flag = true;

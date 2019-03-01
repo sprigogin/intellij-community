@@ -16,6 +16,7 @@
 package com.intellij.util.ui;
 
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
@@ -78,12 +79,18 @@ public class ThreeStateCheckBox extends JCheckBox {
     setState(initial);
   }
 
-  private State nextState() {
-    switch (myState) {
+  @NotNull
+  protected State nextState() {
+    return nextState(myState, myThirdStateEnabled);
+  }
+
+  @NotNull
+  public static State nextState(@NotNull State state, boolean thirdStateEnabled) {
+    switch (state) {
       case SELECTED:
         return State.NOT_SELECTED;
       case NOT_SELECTED:
-        if (myThirdStateEnabled) {
+        if (thirdStateEnabled) {
           return State.DONT_CARE;
         }
         else {
@@ -131,42 +138,38 @@ public class ThreeStateCheckBox extends JCheckBox {
       return;
     }
 
-    switch (getState()) {
-      case DONT_CARE:
-        Icon icon = getIcon();
-        if (icon == null) {
-          icon = UIManager.getIcon("CheckBox.icon");
-        }
-        if (UIUtil.isUnderDarcula() || UIUtil.isUnderIntelliJLaF()) {
-          icon = JBUI.scale(EmptyIcon.create(20, 18));
-        }
-        if (icon != null) {
-          final Insets i = getInsets();
-          final Rectangle r = getBounds();
-          final Rectangle r1 = new Rectangle();
-          r1.x = i.left;
-          r1.y = i.top;
-          r1.width = r.width - (i.right + r1.x);
-          r1.height = r.height - (i.bottom + r1.y);
+    if (getState() == State.DONT_CARE) {
+      Icon icon = getIcon();
+      if (icon == null) {
+        icon = UIManager.getIcon("CheckBox.icon");
+      }
+      if (UIUtil.isUnderDarcula() || UIUtil.isUnderIntelliJLaF()) {
+        icon = JBUI.scale(EmptyIcon.create(20, 18));
+      }
+      if (icon != null) {
+        final Insets i = getInsets();
+        final Rectangle r = getBounds();
+        final Rectangle r1 = new Rectangle();
+        r1.x = i.left;
+        r1.y = i.top;
+        r1.width = r.width - (i.right + r1.x);
+        r1.height = r.height - (i.bottom + r1.y);
 
-          final Rectangle r2 = new Rectangle();
-          final Rectangle r3 = new Rectangle();
-          SwingUtilities.layoutCompoundLabel(
-            this, getFontMetrics(getFont()), getText(), icon,
-            getVerticalAlignment(), getHorizontalAlignment(),
-            getVerticalTextPosition(), getHorizontalTextPosition(),
-            r1, r2, r3,
-            getText() == null ? 0 : getIconTextGap());
+        final Rectangle r2 = new Rectangle();
+        final Rectangle r3 = new Rectangle();
+        SwingUtilities.layoutCompoundLabel(
+          this, getFontMetrics(getFont()), getText(), icon,
+          getVerticalAlignment(), getHorizontalAlignment(),
+          getVerticalTextPosition(), getHorizontalTextPosition(),
+          r1, r2, r3,
+          getText() == null ? 0 : getIconTextGap());
 
-          // selected table cell: do not paint white on white
-          g.setColor(UIUtil.getTreeForeground());
-          int height = r2.height / 10;
-          int width = r2.width / 3;
-          g.fillRect(r2.x + r2.width / 2 - width / 2, r2.y + r2.height / 2 - height / 2, width, height);
-        }
-        break;
-      default:
-        break;
+        // selected table cell: do not paint white on white
+        g.setColor(UIUtil.getTreeForeground());
+        int height = r2.height / 10;
+        int width = r2.width / 3;
+        g.fillRect(r2.x + r2.width / 2 - width / 2, r2.y + r2.height / 2 - height / 2, width, height);
+      }
     }
   }
 
@@ -218,11 +221,11 @@ public class ThreeStateCheckBox extends JCheckBox {
     private String addStateDescription(String name) {
       switch(getState()) {
         case SELECTED:
-          return AccessibleContextUtil.combineAccessibleStrings(name, " ", "checked");
+          return AccessibleContextUtil.combineAccessibleStrings(name, "checked");
         case NOT_SELECTED:
-          return AccessibleContextUtil.combineAccessibleStrings(name, " ", "not checked");
+          return AccessibleContextUtil.combineAccessibleStrings(name, "not checked");
         case DONT_CARE:
-          return AccessibleContextUtil.combineAccessibleStrings(name, " ", "partially checked");
+          return AccessibleContextUtil.combineAccessibleStrings(name, "partially checked");
         default:
           return name;
       }

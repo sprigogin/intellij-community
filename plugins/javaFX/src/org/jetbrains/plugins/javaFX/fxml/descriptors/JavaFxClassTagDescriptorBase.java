@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.descriptors;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -11,7 +12,6 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
@@ -68,7 +68,7 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
         collectStaticElementDescriptors(context, children);
 
         if (!children.isEmpty()) {
-          return children.toArray(new XmlElementDescriptor[children.size()]);
+          return children.toArray(XmlElementDescriptor.EMPTY_ARRAY);
         }
       }
     }
@@ -91,20 +91,20 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
     return null;
   }
 
-  static void collectStaticAttributesDescriptors(@Nullable XmlTag context, List<XmlAttributeDescriptor> simpleAttrs) {
+  static void collectStaticAttributesDescriptors(@Nullable XmlTag context, List<? super XmlAttributeDescriptor> simpleAttrs) {
     if (context == null) return;
     collectParentStaticProperties(context.getParentTag(), simpleAttrs,
                                   method -> new JavaFxSetterAttributeDescriptor(method, method.getContainingClass()));
   }
 
-  protected static void collectStaticElementDescriptors(XmlTag context, List<XmlElementDescriptor> children) {
+  protected static void collectStaticElementDescriptors(XmlTag context, List<? super XmlElementDescriptor> children) {
     collectParentStaticProperties(context, children, method -> {
       final PsiClass aClass = method.getContainingClass();
       return new JavaFxPropertyTagDescriptor(aClass, PropertyUtilBase.getPropertyName(method.getName()), true);
     });
   }
 
-  private static <T> void collectParentStaticProperties(XmlTag context, List<T> children, Function<PsiMethod, T> factory) {
+  private static <T> void collectParentStaticProperties(XmlTag context, List<T> children, Function<? super PsiMethod, ? extends T> factory) {
     XmlTag tag = context;
     while (tag != null) {
       final XmlElementDescriptor descr = tag.getDescriptor();
@@ -297,12 +297,6 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
 
   @Override
   public void init(PsiElement element) {
-  }
-
-  @NotNull
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override

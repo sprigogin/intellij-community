@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.actions.handlers;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -12,9 +10,14 @@ import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
+import com.intellij.xdebugger.impl.frame.XWatchesViewImpl;
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 /**
  * @author nik
@@ -32,7 +35,12 @@ public class XAddToWatchesFromEditorActionHandler extends XDebuggerActionHandler
       return false;
     }
     // else the promise is already fulfilled, get it's value
-    return textPromise.blockingGet(0) != null;
+    try {
+      return textPromise.blockingGet(0) != null;
+    }
+    catch (TimeoutException | ExecutionException e) {
+      return false;
+    }
   }
 
 
@@ -40,30 +48,31 @@ public class XAddToWatchesFromEditorActionHandler extends XDebuggerActionHandler
   protected static Promise<String> getTextToEvaluate(DataContext dataContext, XDebugSession session) {
     final Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
     if (editor == null) {
-      return Promise.resolve(null);
+      return Promises.resolvedPromise(null);
     }
 
     String text = editor.getSelectionModel().getSelectedText();
     if (text != null) {
-      return Promise.resolve(StringUtil.nullize(text, true));
+      return Promises.resolvedPromise(StringUtil.nullize(text, true));
     }
     XDebuggerEvaluator evaluator = session.getDebugProcess().getEvaluator();
     if (evaluator != null) {
       return XDebuggerEvaluateActionHandler.getExpressionText(evaluator, editor.getProject(), editor).then(s -> StringUtil.nullize(s, true));
     }
-    return Promise.resolve(null);
+    return Promises.resolvedPromise(null);
   }
 
   @Override
   protected void perform(@NotNull XDebugSession session, DataContext dataContext) {
-    getTextToEvaluate(dataContext, session).done(text -> {
-      if (text == null) return;
-      UIUtil.invokeLaterIfNeeded(() -> {
-        XDebugSessionTab tab = ((XDebugSessionImpl)session).getSessionTab();
-        if (tab != null) {
-          tab.getWatchesView().addWatchExpression(XExpressionImpl.fromText(text), -1, true);
-        }
+    getTextToEvaluate(dataContext, session)
+      .onSuccess(text -> {
+        if (text == null) return;
+        UIUtil.invokeLaterIfNeeded(() -> {
+          XDebugSessionTab tab = ((XDebugSessionImpl)session).getSessionTab();
+          if (tab != null) {
+            ((XWatchesViewImpl)tab.getWatchesView()).addWatchExpression(XExpressionImpl.fromText(text), -1, true, true);
+          }
+        });
       });
-    });
   }
 }

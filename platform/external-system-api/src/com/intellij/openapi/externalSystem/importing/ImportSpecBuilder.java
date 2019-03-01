@@ -28,7 +28,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/29/2014
  */
 public class ImportSpecBuilder {
 
@@ -125,10 +124,6 @@ public class ImportSpecBuilder {
           }
           final boolean synchronous = mySpec.getProgressExecutionMode() == ProgressExecutionMode.MODAL_SYNC;
           ServiceManager.getService(ProjectDataManager.class).importData(externalProject, mySpec.getProject(), synchronous);
-        }
-
-        @Override
-        public void onFailure(@NotNull String errorMessage, @Nullable String errorDetails) {
         }
       });
     }

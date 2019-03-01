@@ -57,15 +57,23 @@ public class LineOffsetsUtil {
       myTextLength = textLength;
     }
 
+    @Override
     public int getLineStart(int line) {
       checkLineIndex(line);
       if (line == 0) return 0;
       return myLineEnds[line - 1] + 1;
     }
 
+    @Override
     public int getLineEnd(int line) {
       checkLineIndex(line);
       return myLineEnds[line];
+    }
+
+    @Override
+    public int getLineEnd(int line, boolean includeNewline) {
+      checkLineIndex(line);
+      return myLineEnds[line] + (includeNewline && line != myLineEnds.length - 1 ? 1 : 0);
     }
 
     @Override
@@ -80,10 +88,12 @@ public class LineOffsetsUtil {
       return bsResult >= 0 ? bsResult : -bsResult - 1;
     }
 
+    @Override
     public int getLineCount() {
       return myLineEnds.length;
     }
 
+    @Override
     public int getTextLength() {
       return myTextLength;
     }
@@ -98,7 +108,7 @@ public class LineOffsetsUtil {
   private static class LineOffsetsDocumentWrapper implements LineOffsets {
     @NotNull private final Document myDocument;
 
-    public LineOffsetsDocumentWrapper(@NotNull Document document) {
+    LineOffsetsDocumentWrapper(@NotNull Document document) {
       myDocument = document;
     }
 
@@ -110,6 +120,12 @@ public class LineOffsetsUtil {
     @Override
     public int getLineEnd(int line) {
       return myDocument.getLineEndOffset(line);
+    }
+
+    @Override
+    public int getLineEnd(int line, boolean includeNewline) {
+      if (myDocument.getLineCount() == 0) return 0;
+      return myDocument.getLineEndOffset(line) + (includeNewline ? myDocument.getLineSeparatorLength(line) : 0);
     }
 
     @Override

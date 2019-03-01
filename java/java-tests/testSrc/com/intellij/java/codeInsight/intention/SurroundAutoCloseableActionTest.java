@@ -35,16 +35,10 @@ public class SurroundAutoCloseableActionTest extends LightCodeInsightFixtureTest
   public void testSplitVar() { doTest(); }
   public void testExpression() { doTest(); }
   public void testExpressionIncomplete() { doTest(); }
+  public void testUnrelatedVariable() { doTest(); }
   public void testCommentsInVarDeclaration() {
-    JavaCodeStyleSettings styleSettings = JavaCodeStyleSettings.getInstance(getProject());
-    boolean finalLocals = styleSettings.GENERATE_FINAL_LOCALS;
-    try {
-      styleSettings.GENERATE_FINAL_LOCALS = true;
-      doTest();
-    }
-    finally {
-      styleSettings.GENERATE_FINAL_LOCALS = finalLocals;
-    }
+    JavaCodeStyleSettings.getInstance(getProject()).GENERATE_FINAL_LOCALS = true;
+    doTest();
   }
 
   private void doTest() {

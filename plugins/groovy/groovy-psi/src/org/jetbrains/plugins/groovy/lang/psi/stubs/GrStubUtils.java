@@ -1,5 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.stubs;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -12,10 +11,9 @@ import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataInputOutputUtil;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
@@ -42,16 +40,16 @@ public class GrStubUtils {
 
   @NotNull
   public static String[] readStringArray(@NotNull StubInputStream dataStream) throws IOException {
-    return ArrayUtil.toStringArray(readSeq(dataStream, () -> StringRef.toString(dataStream.readName())));
+    return ArrayUtil.toStringArray(readSeq(dataStream, dataStream::readNameString));
   }
 
   public static void writeNullableString(StubOutputStream dataStream, @Nullable String typeText) throws IOException {
-    DataInputOutputUtil.writeNullable(dataStream, typeText, s -> dataStream.writeUTFFast(s));
+    DataInputOutputUtil.writeNullable(dataStream, typeText, dataStream::writeUTFFast);
   }
 
   @Nullable
   public static String readNullableString(StubInputStream dataStream) throws IOException {
-    return DataInputOutputUtil.readNullable(dataStream, () -> dataStream.readUTFFast());
+    return DataInputOutputUtil.readNullable(dataStream, dataStream::readUTFFast);
   }
 
   @Nullable
@@ -65,11 +63,11 @@ public class GrStubUtils {
     return CachedValuesManager.getCachedValue(file, () -> {
       Map<String, String> mapping = ContainerUtil.newHashMap();
       for (GrImportStatement importStatement : ((GroovyFile)file).getImportStatements()) {
-        if (importStatement.getImportReference() != null && !importStatement.isStatic() && importStatement.isAliasedImport()) {
-          String importName = importStatement.getImportReference().getClassNameText();
+        String fqn = importStatement.getImportFqn();
+        if (fqn != null && !importStatement.isStatic() && importStatement.isAliasedImport()) {
           String importedName = importStatement.getImportedName();
           if (importedName != null) {
-            mapping.put(importedName, importName);
+            mapping.put(importedName, fqn);
           }
         }
       }
@@ -114,11 +112,11 @@ public class GrStubUtils {
 
   public static boolean isGroovyStaticMemberStub(StubElement<?> stub) {
     StubElement<?> modifierOwner = stub instanceof GrMethodStub ? stub : stub.getParentStub();
-    StubElement<GrModifierList> type = modifierOwner.findChildStubByType(GroovyElementTypes.MODIFIERS);
-    if (!(type instanceof GrModifierListStub)) {
+    GrModifierListStub type = modifierOwner.findChildStubByType(GroovyStubElementTypes.MODIFIER_LIST);
+    if (type == null) {
       return false;
     }
-    int mask = ((GrModifierListStub)type).getModifiersFlags();
+    int mask = type.getModifiersFlags();
     if (hasMaskModifier(mask, PsiModifier.PRIVATE)) {
       return false;
     }

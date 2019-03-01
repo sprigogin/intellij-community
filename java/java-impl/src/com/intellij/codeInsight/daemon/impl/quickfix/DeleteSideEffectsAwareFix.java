@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
+import com.intellij.codeInsight.BlockUtils;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
@@ -23,7 +24,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.siyeh.ig.psiutils.BlockUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.SideEffectChecker;
 import com.siyeh.ig.psiutils.StatementExtractor;
 import org.jetbrains.annotations.Nls;
@@ -40,6 +41,10 @@ public class DeleteSideEffectsAwareFix extends LocalQuickFixAndIntentionActionOn
   private final boolean myIsAvailable;
 
   public DeleteSideEffectsAwareFix(@NotNull PsiStatement statement, PsiExpression expression) {
+    this(statement, expression, false);
+  }
+
+  public DeleteSideEffectsAwareFix(@NotNull PsiStatement statement, PsiExpression expression, boolean alwaysAvailable) {
     super(statement);
     SmartPointerManager manager = SmartPointerManager.getInstance(statement.getProject());
     myStatementPtr = manager.createSmartPsiElementPointer(statement);
@@ -57,8 +62,9 @@ public class DeleteSideEffectsAwareFix extends LocalQuickFixAndIntentionActionOn
         myMessage = QuickFixBundle.message("extract.side.effects", statements.length);
       }
     }
-    // "Remove unnecessary parentheses" action is already present which will do the same
-    myIsAvailable = sideEffects.size() != 1 || !(statement instanceof PsiExpressionStatement) ||
+    myIsAvailable = alwaysAvailable ||
+                    // "Remove unnecessary parentheses" action is already present which will do the same
+                    sideEffects.size() != 1 || !(statement instanceof PsiExpressionStatement) ||
                     sideEffects.get(0) != PsiUtil.skipParenthesizedExprDown(expression);
   }
 
@@ -95,11 +101,18 @@ public class DeleteSideEffectsAwareFix extends LocalQuickFixAndIntentionActionOn
     PsiExpression expression = myExpressionPtr.getElement();
     if (expression == null) return;
     List<PsiExpression> sideEffects = SideEffectChecker.extractSideEffectExpressions(expression);
+    CommentTracker ct = new CommentTracker();
+    sideEffects.forEach(ct::markUnchanged);
     PsiStatement[] statements = StatementExtractor.generateStatements(sideEffects, expression);
     if (statements.length > 0) {
       PsiStatement lastAdded = BlockUtils.addBefore(statement, statements);
       statement = Objects.requireNonNull(PsiTreeUtil.getNextSiblingOfType(lastAdded, PsiStatement.class));
     }
-    statement.delete();
+    PsiElement parent = statement.getParent();
+    if (parent instanceof PsiStatement && !(parent instanceof PsiIfStatement && ((PsiIfStatement)parent).getElseBranch() == statement)) {
+      ct.replaceAndRestoreComments(statement, "{}");
+    } else {
+      ct.deleteAndRestoreComments(statement);
+    }
   }
 }

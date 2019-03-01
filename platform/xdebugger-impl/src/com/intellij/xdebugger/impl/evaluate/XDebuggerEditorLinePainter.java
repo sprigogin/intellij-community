@@ -13,7 +13,11 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.*;
+import com.intellij.ui.Gray;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.SimpleColoredText;
+import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XSourcePosition;
@@ -29,8 +33,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Konstantin Bulenkov
@@ -74,27 +78,8 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
 
       ArrayList<VariableText> result = new ArrayList<>();
       for (XValueNodeImpl value : values) {
-        SimpleColoredText text = new SimpleColoredText();
-        XValueTextRendererImpl renderer = new XValueTextRendererImpl(text);
-        final XValuePresentation presentation = value.getValuePresentation();
-        if (presentation == null) continue;
-        try {
-          if (presentation instanceof XValueCompactPresentation && !value.getTree().isUnderRemoteDebug()) {
-            ((XValueCompactPresentation)presentation).renderValue(renderer, value);
-          }
-          else {
-            presentation.renderValue(renderer);
-          }
-          if (StringUtil.isEmpty(text.toString())) {
-            final String type = value.getValuePresentation().getType();
-            if (!StringUtil.isEmpty(type)) {
-              text.append(type, SimpleTextAttributes.REGULAR_ATTRIBUTES);
-            }
-          }
-        }
-        catch (Exception ignored) {
-          continue;
-        }
+        SimpleColoredText text = createPresentation(value);
+        if (text == null) continue;
 
         final String name = value.getName();
         if (StringUtil.isEmpty(text.toString())) {
@@ -125,9 +110,35 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
       for (VariableText text : result) {
         infos.addAll(text.infos);
       }
-      return infos.size() > LINE_EXTENSIONS_MAX_COUNT ? infos.subList(0, LINE_EXTENSIONS_MAX_COUNT) : infos;
+      return ContainerUtil.getFirstItems(infos, LINE_EXTENSIONS_MAX_COUNT);
     }
     return null;
+  }
+
+  @Nullable
+  public static SimpleColoredText createPresentation(@NotNull XValueNodeImpl value) {
+    SimpleColoredText text = new SimpleColoredText();
+    XValueTextRendererImpl renderer = new XValueTextRendererImpl(text);
+    final XValuePresentation presentation = value.getValuePresentation();
+    if (presentation == null) return null;
+    try {
+      if (presentation instanceof XValueCompactPresentation && !value.getTree().isUnderRemoteDebug()) {
+        ((XValueCompactPresentation)presentation).renderValue(renderer, value);
+      }
+      else {
+        presentation.renderValue(renderer);
+      }
+      if (StringUtil.isEmpty(text.toString())) {
+        final String type = value.getValuePresentation().getType();
+        if (!StringUtil.isEmpty(type)) {
+          text.append(type, SimpleTextAttributes.REGULAR_ATTRIBUTES);
+        }
+      }
+    }
+    catch (Exception e) {
+      return null;
+    }
+    return text;
   }
 
   private static int getCurrentBreakPointLineInFile(@Nullable XDebugSession session, VirtualFile file) {
@@ -142,23 +153,18 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
     return -1;
   }
 
-  private static boolean isDarkEditor() {
-    Color bg = EditorColorsManager.getInstance().getGlobalScheme().getDefaultBackground();
-    return ColorUtil.isDark(bg);
-  }
-
-  public static TextAttributes getNormalAttributes() {
+  private static TextAttributes getNormalAttributes() {
     TextAttributes attributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(DebuggerColors.INLINED_VALUES);
     if (attributes == null || attributes.getForegroundColor() == null) {
-     return new TextAttributes(new JBColor(() -> isDarkEditor() ? new Color(0x3d8065) : Gray._135), null, null, null, Font.ITALIC);
+     return new TextAttributes(new JBColor(() -> EditorColorsManager.getInstance().isDarkEditor() ? new Color(0x3d8065) : Gray._135), null, null, null, Font.ITALIC);
     }
     return attributes;
   }
 
-  public static TextAttributes getChangedAttributes() {
+  private static TextAttributes getChangedAttributes() {
     TextAttributes attributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(DebuggerColors.INLINED_VALUES_MODIFIED);
     if (attributes == null || attributes.getForegroundColor() == null) {
-      return new TextAttributes(new JBColor(() -> isDarkEditor() ? new Color(0xa1830a) : new Color(0xca8021)), null, null, null, Font.ITALIC);
+      return new TextAttributes(new JBColor(() -> EditorColorsManager.getInstance().isDarkEditor() ? new Color(0xa1830a) : new Color(0xca8021)), null, null, null, Font.ITALIC);
     }
     return attributes;
   }
@@ -167,7 +173,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
     TextAttributes attributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(DebuggerColors.INLINED_VALUES_EXECUTION_LINE);
     if (attributes == null || attributes.getForegroundColor() == null) {
       //noinspection UseJBColor
-      return new TextAttributes(isDarkEditor() ? new Color(255, 235, 9) : new Color(0, 255, 86), null, null, null, Font.ITALIC);
+      return new TextAttributes(EditorColorsManager.getInstance().isDarkEditor() ? new Color(255, 235, 9) : new Color(0, 255, 86), null, null, null, Font.ITALIC);
     }
     return attributes;
   }
@@ -176,7 +182,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
     private final int lineNumber;
     private final String name;
 
-    public Variable(String name, int lineNumber) {
+    Variable(String name, int lineNumber) {
       this.lineNumber = lineNumber;
       this.name = name;
     }
@@ -196,9 +202,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
 
     @Override
     public int hashCode() {
-      int result = lineNumber;
-      result = 31 * result + name.hashCode();
-      return result;
+      return Objects.hash(lineNumber, name);
     }
   }
 
@@ -207,7 +211,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
    private String old;
    private int valueNodeHashCode;
 
-    public VariableValue(String actual, String old, int valueNodeHashCode) {
+    VariableValue(String actual, String old, int valueNodeHashCode) {
       this.actual = actual;
       this.old = old;
       this.valueNodeHashCode = valueNodeHashCode;
@@ -217,7 +221,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
       return old != null && !StringUtil.equals(actual, old);
     }
 
-    public void produceChangedParts(List<LineExtensionInfo> result) {
+    void produceChangedParts(List<? super LineExtensionInfo> result) {
       if (isArray(actual) && isArray(old)) {
         List<String> actualParts = getArrayParts(actual);
         List<String> oldParts = getArrayParts(old);
@@ -250,7 +254,7 @@ public class XDebuggerEditorLinePainter extends EditorLinePainter {
 
   private static class VariableText {
     final List<LineExtensionInfo> infos = new ArrayList<>();
-    int length = 0;
+    int length;
 
     void add(LineExtensionInfo info) {
       infos.add(info);

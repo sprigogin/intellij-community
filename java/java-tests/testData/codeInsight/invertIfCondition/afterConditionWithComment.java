@@ -5,7 +5,7 @@ class A {
         String value ="not-null";
 
         if (value == null) {
-            return;
+            return; // Another comment
         }
         System.out.println(value);
         // Comment gets deleted.

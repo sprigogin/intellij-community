@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.settings;
 
 import com.intellij.configurationStore.ComponentSerializationUtil;
@@ -26,13 +24,7 @@ import java.util.*;
 /**
  * @author nik
  */
-@State(
-  name = "XDebuggerSettings",
-  storages = {
-    @Storage("debugger.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
+@State(name = "XDebuggerSettings", storages = @Storage("debugger.xml"))
 public class XDebuggerSettingManagerImpl extends XDebuggerSettingsManager implements PersistentStateComponent<XDebuggerSettingManagerImpl.SettingsState> {
   private Map<String, XDebuggerSettings<?>> mySettingsById;
   private Map<Class<? extends XDebuggerSettings>, XDebuggerSettings<?>> mySettingsByClass;
@@ -84,7 +76,7 @@ public class XDebuggerSettingManagerImpl extends XDebuggerSettingsManager implem
   }
 
   @Override
-  public void loadState(final SettingsState state) {
+  public void loadState(@NotNull final SettingsState state) {
     myDataViewSettings = state.getDataViewSettings();
     myGeneralSettings = state.getGeneralSettings();
     for (SpecificSettingsState settingsState : state.specificStates) {

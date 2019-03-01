@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.junit;
 
@@ -9,12 +7,13 @@ import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +24,7 @@ import java.util.List;
 /**
  * @deprecated please use {@link com.intellij.execution.actions.RunConfigurationProducer} instead
  */
+@Deprecated
 public abstract class RuntimeConfigurationProducer implements Comparable, Cloneable {
   public static final ExtensionPointName<RuntimeConfigurationProducer> RUNTIME_CONFIGURATION_PRODUCER = ExtensionPointName.create("com.intellij.configurationProducer");
 
@@ -33,6 +33,7 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
   private final ConfigurationFactory myConfigurationFactory;
   private RunnerAndConfigurationSettings myConfiguration;
   protected boolean isClone;
+  private SmartPsiElementPointer<PsiElement> myPointer;
 
   public RuntimeConfigurationProducer(final ConfigurationType configurationType) {
     this(configurationType.getConfigurationFactories()[0]);
@@ -53,13 +54,11 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
         // replace with existing configuration if any
         final RunManager runManager = RunManager.getInstance(context.getProject());
         final ConfigurationType type = result.myConfiguration.getType();
-        RunnerAndConfigurationSettings configuration = null;
-        if (type != null) {
-          configuration = result.findExistingByElement(_location, runManager.getConfigurationSettingsList(type), context);
-        }
+        RunnerAndConfigurationSettings configuration = result.findExistingByElement(_location, runManager.getConfigurationSettingsList(type), context);
         if (configuration != null) {
           result.myConfiguration = configuration;
-        } else {
+        }
+        else {
           runManager.setUniqueNameIfNeed(result.myConfiguration);
         }
       }
@@ -77,6 +76,15 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
   }
 
   public abstract PsiElement getSourceElement();
+
+  protected void storeSourceElement(@NotNull PsiElement e) {
+    myPointer = SmartPointerManager.createPointer(e);
+  }
+
+  @Nullable
+  protected PsiElement restoreSourceElement() {
+    return myPointer == null ? null : myPointer.getElement();
+  }
 
   public RunnerAndConfigurationSettings getConfiguration() {
     assert isClone;
@@ -120,7 +128,7 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
         return RunManager.getInstance(project).createConfiguration(c.clone(), myConfigurationFactory);
       }
     }
-    return RunManager.getInstance(project).createRunConfiguration("", myConfigurationFactory);
+    return RunManager.getInstance(project).createConfiguration("", myConfigurationFactory);
   }
 
   protected ConfigurationFactory getConfigurationFactory() {
@@ -136,8 +144,7 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
   }
 
   public static <T extends RuntimeConfigurationProducer> T getInstance(final Class<T> aClass) {
-    final RuntimeConfigurationProducer[] configurationProducers = Extensions.getExtensions(RUNTIME_CONFIGURATION_PRODUCER);
-    for (RuntimeConfigurationProducer configurationProducer : configurationProducers) {
+    for (RuntimeConfigurationProducer configurationProducer : RUNTIME_CONFIGURATION_PRODUCER.getExtensionList()) {
       if (configurationProducer.getClass() == aClass) {
         //noinspection unchecked
         return (T) configurationProducer;
@@ -167,6 +174,7 @@ public abstract class RuntimeConfigurationProducer implements Comparable, Clonea
   /**
    * @deprecated feel free to pass your configuration to SMTRunnerConsoleProperties directly instead of wrapping in DelegatingRuntimeConfiguration
    */
+  @Deprecated
   public static class DelegatingRuntimeConfiguration<T extends LocatableConfiguration>
     extends LocatableConfigurationBase implements ModuleRunConfiguration {
     private final T myConfig;

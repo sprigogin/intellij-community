@@ -97,7 +97,7 @@ public abstract class AbstractDomChildrenDescriptor implements XmlElementDescrip
       xmlElementDescriptors.add(new AnyXmlElementDescriptor(this, getNSDescriptor()));
     }
 
-    return xmlElementDescriptors.toArray(new XmlElementDescriptor[xmlElementDescriptors.size()]);
+    return xmlElementDescriptors.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   @Override
@@ -172,7 +172,7 @@ public abstract class AbstractDomChildrenDescriptor implements XmlElementDescrip
         }
       }
     }
-    return descriptors.toArray(new XmlAttributeDescriptor[descriptors.size()]);
+    return descriptors.toArray(XmlAttributeDescriptor.EMPTY);
   }
 
   @Override
@@ -241,8 +241,8 @@ public abstract class AbstractDomChildrenDescriptor implements XmlElementDescrip
 
       @NotNull
       @Override
-      public Object[] getDependences() {
-        throw new UnsupportedOperationException("Method getDependences not implemented in " + getClass());
+      public Object[] getDependencies() {
+        throw new UnsupportedOperationException("Method getDependencies not implemented in " + getClass());
       }
     };
   }
@@ -264,8 +264,8 @@ public abstract class AbstractDomChildrenDescriptor implements XmlElementDescrip
 
   @NotNull
   @Override
-  public Object[] getDependences() {
-    throw new UnsupportedOperationException("Method getDependences not implemented in " + getClass());
+  public Object[] getDependencies() {
+    throw new UnsupportedOperationException("Method getDependencies not implemented in " + getClass());
   }
 
   @Override

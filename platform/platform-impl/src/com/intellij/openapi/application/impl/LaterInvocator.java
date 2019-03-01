@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.ide.IdeEventQueue;
@@ -38,8 +24,8 @@ import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -58,7 +44,7 @@ public class LaterInvocator {
     @NotNull private final Condition<?> expired;
     @Nullable private final ActionCallback callback;
 
-    @Debugger.Capture
+    @Async.Schedule
     RunnableInfo(@NotNull Runnable runnable,
                  @NotNull ModalityState modalityState,
                  @NotNull Condition<?> expired,
@@ -326,17 +312,10 @@ public class LaterInvocator {
     requestFlush();
   }
 
-  public static Object[] getCurrentModalEntitiesForProject(Project project) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    if (project == null || !ourModalEntities.isEmpty()) {
-      return ArrayUtil.toObjectArray(ourModalEntities);
-    }
-    return ArrayUtil.toObjectArray(projectToModalEntities.get(project));
-  }
-
   @NotNull
   public static Object[] getCurrentModalEntities() {
-    return getCurrentModalEntitiesForProject(null);
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    return ArrayUtil.toObjectArray(ourModalEntities);
   }
 
   @NotNull
@@ -350,13 +329,9 @@ public class LaterInvocator {
 
     if (ourModalEntities.isEmpty()) return false;
 
-    List<Dialog> modalEntitiesForProject = getModalEntitiesForProject(project);
+    List<Dialog> modalEntitiesForProject = projectToModalEntities.get(project);
 
     return modalEntitiesForProject == null || modalEntitiesForProject.isEmpty();
-  }
-
-  private static List<Dialog> getModalEntitiesForProject(Project project) {
-    return projectToModalEntities.get(project);
   }
 
   public static boolean isInModalContext() {
@@ -418,7 +393,7 @@ public class LaterInvocator {
   private static final AtomicBoolean FLUSHER_SCHEDULED = new AtomicBoolean(false);
 
   private static class FlushQueue implements Runnable {
-    @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized") private RunnableInfo myLastInfo;
+    private RunnableInfo myLastInfo;
 
     @Override
     public void run() {
@@ -435,14 +410,13 @@ public class LaterInvocator {
       }
     }
 
-    @Debugger.Insert(keyExpression = "lastInfo", group = "com.intellij.openapi.application.impl.LaterInvocator$RunnableInfo.<init>")
     private boolean runNextEvent() {
       final RunnableInfo lastInfo = getNextEvent(true);
       myLastInfo = lastInfo;
 
       if (lastInfo != null) {
         try {
-          lastInfo.runnable.run();
+          doRun(lastInfo);
           lastInfo.markDone();
         }
         catch (ProcessCanceledException ignored) { }
@@ -456,6 +430,11 @@ public class LaterInvocator {
       return lastInfo != null;
     }
 
+    // Extracted to have a capture point
+    private static void doRun(@Async.Execute RunnableInfo info) {
+      info.runnable.run();
+    }
+
     @Override
     public String toString() {
       return "LaterInvocator.FlushQueue" + (myLastInfo == null ? "" : " lastInfo=" + myLastInfo);
@@ -463,9 +442,11 @@ public class LaterInvocator {
   }
 
   @TestOnly
-  public static List<RunnableInfo> getLaterInvocatorQueue() {
+  public static Collection<RunnableInfo> getLaterInvocatorQueue() {
     synchronized (LOCK) {
-      return ContainerUtil.newArrayList(ourQueue);
+      // used by leak hunter as root, so we must not copy it here to another list
+      // to avoid walking over obsolete queue
+      return Collections.unmodifiableCollection(ourQueue);
     }
   }
 
@@ -486,6 +467,18 @@ public class LaterInvocator {
         ourQueue.clear();
         ourQueue.addAll(alive);
       }
+    }
+  }
+
+  @TestOnly
+  public static void dispatchPendingFlushes() {
+    if (!isDispatchThread()) throw new IllegalStateException("Must call from EDT");
+
+    Semaphore semaphore = new Semaphore();
+    semaphore.down();
+    invokeLater(semaphore::up, ModalityState.any());
+    while (!semaphore.isUp()) {
+      UIUtil.dispatchAllInvocationEvents();
     }
   }
 }

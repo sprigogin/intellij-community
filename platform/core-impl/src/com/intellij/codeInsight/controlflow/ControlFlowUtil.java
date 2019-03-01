@@ -21,9 +21,13 @@ import com.intellij.psi.PsiElement;
 import com.intellij.util.Function;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.IntStack;
+import com.intellij.util.graph.Graph;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * @author oleg
@@ -34,35 +38,30 @@ public class ControlFlowUtil {
   private ControlFlowUtil() {
   }
 
-  public static int[] postOrder(Instruction[] flow) {
-    final int length = flow.length;
-    int[] result = new int[length];
-    boolean[] visited = new boolean[length];
-    Arrays.fill(visited, false);
-    final IntStack stack = new IntStack(length);
+  @NotNull
+  public static Graph<Instruction> createGraph(@NotNull final Instruction[] flow) {
+    return new Graph<Instruction>() {
+      @NotNull
+      final private List<Instruction> myList = Arrays.asList(flow);
 
-    int N = 0;
-    for (int i = 0; i < length; i++) { //graph might not be connected
-      if (!visited[i]) {
-        visited[i] = true;
-        stack.clear();
-        stack.push(i);
-
-        while (!stack.empty()) {
-          final int num = stack.pop();
-          result[N++] = num;
-          for (Instruction succ : flow[num].allSucc()) {
-            final int succNum = succ.num();
-            if (!visited[succNum]) {
-              visited[succNum] = true;
-              stack.push(succNum);
-            }
-          }
-        }
+      @NotNull
+      @Override
+      public Collection<Instruction> getNodes() {
+        return myList;
       }
-    }
-    LOG.assertTrue(N == length);
-    return result;
+
+      @NotNull
+      @Override
+      public Iterator<Instruction> getIn(Instruction n) {
+        return n.allPred().iterator();
+      }
+
+      @NotNull
+      @Override
+      public Iterator<Instruction> getOut(Instruction n) {
+        return n.allSucc().iterator();
+      }
+    };
   }
 
   public static int findInstructionNumberByElement(final Instruction[] flow, final PsiElement element){
@@ -80,7 +79,7 @@ public class ControlFlowUtil {
   /**
    * Process control flow graph in depth first order
    */
-  public static boolean process(final Instruction[] flow, final int start, final Processor<Instruction> processor){
+  public static boolean process(final Instruction[] flow, final int start, final Processor<? super Instruction> processor){
     final int length = flow.length;
     boolean[] visited = new boolean[length];
     Arrays.fill(visited, false);
@@ -106,12 +105,19 @@ public class ControlFlowUtil {
     return true;
   }
 
+  public static void iteratePrev(final int startInstruction,
+                                 @NotNull final Instruction[] instructions,
+                                 @NotNull final Function<? super Instruction, Operation> closure) {
+    iterate(startInstruction, instructions, closure, true);
+  }
+
   /**
    * Iterates over write instructions in CFG with reversed order
    */
-  public static void iteratePrev(final int startInstruction,
-                                 @NotNull final Instruction[] instructions,
-                                 @NotNull final Function<Instruction, Operation> closure) {
+  public static void iterate(final int startInstruction,
+                             @NotNull final Instruction[] instructions,
+                             @NotNull final Function<? super Instruction, Operation> closure,
+                             boolean prev) {
     final IntStack stack = new IntStack(instructions.length);
     final boolean[] visited = new boolean[instructions.length];
 
@@ -131,7 +137,8 @@ public class ControlFlowUtil {
       }
       // If we are here, we should process previous nodes in natural way
       assert nextOperation == Operation.NEXT;
-      for (Instruction pred : instr.allPred()) {
+      Collection<Instruction> nextToProcess = prev ? instr.allPred() : instr.allSucc();
+      for (Instruction pred : nextToProcess) {
         final int predNum = pred.num();
         if (!visited[predNum]) {
           visited[predNum] = true;
@@ -141,9 +148,9 @@ public class ControlFlowUtil {
     }
   }
 
-  public static enum Operation {
+  public enum Operation {
     /**
-     * CONTINUE is used to ignore previous elements processing for the node, however it doesn't stop the iteration process
+     * CONTINUE is used to ignore previous/next elements processing for the node, however it doesn't stop the iteration process
      */
     CONTINUE,
     /**

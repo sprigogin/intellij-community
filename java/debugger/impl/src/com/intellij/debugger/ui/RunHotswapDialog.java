@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.debugger.ui;
 
@@ -25,6 +13,7 @@ import com.intellij.openapi.ui.MultiLineLabelUI;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.OptionsDialog;
 import com.intellij.util.ui.UIUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -67,10 +56,12 @@ public class RunHotswapDialog extends OptionsDialog {
     this.init();
   }
 
+  @Override
   protected boolean isToBeShown() {
     return DebuggerSettings.RUN_HOTSWAP_ASK.equals(DebuggerSettings.getInstance().RUN_HOTSWAP_AFTER_COMPILE);
   }
 
+  @Override
   protected void setToBeShown(boolean value, boolean onOk) {
     if (value) {
       DebuggerSettings.getInstance().RUN_HOTSWAP_AFTER_COMPILE = DebuggerSettings.RUN_HOTSWAP_ASK;
@@ -85,10 +76,12 @@ public class RunHotswapDialog extends OptionsDialog {
     }
   }
 
+  @Override
   protected boolean shouldSaveOptionsOnCancel() {
     return true;
   }
 
+  @Override
   @NotNull
   protected Action[] createActions(){
     setOKButtonText(CommonBundle.getYesButtonText());
@@ -96,6 +89,7 @@ public class RunHotswapDialog extends OptionsDialog {
     return new Action[]{getOKAction(), getCancelAction()};
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     JLabel label = new JLabel(DebuggerBundle.message("hotswap.dialog.run.prompt"));
     JPanel panel = new JPanel(new BorderLayout());
@@ -111,23 +105,19 @@ public class RunHotswapDialog extends OptionsDialog {
     return panel;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
 
   public Collection<DebuggerSession> getSessionsToReload() {
-    final List<SessionItem> markedElements = myElementsChooser.getMarkedElements();
-    final List<DebuggerSession>  sessions = new ArrayList<>(markedElements.size());
-    for (SessionItem item : markedElements) {
-      sessions.add(item.getSession());
-    }
-    return sessions;
+    return StreamEx.of(myElementsChooser.getMarkedElements()).map(SessionItem::getSession).toList();
   }
 
   private static class SessionItem {
     private final DebuggerSession mySession;
 
-    public SessionItem(DebuggerSession session) {
+    SessionItem(DebuggerSession session) {
       mySession = session;
     }
 

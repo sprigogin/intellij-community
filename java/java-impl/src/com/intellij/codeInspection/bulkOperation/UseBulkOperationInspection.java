@@ -21,9 +21,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.regex.Pattern;
 
-/**
- * @author Tagir Valeev
- */
 public class UseBulkOperationInspection extends AbstractBaseJavaLocalInspectionTool {
   private static final Pattern FOR_EACH_METHOD = Pattern.compile("forEach(Ordered)?");
 
@@ -124,7 +121,12 @@ public class UseBulkOperationInspection extends AbstractBaseJavaLocalInspectionT
   @Nullable
   private static PsiExpression findIterableForIndexedLoop(PsiForStatement loop, PsiExpression getElementExpression) {
     CountingLoop countingLoop = CountingLoop.from(loop);
-    if (countingLoop == null || countingLoop.isIncluding() || !ExpressionUtils.isZero(countingLoop.getInitializer())) return null;
+    if (countingLoop == null ||
+        countingLoop.isIncluding() ||
+        countingLoop.isDescending() ||
+        !ExpressionUtils.isZero(countingLoop.getInitializer())) {
+      return null;
+    }
     IndexedContainer container = IndexedContainer.fromLengthExpression(countingLoop.getBound());
     if (container == null) return null;
     PsiExpression index = container.extractIndexFromGetExpression(getElementExpression);
@@ -198,7 +200,7 @@ public class UseBulkOperationInspection extends AbstractBaseJavaLocalInspectionT
       private void register(@NotNull PsiExpression iterable,
                             @NotNull BulkMethodInfo info,
                             @NotNull PsiReferenceExpression methodExpression) {
-        PsiExpression qualifier = ExpressionUtils.getQualifierOrThis(methodExpression);
+        PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(ExpressionUtils.getQualifierOrThis(methodExpression));
         if (qualifier instanceof PsiThisExpression) {
           PsiMethod method = PsiTreeUtil.getParentOfType(iterable, PsiMethod.class);
           // Likely we are inside of the bulk method implementation
@@ -224,9 +226,9 @@ public class UseBulkOperationInspection extends AbstractBaseJavaLocalInspectionT
   }
 
   private static class UseBulkOperationFix implements LocalQuickFix {
-    private BulkMethodInfo myInfo;
+    private final BulkMethodInfo myInfo;
 
-    public UseBulkOperationFix(BulkMethodInfo info) {
+    UseBulkOperationFix(BulkMethodInfo info) {
       myInfo = info;
     }
 

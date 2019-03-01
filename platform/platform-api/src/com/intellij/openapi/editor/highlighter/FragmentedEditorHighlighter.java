@@ -16,7 +16,6 @@
 package com.intellij.openapi.editor.highlighter;
 
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
@@ -38,12 +37,12 @@ public class FragmentedEditorHighlighter implements EditorHighlighter {
     this(highlighter.createIterator(range.getStartOffset()), Collections.singletonList(range));
   }
 
-  public FragmentedEditorHighlighter(HighlighterIterator sourceIterator, List<TextRange> ranges) {
+  public FragmentedEditorHighlighter(HighlighterIterator sourceIterator, List<? extends TextRange> ranges) {
     this(sourceIterator, ranges, 0, false);
   }
 
   public FragmentedEditorHighlighter(HighlighterIterator sourceIterator,
-                                     List<TextRange> ranges,
+                                     List<? extends TextRange> ranges,
                                      final int additionalOffset,
                                      boolean mergeByTextAttributes) {
     myMergeByTextAttributes = mergeByTextAttributes;
@@ -53,7 +52,7 @@ public class FragmentedEditorHighlighter implements EditorHighlighter {
     translate(sourceIterator, ranges);
   }
 
-  private void translate(HighlighterIterator iterator, List<TextRange> ranges) {
+  private void translate(HighlighterIterator iterator, List<? extends TextRange> ranges) {
     int offset = 0;
     int index = 0;
 
@@ -76,7 +75,7 @@ public class FragmentedEditorHighlighter implements EditorHighlighter {
       }
 
       if (range.getEndOffset() < iterator.getEnd()) {
-        offset += range.getLength() + 1 + myAdditionalOffset;  // myAdditionalOffset because of extra line - for shoene separators
+        offset += range.getLength() + 1 + myAdditionalOffset;  // myAdditionalOffset because of extra line - for shown separators
         int lastEnd = myPieces.isEmpty() ? -1 : myPieces.get(myPieces.size() - 1).getEnd();
         addElement(new Element(Math.max(offset - 1 - myAdditionalOffset, lastEnd), offset, null, TextAttributes.ERASE_MARKER));
         index++;
@@ -119,10 +118,6 @@ public class FragmentedEditorHighlighter implements EditorHighlighter {
 
   @Override
   public void setEditor(@NotNull HighlighterClient editor) {
-  }
-
-  @Override
-  public void setColorScheme(@NotNull EditorColorsScheme scheme) {
   }
 
   private class ProxyIterator implements HighlighterIterator {

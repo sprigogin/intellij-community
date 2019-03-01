@@ -19,8 +19,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.CompilerModuleExtension;
 import com.intellij.openapi.roots.CompilerProjectExtension;
 import com.intellij.openapi.roots.ModuleRootModel;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,12 +38,13 @@ public class ExcludeCompilerOutputPolicy implements DirectoryIndexExcludePolicy 
 
   @NotNull
   @Override
-  public VirtualFile[] getExcludeRootsForProject() {
-    VirtualFile outputPath = CompilerProjectExtension.getInstance(myProject).getCompilerOutput();
+  public String[] getExcludeUrlsForProject() {
+    CompilerProjectExtension projectExtension = CompilerProjectExtension.getInstance(myProject);
+    String outputPath = projectExtension == null ? null : projectExtension.getCompilerOutputUrl();
     if (outputPath != null) {
-      return new VirtualFile[] { outputPath };
+      return new String[] { outputPath };
     }
-    return VirtualFile.EMPTY_ARRAY;
+    return ArrayUtil.EMPTY_STRING_ARRAY;
   }
 
   @NotNull
@@ -55,13 +56,16 @@ public class ExcludeCompilerOutputPolicy implements DirectoryIndexExcludePolicy 
       return VirtualFilePointer.EMPTY_ARRAY;
     }
     if (extension.isCompilerOutputPathInherited()) {
-      ContainerUtil.addIfNotNull(result, CompilerProjectExtension.getInstance(myProject).getCompilerOutputPointer());
+      CompilerProjectExtension projectExtension = CompilerProjectExtension.getInstance(myProject);
+      if (projectExtension != null) {
+        ContainerUtil.addIfNotNull(result, projectExtension.getCompilerOutputPointer());
+      }
     }
     else {
       if (!extension.isExcludeOutput()) return VirtualFilePointer.EMPTY_ARRAY;
       ContainerUtil.addIfNotNull(result, extension.getCompilerOutputPointer());
       ContainerUtil.addIfNotNull(result, extension.getCompilerOutputForTestsPointer());
     }
-    return result.isEmpty() ? VirtualFilePointer.EMPTY_ARRAY : result.toArray(new VirtualFilePointer[result.size()]);
+    return result.isEmpty() ? VirtualFilePointer.EMPTY_ARRAY : result.toArray(VirtualFilePointer.EMPTY_ARRAY);
   }
 }

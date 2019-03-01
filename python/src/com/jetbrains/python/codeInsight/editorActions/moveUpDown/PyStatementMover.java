@@ -386,7 +386,7 @@ public class PyStatementMover extends LineMover {
     final Document document = editor.getDocument();
     final SelectionModel selectionModel = editor.getSelectionModel();
     final CaretModel caretModel = editor.getCaretModel();
-    Integer selectionLen = selectionContainer.myLen;
+    int selectionLen = selectionContainer.myLen;
     final PsiElement at = file.findElementAt(offset);
     if (at != null) {
       final PsiElement added = getCommentOrStatement(document, at);
@@ -592,12 +592,12 @@ public class PyStatementMover extends LineMover {
 
   // use to keep elements
   static class MyLineRange extends LineRange {
-    private PsiElement myStartElement;
-    private PsiElement myEndElement;
+    private final PsiElement myStartElement;
+    private final PsiElement myEndElement;
     int size = 0;
     int statementsSize = 0;
 
-    public MyLineRange(@NotNull PsiElement start, PsiElement end) {
+    MyLineRange(@NotNull PsiElement start, PsiElement end) {
       super(start, end);
       myStartElement = start;
       myEndElement = end;
@@ -622,11 +622,11 @@ public class PyStatementMover extends LineMover {
   }
 
   static class SelectionContainer {
-    private int myLen;
-    private int myAdditional;
-    private boolean myAtTheBeginning;
+    private final int myLen;
+    private final int myAdditional;
+    private final boolean myAtTheBeginning;
 
-    public SelectionContainer(int len, int additional, boolean atTheBeginning) {
+    SelectionContainer(int len, int additional, boolean atTheBeginning) {
       myLen = len;
       myAdditional = additional;
       myAtTheBeginning = atTheBeginning;
@@ -634,19 +634,19 @@ public class PyStatementMover extends LineMover {
   }
   // Use when element scope changed
   static class ScopeRange extends LineRange {
-    private PsiElement myScope;
-    @NotNull private PsiElement myAnchor;
-    private boolean addBefore;
+    private final PsiElement myScope;
+    @NotNull private final PsiElement myAnchor;
+    private final boolean addBefore;
     private boolean theSameLevel;
 
-    public ScopeRange(@NotNull PsiElement scope, @NotNull PsiElement anchor, boolean before) {
+    ScopeRange(@NotNull PsiElement scope, @NotNull PsiElement anchor, boolean before) {
       super(scope);
       myScope = scope;
       myAnchor = anchor;
       addBefore = before;
     }
 
-    public ScopeRange(PyElement scope, @NotNull PsiElement anchor, boolean before, boolean b) {
+    ScopeRange(PyElement scope, @NotNull PsiElement anchor, boolean before, boolean b) {
       super(scope);
       myScope = scope;
       myAnchor = anchor;

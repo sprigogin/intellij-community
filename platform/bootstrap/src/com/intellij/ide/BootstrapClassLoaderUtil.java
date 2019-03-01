@@ -1,22 +1,6 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
-import com.intellij.ide.startup.StartupActionScriptManager;
-import com.intellij.idea.Main;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ClassLoaderUtil;
@@ -27,7 +11,6 @@ import com.intellij.util.text.StringTokenizer;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
@@ -51,9 +34,7 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
   }
 
   @NotNull
-  public static ClassLoader initClassLoader(boolean updatePlugins) throws MalformedURLException {
-    PathManager.loadProperties();
-
+  public static ClassLoader initClassLoader() throws MalformedURLException {
     Collection<URL> classpath = new LinkedHashSet<>();
     addParentClasspath(classpath, false);
     addIDEALibraries(classpath);
@@ -71,29 +52,10 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
 
     ClassLoaderUtil.addPlatformLoaderParentIfOnJdk9(builder);
 
-    UrlClassLoader newClassLoader = builder.get();
-
-    // prepare plugins
-    if (updatePlugins && !isLoadingOfExternalPluginsDisabled()) {
-      try {
-        StartupActionScriptManager.executeActionScript();
-      }
-      catch (IOException e) {
-        String message =
-          "The IDE failed to install some plugins.\n" +
-          "Most probably, this happened because of a change in a serialization format.\n" +
-          "Please try again, and if the problem persists, please report it\n" +
-          "to http://jb.gg/ide/critical-startup-errors" +
-          "\n\nThe cause: " + e.getMessage();
-        Main.showMessage("Plugin Installation Error", message, false);
-      }
-    }
-
-    Thread.currentThread().setContextClassLoader(newClassLoader);
-    return newClassLoader;
+    return builder.get();
   }
 
-  private static void addParentClasspath(Collection<URL> classpath, boolean ext) throws MalformedURLException {
+  private static void addParentClasspath(Collection<? super URL> classpath, boolean ext) throws MalformedURLException {
     if (!SystemInfo.IS_AT_LEAST_JAVA9) {
       String[] extDirs = System.getProperty("java.ext.dirs", "").split(File.pathSeparator);
       if (ext && extDirs.length == 0) return;
@@ -141,7 +103,7 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
     }
   }
 
-  private static void addIDEALibraries(Collection<URL> classpath) throws MalformedURLException {
+  private static void addIDEALibraries(Collection<? super URL> classpath) throws MalformedURLException {
     Class<BootstrapClassLoaderUtil> aClass = BootstrapClassLoaderUtil.class;
     String selfRoot = PathManager.getResourceRoot(aClass, "/" + aClass.getName().replace('.', '/') + ".class");
     assert selfRoot != null;
@@ -154,7 +116,7 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
     addLibraries(classpath, new File(libFolder, "ant/lib"), selfRootUrl);
   }
 
-  private static void addLibraries(Collection<URL> classPath, File fromDir, URL selfRootUrl) throws MalformedURLException {
+  private static void addLibraries(Collection<? super URL> classPath, File fromDir, URL selfRootUrl) throws MalformedURLException {
     File[] files = fromDir.listFiles();
     if (files == null) return;
 
@@ -168,11 +130,11 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
     }
   }
 
-  private static void addAdditionalClassPath(Collection<URL> classpath) {
+  private static void addAdditionalClassPath(Collection<? super URL> classpath) {
     parseClassPathString(System.getProperty(PROPERTY_ADDITIONAL_CLASSPATH), classpath);
   }
 
-  private static void parseClassPathString(String pathString, Collection<URL> classpath) {
+  private static void parseClassPathString(String pathString, Collection<? super URL> classpath) {
     if (pathString != null && !pathString.isEmpty()) {
       try {
         StringTokenizer tokenizer = new StringTokenizer(pathString, File.pathSeparator + ',', false);
@@ -187,7 +149,6 @@ public class BootstrapClassLoaderUtil extends ClassUtilCore {
     }
   }
 
-  @SuppressWarnings("Duplicates")
   private static List<URL> filterClassPath(List<URL> classpath) {
     String ignoreProperty = System.getProperty(PROPERTY_IGNORE_CLASSPATH);
     if (ignoreProperty != null) {

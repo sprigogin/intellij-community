@@ -15,15 +15,29 @@
  */
 package com.intellij.util.containers;
 
+import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.SoftReference;
 import java.util.*;
 
-final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
+/**
+ * @deprecated use {@link ContainerUtil#createSoftKeySoftValueMap()} instead
+ */
+@Deprecated
+public final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
   private final RefHashMap<K, ValueReference<K,V>> mySoftKeyMap = (RefHashMap<K, ValueReference<K,V>>)ContainerUtil.<K, ValueReference<K,V>>createSoftMap();
-  private final ReferenceQueue<V> myQueue = new ReferenceQueue<V>();
+  private final ReferenceQueue<V> myQueue = new ReferenceQueue<>();
+
+  @Deprecated
+  public SoftKeySoftValueHashMap() {
+    DeprecatedMethodException.report("Use ContainerUtil#createSoftKeySoftValueMap() instead");
+  }
+
+  SoftKeySoftValueHashMap(boolean goodConstructor) {
+  }
+
 
   private static class ValueReference<K,V> extends SoftReference<V> {
     private final RefHashMap.Key<K> key;
@@ -38,6 +52,7 @@ final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
   boolean processQueue() {
     boolean processed = mySoftKeyMap.processQueue();
     while(true) {
+      @SuppressWarnings("unchecked")
       ValueReference<K,V> ref = (ValueReference<K, V>)myQueue.poll();
       if (ref == null) break;
       RefHashMap.Key<K> key = ref.key;
@@ -57,7 +72,7 @@ final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
   public V put(K key, V value) {
     processQueue();
     RefHashMap.Key<K> softKey = mySoftKeyMap.createKey(key);
-    ValueReference<K, V> reference = new ValueReference<K, V>(softKey, value, myQueue);
+    ValueReference<K, V> reference = new ValueReference<>(softKey, value, myQueue);
     ValueReference<K,V> oldRef = mySoftKeyMap.putKey(softKey, reference);
     return com.intellij.reference.SoftReference.dereference(oldRef);
   }
@@ -71,7 +86,7 @@ final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
 
   @Override
   public void putAll(@NotNull Map<? extends K, ? extends V> t) {
-    throw new RuntimeException("method not implemented");
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -109,7 +124,7 @@ final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
   @NotNull
   @Override
   public Collection<V> values() {
-    List<V> result = new ArrayList<V>();
+    List<V> result = new ArrayList<>();
     final Collection<ValueReference<K, V>> refs = mySoftKeyMap.values();
     for (ValueReference<K, V> ref : refs) {
       final V value = ref.get();
@@ -123,6 +138,6 @@ final class SoftKeySoftValueHashMap<K,V> implements Map<K,V>{
   @NotNull
   @Override
   public Set<Entry<K, V>> entrySet() {
-    throw new RuntimeException("method not implemented");
+    throw new UnsupportedOperationException();
   }
 }

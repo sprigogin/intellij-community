@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,13 +45,20 @@ public class PyTypingTest extends PyTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    setLanguageLevel(LanguageLevel.PYTHON32);
+    setLanguageLevel(LanguageLevel.PYTHON34);
   }
 
   @Override
   public void tearDown() throws Exception {
-    setLanguageLevel(null);
-    super.tearDown();
+    try {
+      setLanguageLevel(null);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   public void testClassType() {
@@ -275,6 +282,15 @@ public class PyTypingTest extends PyTestCase {
            "    pass\n");
   }
 
+  // PY-28032
+  public void testOptionalOfAny() {
+    doTest("Optional[Any]",
+           "from typing import Optional, Any\n" +
+           "\n" +
+           "x = None  # type: Optional[Any]\n" +
+           "expr = x\n");
+  }
+
   public void testOptionalFromDefaultNone() {
     doTest("Optional[int]",
            "def foo(expr: int = None):\n" +
@@ -335,6 +351,50 @@ public class PyTypingTest extends PyTestCase {
            "        pass\n");
   }
 
+  // PY-21191
+  public void testTypeCommentWithParenthesizedTuple() {
+    doTest("int",
+           "expr, x = undefined()  # type: (int, str) ");
+  }
+
+  // PY-21191
+  public void testTypeCommentWithNestedTuplesInAssignment() {
+    doTest("int",
+           "_, (_, expr) = undefined()  # type: str, (str, int)");
+  }
+
+  // PY-21191
+  public void testTypeCommentStructuralMismatch1() {
+    doTest("Any",
+           "expr = undefined()  # type: str, int");
+  }
+
+  // PY-21191
+  public void testTypeCommentStructuralMismatch2() {
+    doTest("Any",
+           "_, (_, expr) = undefined()  # type: str, (str, str, int)");
+  }
+
+  // PY-21191
+  public void testTypeCommentStructuralMismatch3() {
+    doTest("Any",
+           "_, (_, expr) = undefined()  # type: (str, str), int");
+  }
+
+  // PY-21191
+  public void testTypeCommentWithNestedTuplesInWithStatement() {
+    doTest("int",
+           "with undefined() as (_, (_, expr)):  # type: str, (str, int)\n" +
+           "    pass");
+  }
+
+  // PY-21191
+  public void testTypeCommentWithNestedTuplesInForStatement() {
+    doTest("int",
+           "for (_, (_, expr)) in undefined():  # type: str, (str, int)\n" +
+           "    pass");
+  }
+
   // PY-16585
   public void testCommentAfterComprehensionInAssignment() {
     doTest("int",
@@ -384,6 +444,18 @@ public class PyTypingTest extends PyTestCase {
   public void testVariableTypeCommentInjectionTuple() {
     doTestInjectedText("x, y = undefined()  # type: int,<caret> int", 
                        "int, int");
+  }
+
+  // PY-21195
+  public void testVariableTypeCommentWithSubsequentComment() {
+    doTestInjectedText("x, y = undefined()  # type: int,<caret> str # comment",
+                       "int, str");
+  }
+
+  // PY-21195
+  public void testVariableTypeCommentWithSubsequentCommentWithoutSpacesInBetween() {
+    doTestInjectedText("x, y = undefined()  # type: int,<caret> str# comment",
+                       "int, str");
   }
 
   // PY-22620
@@ -775,6 +847,30 @@ public class PyTypingTest extends PyTestCase {
            "x: str\n" +
            "x = baz()\n" +
            "expr = x");
+  }
+
+  // PY-16412
+  public void testLocalVariableAnnotationAheadOfTimeExplicitAny() {
+    doTest("Any",
+           "from typing import Any\n" +
+           "\n" +
+           "def func(x):\n" +
+           "    var: Any\n" +
+           "    var = x\n" +
+           "    expr = var\n");
+  }
+
+  // PY-28032
+  public void testClassAttributeAnnotationExplicitAny() {
+    doTest("Any",
+           "from typing import Any\n" +
+           "\n" +
+           "class C:\n" +
+           "    attr: Any = None\n" +
+           "    \n" +
+           "    def m(self, x):\n" +
+           "        self.attr = x\n" +
+           "        expr = self.attr");
   }
 
   // PY-21864
@@ -1309,6 +1405,23 @@ public class PyTypingTest extends PyTestCase {
            "    pass\n" +
            "\n" +
            "expr = D.factory()");
+  }
+
+  // PY-31004
+  public void testRecursiveTypeAliasInAnotherFile() {
+    doMultiFileStubAwareTest("Union[list, int]",
+                             "from other import MyType\n" +
+                             "\n" +
+                             "expr: MyType = ...");
+  }
+
+  // PY-31146
+  public void testNoneTypeInAnotherFile() {
+    doMultiFileStubAwareTest("(int) -> None",
+                             "from other import MyType\n" +
+                             "\n" +
+                             "expr: MyType = ...\n" +
+                             "\n");
   }
 
   private void doTestNoInjectedText(@NotNull String text) {

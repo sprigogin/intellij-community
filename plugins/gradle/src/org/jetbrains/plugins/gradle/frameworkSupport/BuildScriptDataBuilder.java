@@ -19,6 +19,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -26,7 +27,6 @@ import java.util.Set;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/24/2015
  */
 public class BuildScriptDataBuilder {
   @NotNull private final VirtualFile myBuildScriptFile;
@@ -40,9 +40,15 @@ public class BuildScriptDataBuilder {
   protected final Set<String> buildScriptRepositories = ContainerUtil.newTreeSet();
   protected final Set<String> buildScriptDependencies = ContainerUtil.newTreeSet();
   protected final Set<String> other = ContainerUtil.newTreeSet();
+  protected final GradleVersion myGradleVersion;
 
   public BuildScriptDataBuilder(@NotNull VirtualFile buildScriptFile) {
+    this(buildScriptFile, GradleVersion.current());
+  }
+
+  public BuildScriptDataBuilder(@NotNull VirtualFile buildScriptFile, @NotNull GradleVersion gradleVersion) {
     myBuildScriptFile = buildScriptFile;
+    myGradleVersion = gradleVersion;
   }
 
   @NotNull
@@ -50,9 +56,15 @@ public class BuildScriptDataBuilder {
     return myBuildScriptFile;
   }
 
+  @NotNull
+  public GradleVersion getGradleVersion() {
+    return myGradleVersion;
+  }
+
   /**
    * @deprecated use {@link #buildMainPart()} and {@link #buildConfigurationPart()} instead
    */
+  @Deprecated
   public String build() {
     return buildMainPart();
   }

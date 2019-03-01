@@ -33,7 +33,6 @@ import com.intellij.testFramework.LightIdeaTestCase;
 import junit.framework.AssertionFailedError;
 
 /**
- * @since Jan 21, 2005
  * @author max
  */
 public class PsiBuilderTest extends LightIdeaTestCase {
@@ -48,7 +47,7 @@ public class PsiBuilderTest extends LightIdeaTestCase {
   public void testEmptyProgram() {
     myBuilder = createBuilder("");
     final PsiBuilder.Marker fileMarker = myBuilder.mark();
-    fileMarker.done(JavaStubElementTypes.JAVA_FILE);
+    fileMarker.done(JavaParserDefinition.JAVA_FILE);
     ASTNode fileNode = myBuilder.getTreeBuilt();
     assertNotNull(fileNode);
     assertEquals("", fileNode.getText());
@@ -64,7 +63,7 @@ public class PsiBuilderTest extends LightIdeaTestCase {
     myBuilder.advanceLexer();
     assertTrue(myBuilder.eof());
     packageStatementMarker.done(JavaElementType.PACKAGE_STATEMENT);
-    fileMarker.done(JavaStubElementTypes.JAVA_FILE);
+    fileMarker.done(JavaParserDefinition.JAVA_FILE);
 
     ASTNode fileNode = myBuilder.getTreeBuilt();
     assertNotNull(fileNode);
@@ -98,7 +97,7 @@ public class PsiBuilderTest extends LightIdeaTestCase {
     while (!myBuilder.eof()) {
       myBuilder.advanceLexer();
     }
-    marker.done(JavaStubElementTypes.JAVA_FILE);
+    marker.done(JavaParserDefinition.JAVA_FILE);
     assertEquals("foo\n\nx", myBuilder.getTreeBuilt().getText());
   }
 
@@ -122,7 +121,7 @@ public class PsiBuilderTest extends LightIdeaTestCase {
     myBuilder.advanceLexer();
     assertTrue(myBuilder.eof());
     packageStatementMarker.done(JavaElementType.PACKAGE_STATEMENT);
-    fileMarker.done(JavaStubElementTypes.JAVA_FILE);
+    fileMarker.done(JavaParserDefinition.JAVA_FILE);
 
     ASTNode fileNode = myBuilder.getTreeBuilt();
     assertNotNull(fileNode);
@@ -148,7 +147,7 @@ public class PsiBuilderTest extends LightIdeaTestCase {
     myBuilder.advanceLexer();
     assertTrue(myBuilder.eof());
     packageStatementMarker.drop();
-    fileMarker.done(JavaStubElementTypes.JAVA_FILE);
+    fileMarker.done(JavaParserDefinition.JAVA_FILE);
 
     ASTNode fileNode = myBuilder.getTreeBuilt();
     assertNotNull(fileNode);
@@ -219,17 +218,15 @@ public class PsiBuilderTest extends LightIdeaTestCase {
 
     myBuilder = createBuilder("  bar", tree);
     parseWhenEmptyElementAfterWhitespaceIsLastChild();
-    DebugUtil.startPsiModification(null);
-    try {
-      myBuilder.getTreeBuilt();
-      fail();
-    }
-    catch (BlockSupport.ReparsedSuccessfullyException e) {
-      e.getDiffLog().performActualPsiChange(tree.getPsi().getContainingFile());
-    }
-    finally {
-      DebugUtil.finishPsiModification();
-    }
+    DebugUtil.performPsiModification(null, () -> {
+      try {
+        myBuilder.getTreeBuilt();
+        fail();
+      }
+      catch (BlockSupport.ReparsedSuccessfullyException e) {
+        e.getDiffLog().performActualPsiChange(tree.getPsi().getContainingFile());
+      }
+    });
 
     assertEquals("  bar", tree.getText());
   }

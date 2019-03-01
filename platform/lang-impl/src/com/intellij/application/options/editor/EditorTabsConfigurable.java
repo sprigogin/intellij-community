@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.application.options.editor;
 
 import com.intellij.ide.ui.UINumericRange;
 import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.ui.UISettingsState;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.ui.panel.ComponentPanelBuilder;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.ListCellRendererWrapper;
 import org.jetbrains.annotations.Nls;
@@ -36,8 +25,11 @@ import java.awt.event.ItemListener;
  */
 public class EditorTabsConfigurable implements EditorOptionsProvider {
   private static final UINumericRange EDITOR_TABS_RANGE = new UINumericRange(10, 1, Math.max(10, Registry.intValue("ide.max.editor.tabs", 100)));
+  private static final String LEFT = "Left";
+  private static final String RIGHT = "Right";
+  private static final String NONE = "None";
   private JPanel myRootPanel;
-  private JCheckBox myHideKnownExtensions;
+  private JCheckBox myShowKnownExtensions;
   private JCheckBox myScrollTabLayoutInEditorCheckBox;
   private JTextField myEditorTabLimitField;
   private JComboBox myEditorTabPlacement;
@@ -47,11 +39,13 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
   private JRadioButton myActivateMRUEditorOnCloseRadio;
   private JCheckBox myCbModifiedTabsMarkedWithAsterisk;
   private JCheckBox myShowTabsTooltipsCheckBox;
-  private JCheckBox myShowCloseButtonOnCheckBox;
+  private JLabel myTabCloseButtonPlacementLabel;
   private JCheckBox myShowDirectoryInTabCheckBox;
   private JRadioButton myActivateRightNeighbouringTabRadioButton;
   private JCheckBox myHideTabsCheckbox;
   private JCheckBox myReuseNotModifiedTabsCheckBox;
+  private ComboBox<String> myCloseButtonPlacement;
+  private JPanel myReuseNotModifiedWrapper;
 
   public EditorTabsConfigurable() {
     myEditorTabPlacement.setModel(new DefaultComboBoxModel(new Object[]{
@@ -82,12 +76,13 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
     final int i = ((Integer)myEditorTabPlacement.getSelectedItem()).intValue();
 
     boolean none = i == UISettings.TABS_NONE;
-    myHideKnownExtensions.setEnabled(!none);
+    myShowKnownExtensions.setEnabled(!none);
     myHideTabsCheckbox.setEnabled(!none && myScrollTabLayoutInEditorCheckBox.isSelected());
     myScrollTabLayoutInEditorCheckBox.setEnabled(!none);
     myCbModifiedTabsMarkedWithAsterisk.setEnabled(!none);
     myShowTabsTooltipsCheckBox.setEnabled(!none);
-    myShowCloseButtonOnCheckBox.setEnabled(!none);
+    myTabCloseButtonPlacementLabel.setEnabled(!none);
+    myCloseButtonPlacement.setEnabled(!none);
     myShowDirectoryInTabCheckBox.setEnabled(!none);
 
     if (SwingConstants.TOP == i) {
@@ -116,7 +111,7 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
 
   @Override
   public void reset() {
-    UISettings uiSettings=UISettings.getInstance();
+    UISettingsState uiSettings = UISettings.getInstance().getState();
 
     myCbModifiedTabsMarkedWithAsterisk.setSelected(uiSettings.getMarkModifiedTabsWithAsterisk());
     myShowTabsTooltipsCheckBox.setSelected(uiSettings.getShowTabsTooltips());
@@ -124,11 +119,11 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
     myHideTabsCheckbox.setEnabled(myScrollTabLayoutInEditorCheckBox.isSelected());
     myHideTabsCheckbox.setSelected(uiSettings.getHideTabsIfNeed());
     myEditorTabPlacement.setSelectedItem(uiSettings.getEditorTabPlacement());
-    myHideKnownExtensions.setSelected(uiSettings.getHideKnownExtensionInTabs());
+    myShowKnownExtensions.setSelected(!uiSettings.getHideKnownExtensionInTabs());
     myShowDirectoryInTabCheckBox.setSelected(uiSettings.getShowDirectoryForNonUniqueFilenames());
     myEditorTabLimitField.setText(Integer.toString(uiSettings.getEditorTabLimit()));
     myReuseNotModifiedTabsCheckBox.setSelected(uiSettings.getReuseNotModifiedTabs());
-    myShowCloseButtonOnCheckBox.setSelected(uiSettings.getShowCloseButton());
+    myCloseButtonPlacement.setSelectedItem(getCloseButtonPlacement(uiSettings));
 
     if (uiSettings.getCloseNonModifiedFilesFirst()) {
       myCloseNonModifiedFilesFirstRadio.setSelected(true);
@@ -147,9 +142,21 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
     }
   }
 
+  @NotNull
+  private static String getCloseButtonPlacement(UISettingsState uiSettings) {
+    String placement;
+    if (!uiSettings.getShowCloseButton()) {
+      placement = NONE;
+    } else {
+      placement = Boolean.getBoolean("closeTabButtonOnTheLeft")  || !uiSettings.getCloseTabButtonOnTheRight( ) ? LEFT : RIGHT;
+    }
+    return placement;
+  }
+
   @Override
   public void apply() throws ConfigurationException {
-    UISettings uiSettings=UISettings.getInstance();
+    UISettings settingsManager = UISettings.getInstance();
+    UISettingsState uiSettings = settingsManager.getState();
 
     boolean uiSettingsChanged = uiSettings.getMarkModifiedTabsWithAsterisk() != myCbModifiedTabsMarkedWithAsterisk.isSelected();
     uiSettings.setMarkModifiedTabsWithAsterisk(myCbModifiedTabsMarkedWithAsterisk.isSelected());
@@ -163,14 +170,18 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
     if (isModified(myHideTabsCheckbox, uiSettings.getHideTabsIfNeed())) uiSettingsChanged = true;
     uiSettings.setHideTabsIfNeed(myHideTabsCheckbox.isSelected());
 
-    if (isModified(myShowCloseButtonOnCheckBox, uiSettings.getShowCloseButton())) uiSettingsChanged = true;
-    uiSettings.setShowCloseButton(myShowCloseButtonOnCheckBox.isSelected());
+    if (isModified(myCloseButtonPlacement, getCloseButtonPlacement(uiSettings))) uiSettingsChanged = true;
+    String placement = (String)myCloseButtonPlacement.getSelectedItem();
+    uiSettings.setShowCloseButton(placement != NONE);
+    if (placement != NONE) {
+      uiSettings.setCloseTabButtonOnTheRight(placement == RIGHT);
+    }
 
     final int tabPlacement = ((Integer)myEditorTabPlacement.getSelectedItem()).intValue();
     if (uiSettings.getEditorTabPlacement() != tabPlacement) uiSettingsChanged = true;
     uiSettings.setEditorTabPlacement(tabPlacement);
 
-    boolean hide = myHideKnownExtensions.isSelected();
+    boolean hide = !myShowKnownExtensions.isSelected();
     if (uiSettings.getHideKnownExtensionInTabs() != hide) uiSettingsChanged = true;
     uiSettings.setHideKnownExtensionInTabs(hide);
 
@@ -192,31 +203,39 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
     catch (NumberFormatException ignored) {
     }
     if(uiSettingsChanged){
-      uiSettings.fireUISettingsChanged();
+      settingsManager.fireUISettingsChanged();
     }
   }
 
   @Override
   public boolean isModified() {
-    final UISettings uiSettings = UISettings.getInstance();
+    final UISettingsState uiSettings = UISettings.getInstance().getState();
     boolean isModified = isModified(myCbModifiedTabsMarkedWithAsterisk, uiSettings.getMarkModifiedTabsWithAsterisk());
     isModified |= isModified(myShowTabsTooltipsCheckBox, uiSettings.getShowTabsTooltips());
     isModified |= isModified(myEditorTabLimitField, uiSettings.getEditorTabLimit());
     isModified |= isModified(myReuseNotModifiedTabsCheckBox, uiSettings.getReuseNotModifiedTabs());
     int tabPlacement = ((Integer)myEditorTabPlacement.getSelectedItem()).intValue();
     isModified |= tabPlacement != uiSettings.getEditorTabPlacement();
-    isModified |= myHideKnownExtensions.isSelected() != uiSettings.getHideKnownExtensionInTabs();
+    isModified |= myShowKnownExtensions.isSelected() == uiSettings.getHideKnownExtensionInTabs();
     isModified |= myShowDirectoryInTabCheckBox.isSelected() != uiSettings.getShowDirectoryForNonUniqueFilenames();
 
     isModified |= myScrollTabLayoutInEditorCheckBox.isSelected() != uiSettings.getScrollTabLayoutInEditor();
     isModified |= myHideTabsCheckbox.isSelected() != uiSettings.getHideTabsIfNeed();
-    isModified |= myShowCloseButtonOnCheckBox.isSelected() != uiSettings.getShowCloseButton();
+    isModified |= isModified(myCloseButtonPlacement, getCloseButtonPlacement(uiSettings));
 
     isModified |= isModified(myCloseNonModifiedFilesFirstRadio, uiSettings.getCloseNonModifiedFilesFirst());
     isModified |= isModified(myActivateMRUEditorOnCloseRadio, uiSettings.getActiveMruEditorOnClose());
     isModified |= isModified(myActivateRightNeighbouringTabRadioButton, uiSettings.getActiveRightEditorOnClose());
 
     return isModified;
+  }
+
+  private void createUIComponents() {
+    myCloseButtonPlacement = new ComboBox<>(new String[]{LEFT, RIGHT, NONE});
+    myReuseNotModifiedTabsCheckBox = new JCheckBox(ApplicationBundle.message("checkbox.smart.tab.reuse"));
+    ComponentPanelBuilder builder = new ComponentPanelBuilder(myReuseNotModifiedTabsCheckBox)
+      .withComment(ApplicationBundle.message("checkbox.smart.tab.reuse.inline.help"));
+    myReuseNotModifiedWrapper = builder.createPanel();
   }
 
   private static boolean isModified(JTextField textField, int value) {
@@ -230,7 +249,7 @@ public class EditorTabsConfigurable implements EditorOptionsProvider {
   }
 
   private static final class MyTabsPlacementComboBoxRenderer extends ListCellRendererWrapper<Integer> {
-    public MyTabsPlacementComboBoxRenderer() {
+    MyTabsPlacementComboBoxRenderer() {
       super();
     }
 

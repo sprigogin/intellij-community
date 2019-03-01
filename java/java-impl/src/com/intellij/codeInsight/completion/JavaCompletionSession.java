@@ -34,7 +34,7 @@ import java.util.Set;
 */
 public class JavaCompletionSession {
   private final Set<String> myAddedClasses = new HashSet<>();
-  private Set<String> myKeywords = new HashSet<>();
+  private final Set<String> myKeywords = new HashSet<>();
   private final MultiMap<CompletionResultSet, LookupElement> myBatchItems = MultiMap.create(); 
   private final CompletionResultSet myResult;
 
@@ -42,7 +42,7 @@ public class JavaCompletionSession {
     myResult = result;
   }
 
-  void registerBatchItems(CompletionResultSet result, Collection<LookupElement> elements) {
+  void registerBatchItems(CompletionResultSet result, Collection<? extends LookupElement> elements) {
     myBatchItems.putValues(result, elements);
   }
 
@@ -54,11 +54,17 @@ public class JavaCompletionSession {
   }
 
   public void addClassItem(LookupElement lookupElement) {
+    if (!myResult.getPrefixMatcher().prefixMatches(lookupElement)) return;
+
+    registerClassFrom(lookupElement);
+    myResult.addElement(AutoCompletionPolicy.NEVER_AUTOCOMPLETE.applyPolicy(lookupElement));
+  }
+
+  void registerClassFrom(LookupElement lookupElement) {
     PsiClass psiClass = extractClass(lookupElement);
     if (psiClass != null) {
       registerClass(psiClass);
     }
-    myResult.addElement(AutoCompletionPolicy.NEVER_AUTOCOMPLETE.applyPolicy(lookupElement));
   }
 
   @NotNull PrefixMatcher getMatcher() {

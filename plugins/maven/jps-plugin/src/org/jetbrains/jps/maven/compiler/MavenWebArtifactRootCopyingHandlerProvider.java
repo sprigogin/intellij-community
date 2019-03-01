@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.intellij.openapi.util.io.FileUtil.toSystemDependentName;
 import static com.intellij.openapi.util.io.FileUtil.toSystemIndependentName;
@@ -87,9 +88,14 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
         if (relativeDirInWar == null) return null;
       }
       ResourceRootConfiguration warRootConfig = getWarRootConfig(artifactResourceConfiguration, moduleResourceConfiguration);
+      if (root.isFile()) {
+        root = root.getParentFile();
+      }
       warRootConfig.directory = root.getPath();
-      warRootConfig.includes.addAll(artifactResourceConfiguration.warSourceIncludes);
-      warRootConfig.excludes.addAll(artifactResourceConfiguration.warSourceExcludes);
+      if (relativeDirInWar == null) {
+        warRootConfig.includes.addAll(artifactResourceConfiguration.warSourceIncludes);
+        warRootConfig.excludes.addAll(artifactResourceConfiguration.warSourceExcludes);
+      }
       return new MavenWebArtifactCopyingHandler(warRootConfig, moduleResourceConfiguration, relativeDirInWar);
     }
 
@@ -102,7 +108,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     private final ResourceRootConfiguration myWarRootConfig;
     private final MavenModuleResourceConfiguration myModuleResourceConfig;
 
-    public MavenWebArtifactCopyingHandler(@NotNull MavenWebArtifactConfiguration artifactConfig,
+    MavenWebArtifactCopyingHandler(@NotNull MavenWebArtifactConfiguration artifactConfig,
                                           @NotNull MavenModuleResourceConfiguration moduleResourceConfig,
                                           @Nullable String relativeDirectoryPath) {
       this(getWarRootConfig(artifactConfig, moduleResourceConfig), moduleResourceConfig, relativeDirectoryPath);
@@ -154,7 +160,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     private final File myTargetDir;
     private final List<ResourceRootConfiguration> myWebResources;
 
-    public MavenClassesCopyingHandler(@NotNull File targetDir,
+    MavenClassesCopyingHandler(@NotNull File targetDir,
                                       @NotNull MavenWebArtifactConfiguration artifactConfig,
                                       @NotNull MavenModuleResourceConfiguration moduleResourceConfig) {
       this(targetDir, getWarRootConfig(artifactConfig, moduleResourceConfig),
@@ -191,6 +197,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
       return result;
     }
 
+    @Override
     protected int configurationHash() {
       int hash = super.configurationHash();
       hash = 31 * hash + FileUtil.fileHashCode(myTargetDir);
@@ -206,7 +213,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
       private final File myTargetDir;
       private final Map<ResourceRootConfiguration, FileFilter> myWebResourcesMap = ContainerUtil.newHashMap();
 
-      public ClassesFilter(@NotNull File targetDir,
+      ClassesFilter(@NotNull File targetDir,
                            @NotNull ResourceRootConfiguration warRootConfig,
                            @NotNull List<ResourceRootConfiguration> webResources) {
         super(targetDir, warRootConfig);
@@ -240,8 +247,8 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
   private static class MavenWebRootCopyingHandler extends MavenWebArtifactCopyingHandler {
     private final MavenResourceFileProcessor myFileProcessor;
     @NotNull private final ResourceRootConfiguration myRootConfiguration;
-    private MavenResourceFileFilter myFileFilter;
-    private boolean myMainWebAppRoot;
+    private final FileFilter myFilteringFilter;
+    private final FileFilter myCopyingFilter;
 
     private MavenWebRootCopyingHandler(@NotNull MavenResourceFileProcessor fileProcessor,
                                        @NotNull MavenWebArtifactConfiguration artifactConfiguration,
@@ -251,15 +258,33 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
       super(artifactConfiguration, moduleResourceConfiguration, null);
       myFileProcessor = fileProcessor;
       myRootConfiguration = rootConfiguration;
-      myFileFilter = new MavenResourceFileFilter(root, myRootConfiguration);
+
+      FileFilter superFileFilter = super.createFileFilter();
+      FileFilter rootFileFilter = new MavenResourceFileFilter(root, myRootConfiguration).acceptingWebXml();
 
       //for additional resource directory 'exclude' means 'exclude from copying' but for the default webapp resource it mean 'exclude from filtering'
-      myMainWebAppRoot = artifactConfiguration.warSourceDirectory.equals(trimEnd(rootConfiguration.directory, "/"));
+      boolean isMainWebAppRoot = FileUtil.pathsEqual(artifactConfiguration.warSourceDirectory, rootConfiguration.directory);
+
+      if (isMainWebAppRoot) {
+        myCopyingFilter = superFileFilter;
+      }
+      else {
+        myCopyingFilter = path -> superFileFilter.accept(path) && rootFileFilter.accept(path);
+      }
+
+      Set<String> nonFilteredFileExtensions = artifactConfiguration.nonFilteredFileExtensions;
+      FileFilter extensionsFileFilter = file -> !nonFilteredFileExtensions.contains(FileUtilRt.getExtension(file.getName()));
+      if (isMainWebAppRoot) {
+        myFilteringFilter = file -> rootFileFilter.accept(file) && extensionsFileFilter.accept(file);
+      }
+      else {
+        myFilteringFilter = extensionsFileFilter;
+      }
     }
 
     @Override
     public void copyFile(@NotNull File from, @NotNull File to, @NotNull CompileContext context) throws IOException {
-      myFileProcessor.copyFile(from, to, myRootConfiguration, context, myMainWebAppRoot ? myFileFilter.acceptingWebXml() : FileUtilRt.ALL_FILES);
+      myFileProcessor.copyFile(from, to, myRootConfiguration, context, myFilteringFilter);
     }
 
     @Override
@@ -270,13 +295,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     @NotNull
     @Override
     public FileFilter createFileFilter() {
-      FileFilter superFilter = super.createFileFilter();
-      if (myMainWebAppRoot) {
-        return superFilter;
-      }
-
-      FileFilter thisFilter = myFileFilter.acceptingWebXml();
-      return path -> superFilter.accept(path) && thisFilter.accept(path);
+      return myCopyingFilter;
     }
   }
 }

@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build
 
+import org.jetbrains.intellij.build.impl.ClassVersionChecker
 import org.jetbrains.intellij.build.impl.LayoutBuilder
+
 /**
  * Builds artifacts which are used in Kotlin Compiler and UpSource
  *
@@ -23,40 +11,51 @@ import org.jetbrains.intellij.build.impl.LayoutBuilder
  */
 class IntelliJCoreArtifactsBuilder {
   private static final List<String> ANALYSIS_API_MODULES = [
-    "analysis-api",
-    "boot",
-    "core-api",
-    "duplicates-analysis",
-    "editor-ui-api",
-    "editor-ui-ex",
-    "extensions",
-    "indexing-api",
-    "java-analysis-api",
-    "java-indexing-api",
-    "java-psi-api",
-    "java-structure-view",
-    "jps-model-api",
-    "jps-model-serialization",
-    "projectModel-api",
-    "util",
-    "util-rt",
-    "xml-analysis-api",
-    "xml-psi-api",
-    "xml-structure-view-api",
+    "intellij.platform.analysis",
+    "intellij.platform.boot",
+    "intellij.platform.core",
+    "intellij.platform.duplicates.analysis",
+    "intellij.platform.editor",
+    "intellij.platform.editor.ex",
+    "intellij.platform.extensions",
+    "intellij.platform.indexing",
+    "intellij.java.analysis",
+    "intellij.java.indexing",
+    "intellij.java.psi",
+    "intellij.java.structureView",
+    "intellij.platform.jps.model",
+    "intellij.platform.jps.model.serialization",
+    "intellij.platform.projectModel",
+    "intellij.platform.util",
+    "intellij.platform.util.rt",
+    "intellij.platform.util.classLoader",
+    "intellij.xml.analysis",
+    "intellij.xml.psi",
+    "intellij.xml.structureView",
+    "intellij.jvm.analysis",
   ]
   private static final List<String> ANALYSIS_IMPL_MODULES = [
-    "analysis-impl",
-    "core-impl",
-    "indexing-impl",
-    "java-analysis-impl",
-    "java-indexing-impl",
-    "java-psi-impl",
-    "projectModel-impl",
-    "structure-view-impl",
-    "xml-analysis-impl",
-    "xml-psi-impl",
-    "xml-structure-view-impl",
+    "intellij.platform.analysis.impl",
+    "intellij.platform.core.impl",
+    "intellij.platform.indexing.impl",
+    "intellij.java.analysis.impl",
+    "intellij.java.indexing.impl",
+    "intellij.java.psi.impl",
+    "intellij.platform.projectModel.impl",
+    "intellij.platform.structureView.impl",
+    "intellij.xml.analysis.impl",
+    "intellij.xml.psi.impl",
+    "intellij.xml.structureView.impl",
+    "intellij.jvm.analysis.impl",
   ]
+  private static final List<String> VERSIONED_LIBRARIES = [
+    "ASM", "Guava", "picocontainer", "Trove4j", "cli-parser", "lz4-java", "imgscalr", "batik", "xmlgraphics-commons",
+    "OroMatcher", "jna", "Log4J", "StreamEx", "Java Compatibility"
+  ]
+  private static final List<String> UNVERSIONED_LIBRARIES = [
+    "jetbrains-annotations-java5", "JDOM"
+  ]
+
   private final BuildContext buildContext
 
   IntelliJCoreArtifactsBuilder(BuildContext buildContext) {
@@ -72,33 +71,31 @@ class IntelliJCoreArtifactsBuilder {
       String coreArtifactDir = "$buildContext.paths.artifacts/core"
       AntBuilder ant = buildContext.ant
       ant.mkdir(dir: coreArtifactDir)
-      String home = buildContext.paths.communityHome
+
       List<String> analysisModules = ANALYSIS_API_MODULES + ANALYSIS_IMPL_MODULES
-      new LayoutBuilder(ant, buildContext.project, false).layout(coreArtifactDir) {
+      List<String> versionedLibs = VERSIONED_LIBRARIES
+      List<String> unversionedLibs = UNVERSIONED_LIBRARIES
+      new LayoutBuilder(buildContext, false).layout(coreArtifactDir) {
         jar("intellij-core.jar") {
-          module("util-rt")
-          module("util")
-          module("core-api")
-          module("core-impl")
-          module("extensions")
-          module("java-psi-api")
-          module("java-psi-impl")
+          module("intellij.platform.util.rt")
+          module("intellij.platform.util.classLoader")
+          module("intellij.platform.util")
+          module("intellij.platform.core")
+          module("intellij.platform.core.impl")
+          module("intellij.platform.extensions")
+          module("intellij.java.psi")
+          module("intellij.java.psi.impl")
         }
-
-        jar("annotations.jar") {
-          module("annotations-common")
-          module("annotations")
-        }
-
         jar("intellij-core-analysis.jar") {
           analysisModules.each { module it }
         }
-
-        ["ASM", "Guava", "picocontainer", "Trove4j", "cli-parser", "Snappy-Java", "jayatana", "imgscalr", "batik", "xmlgraphics-commons"].each {
-          projectLibrary(it)
-        }
+        versionedLibs.each { projectLibrary(it) }
+        unversionedLibs.each { projectLibrary(it, true) }
       }
+      ant.move(file: "$coreArtifactDir/annotations-java5.jar", tofile: "$coreArtifactDir/annotations.jar")
       buildContext.notifyArtifactBuilt(coreArtifactDir)
+
+      new ClassVersionChecker(["": "1.8"]).checkVersions(buildContext, new File(coreArtifactDir))
 
       def intellijCoreZip = "${buildContext.paths.artifacts}/intellij-core-${buildContext.buildNumber}.zip"
       ant.zip(destfile: intellijCoreZip) {

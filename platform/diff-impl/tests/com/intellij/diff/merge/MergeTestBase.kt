@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.merge
 
 import com.intellij.diff.DiffContentFactoryImpl
@@ -20,11 +6,9 @@ import com.intellij.diff.HeavyDiffTestCase
 import com.intellij.diff.contents.DocumentContent
 import com.intellij.diff.merge.MergeTestBase.SidesState.*
 import com.intellij.diff.merge.TextMergeViewer.MyThreesideViewer
-import com.intellij.diff.util.DiffUtil
-import com.intellij.diff.util.Side
-import com.intellij.diff.util.TextDiffType
-import com.intellij.diff.util.ThreeSide
-import com.intellij.idea.ActionsBundle
+import com.intellij.diff.tools.util.base.IgnorePolicy
+import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings
+import com.intellij.diff.util.*
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -54,6 +38,10 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
   }
 
   fun test(left: String, base: String, right: String, changesCount: Int, f: TestBuilder.() -> Unit) {
+    test(left, base, right, changesCount, IgnorePolicy.DEFAULT, f)
+  }
+
+  fun test(left: String, base: String, right: String, changesCount: Int, policy: IgnorePolicy, f: TestBuilder.() -> Unit) {
     val contentFactory = DiffContentFactoryImpl()
     val leftContent: DocumentContent = contentFactory.create(parseSource(left))
     val baseContent: DocumentContent = contentFactory.create(parseSource(base))
@@ -63,6 +51,10 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
 
     val context = MockMergeContext(project)
     val request = MockMergeRequest(leftContent, baseContent, rightContent, outputContent)
+
+    val settings = TextDiffSettings()
+    settings.ignorePolicy = policy
+    context.putUserData(TextDiffSettings.KEY, settings)
 
     val viewer = TextMergeTool.INSTANCE.createComponent(context, request) as TextMergeViewer
     try {
@@ -99,11 +91,10 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
     //
 
     fun runApplyNonConflictsAction(side: ThreeSide) {
-      runActionById(side.select("Diff.ApplyNonConflicts.Left", "Diff.ApplyNonConflicts", "Diff.ApplyNonConflicts.Right")!!)
+      runActionById(side.select("Left", "All", "Right")!!)
     }
 
-    private fun runActionById(id: String): Boolean {
-      val text = ActionsBundle.actionText(id)
+    private fun runActionById(text: String): Boolean {
       val action = actions.filter { text == it.templatePresentation.text }.single()
       return runAction(action)
     }
@@ -120,17 +111,17 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
     // Modification
     //
 
-    fun command(affected: TextMergeChange, f: () -> Unit): Unit {
+    fun command(affected: TextMergeChange, f: () -> Unit) {
       command(listOf(affected), f)
     }
 
-    fun command(affected: List<TextMergeChange>? = null, f: () -> Unit): Unit {
+    fun command(affected: List<TextMergeChange>? = null, f: () -> Unit) {
       viewer.executeMergeCommand(null, affected, f)
       UIUtil.dispatchAllInvocationEvents()
     }
 
-    fun write(f: () -> Unit): Unit {
-      ApplicationManager.getApplication().runWriteAction({ CommandProcessor.getInstance().executeCommand(project, f, null, null) })
+    fun write(f: () -> Unit) {
+      ApplicationManager.getApplication().runWriteAction { CommandProcessor.getInstance().executeCommand(project, f, null, null) }
     }
 
     fun Int.ignore(side: Side, modifier: Boolean = false) {
@@ -218,6 +209,10 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
     //
     // Undo
     //
+
+    fun assertCantUndo() {
+      assertFalse(undoManager.isUndoAvailable(textEditor))
+    }
 
     fun undo(count: Int = 1) {
       if (count == -1) {
@@ -307,6 +302,14 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
       assertEquals(Pair(start, end), Pair(change.startLine, change.endLine))
     }
 
+    fun Int.assertRange(start1: Int, end1: Int, start2: Int, end2: Int, start3: Int, end3: Int) {
+      val change = change(this)
+      assertEquals(MergeRange(start1, end1, start2, end2, start3, end3),
+                   MergeRange(change.getStartLine(ThreeSide.LEFT), change.getEndLine(ThreeSide.LEFT),
+                              change.getStartLine(ThreeSide.BASE), change.getEndLine(ThreeSide.BASE),
+                              change.getStartLine(ThreeSide.RIGHT), change.getEndLine(ThreeSide.RIGHT)))
+    }
+
     fun Int.assertContent(expected: String, start: Int, end: Int) {
       assertContent(expected)
       assertRange(start, end)
@@ -331,8 +334,7 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
     operator fun Int.not(): LineColHelper = LineColHelper(this)
     operator fun LineColHelper.minus(col: Int): LineCol = LineCol(this.line, col)
 
-    inner class LineColHelper(val line: Int) {
-    }
+    inner class LineColHelper(val line: Int)
 
     inner class LineCol(val line: Int, val col: Int) {
       fun toOffset(): Int = editor.document.getLineStartOffset(line) + col
@@ -342,9 +344,9 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
   private class MockMergeContext(private val myProject: Project?) : MergeContext() {
     override fun getProject(): Project? = myProject
 
-    override fun isFocused(): Boolean = false
+    override fun isFocusedInWindow(): Boolean = false
 
-    override fun requestFocus() {
+    override fun requestFocusInWindow() {
     }
 
     override fun finishMerge(result: MergeResult) {
@@ -381,7 +383,7 @@ abstract class MergeTestBase : HeavyDiffTestCase() {
       }
 
       private fun recordChangeState(viewer: MyThreesideViewer, change: TextMergeChange): ChangeState {
-        val document = viewer.editor.document;
+        val document = viewer.editor.document
         val content = DiffUtil.getLinesContent(document, change.startLine, change.endLine)
 
         val resolved =

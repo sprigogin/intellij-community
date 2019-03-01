@@ -25,18 +25,40 @@ import com.intellij.openapi.util.text.StringUtil.isWhiteSpace
 import java.util.*
 
 fun isPunctuation(c: Char): Boolean {
-  if (c == '_') return false
-  val b = c.toInt()
+  return isPunctuation(c.toInt())
+}
+
+fun isPunctuation(b: Int): Boolean {
+  if (b == 95) return false // exclude '_'
   return b >= 33 && b <= 47 || // !"#$%&'()*+,-./
          b >= 58 && b <= 64 || // :;<=>?@
          b >= 91 && b <= 96 || // [\]^_`
          b >= 123 && b <= 126  // {|}~
 }
 
-fun isAlpha(c: Char): Boolean {
-  return !isWhiteSpace(c) && !isPunctuation(c)
+fun isAlpha(c: Int): Boolean {
+  if (isWhiteSpaceCodePoint(c)) return false
+  return !isPunctuation(c)
 }
 
+fun isWhiteSpaceCodePoint(c: Int): Boolean {
+  return c < 128 && isWhiteSpace(c.toChar())
+}
+
+fun isContinuousScript(c: Int): Boolean {
+  if (c < 128) return false
+  if (Character.isDigit(c)) return false
+
+  if (!Character.isBmpCodePoint(c)) return true
+  if (Character.isIdeographic(c)) return true
+  if (!Character.isAlphabetic(c)) return true
+
+  val script = Character.UnicodeScript.of(c)
+  return script == Character.UnicodeScript.HIRAGANA ||
+         script == Character.UnicodeScript.KATAKANA ||
+         script == Character.UnicodeScript.THAI ||
+         script == Character.UnicodeScript.JAVANESE
+}
 
 fun trim(text: CharSequence, start: Int, end: Int): IntPair {
   return trim(start, end,
@@ -170,15 +192,14 @@ fun expandWhitespacesBackward(text1: CharSequence, text2: CharSequence, text3: C
 }
 
 
-fun <T> trimExpandList(text1: List<T>, text2: List<T>,
-                       start1: Int, start2: Int, end1: Int, end2: Int,
-                       equals: (T, T) -> Boolean,
-                       ignored1: (T) -> Boolean,
-                       ignored2: (T) -> Boolean): Range {
+fun trimExpandRange(start1: Int, start2: Int, end1: Int, end2: Int,
+                    equals: (Int, Int) -> Boolean,
+                    ignored1: (Int) -> Boolean,
+                    ignored2: (Int) -> Boolean): Range {
   return trimExpand(start1, start2, end1, end2,
-                    { index1, index2 -> equals(text1[index1], text2[index2]) },
-                    { index -> ignored1(text1[index]) },
-                    { index -> ignored2(text2[index]) })
+                    { index1, index2 -> equals(index1, index2) },
+                    { index -> ignored1(index) },
+                    { index -> ignored2(index) })
 }
 
 fun trimExpandText(text1: CharSequence, text2: CharSequence,

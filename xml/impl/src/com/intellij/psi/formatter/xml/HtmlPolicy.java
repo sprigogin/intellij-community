@@ -23,6 +23,7 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.formatter.FormatterUtil;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.tree.TokenSet;
@@ -119,9 +120,15 @@ public class HtmlPolicy extends XmlFormattingPolicy {
   }
 
   protected boolean checkName(XmlTag tag, String option) {
+    return checkName(tag, option, true);
+  }
+
+  protected boolean checkName(XmlTag tag, String option, boolean ignoreCase) {
     if (option == null) return false;
     for (String name : getTagNames(option)) {
-      if (name.trim().equalsIgnoreCase(tag.getName())) return true;
+      String optionName = name.trim();
+      String tagName = tag.getName();
+      if (ignoreCase ? optionName.equalsIgnoreCase(tagName) : optionName.equals(tagName)) return true;
     }
     return false;
   }
@@ -281,7 +288,7 @@ public class HtmlPolicy extends XmlFormattingPolicy {
   @Override
   public Spacing getSpacingAfterLastAttribute(XmlAttribute attribute) {
     XmlTag parent = attribute.getParent();
-    final int spaces = parent.isEmpty() && addSpaceIntoEmptyTag() ? 1 : 0;
+    final int spaces = addSpaceIntoEmptyTag() && parent.isEmpty() && FormatterUtil.isFollowedBy(attribute.getNode(), XmlTokenType.XML_EMPTY_ELEMENT_END) ? 1 : 0;
     boolean isEnabled = myHtmlCodeStyleSettings.HTML_NEWLINE_AFTER_LAST_ATTRIBUTE == CodeStyleSettings.HtmlTagNewLineStyle.WhenMultiline;
     return getStartTagDependantSpacingOrNull(parent, isEnabled, spaces);
   }

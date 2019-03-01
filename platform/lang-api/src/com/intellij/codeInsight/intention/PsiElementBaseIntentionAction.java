@@ -17,13 +17,11 @@
 package com.intellij.codeInsight.intention;
 
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
-import com.intellij.ide.scratch.ScratchFileService;
 import com.intellij.openapi.editor.CaretModel;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,17 +35,19 @@ import org.jetbrains.annotations.Nullable;
 public abstract class PsiElementBaseIntentionAction extends BaseIntentionAction {
   @Override
   public final void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!checkFile(file)) return;
+    if (editor == null || !checkFile(file)) return;
     final PsiElement element = getElement(editor, file);
     if (element != null) {
       invoke(project, editor, element);
     }
   }
 
-  protected boolean checkFile(@Nullable PsiFile file) {
+  /**
+   * Check whether this intention available in file.
+   */
+  public boolean checkFile(@Nullable PsiFile file) {
     if (file == null) return false;
-    PsiManager manager = file.getManager();
-    return manager != null && manager.isInProject(file) || ScratchFileService.isInScratchRoot(file.getVirtualFile());
+    return canModify(file);
   }
 
   /**

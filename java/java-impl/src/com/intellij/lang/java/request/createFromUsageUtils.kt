@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.java.request
 
-import com.intellij.lang.java.actions.toJavaClassOrNull
 import com.intellij.lang.jvm.JvmClass
 import com.intellij.lang.jvm.JvmClassKind
 import com.intellij.lang.jvm.JvmModifier
@@ -23,16 +8,26 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings
-import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.psi.util.parentOfType
-import com.intellij.psi.util.parents
-import com.intellij.psi.util.parentsOfType
-import com.intellij.util.VisibilityUtil
+import com.intellij.psi.util.*
 import java.util.*
 import kotlin.collections.ArrayList
 
 internal fun PsiExpression.isInStaticContext(): Boolean {
   return isWithinStaticMember() || isWithinConstructorCall()
+}
+
+internal fun PsiExpression.isWithinStaticMemberOf(clazz: PsiClass): Boolean {
+  var currentPlace: PsiElement = this
+  while (true) {
+    val enclosingMember = currentPlace.parentOfType<PsiMember>() ?: return false
+    val enclosingClass = enclosingMember.containingClass ?: return false
+    if (enclosingClass == clazz) {
+      return enclosingMember.hasModifierProperty(PsiModifier.STATIC)
+    }
+    else {
+      currentPlace = enclosingClass.parent ?: return false
+    }
+  }
 }
 
 internal fun PsiExpression.isWithinStaticMember(): Boolean {
@@ -54,21 +49,23 @@ internal fun PsiExpression.isWithinConstructorCall(): Boolean {
 internal fun computeVisibility(project: Project, ownerClass: PsiClass?, targetClass: JvmClass): JvmModifier? {
   if (targetClass.classKind == JvmClassKind.INTERFACE || targetClass.classKind == JvmClassKind.ANNOTATION) return JvmModifier.PUBLIC
   if (ownerClass != null) {
-    targetClass.toJavaClassOrNull()?.let { javaClass ->
-      if (javaClass == ownerClass || PsiTreeUtil.isAncestor(javaClass, ownerClass, false)) {
+    (targetClass as? PsiClass)?.let { target ->
+      if (target.isEquivalentTo(ownerClass) || PsiTreeUtil.isAncestor(target, ownerClass, false)) {
         return JvmModifier.PRIVATE
+      }
+
+      if (InheritanceUtil.isInheritorOrSelf(ownerClass, target, true)) {
+        return JvmModifier.PROTECTED
       }
     }
   }
   val setting = CodeStyleSettingsManager.getSettings(project).getCustomSettings(JavaCodeStyleSettings::class.java).VISIBILITY
-  if (setting == VisibilityUtil.ESCALATE_VISIBILITY) {
-    return null // TODO
-  }
-  else if (setting == PsiModifier.PACKAGE_LOCAL) {
-    return JvmModifier.PACKAGE_LOCAL
-  }
-  else {
-    return JvmModifier.valueOf(setting.toUpperCase())
+  return when (setting) {
+    PsiModifier.PUBLIC -> JvmModifier.PUBLIC
+    PsiModifier.PROTECTED -> JvmModifier.PROTECTED
+    PsiModifier.PACKAGE_LOCAL -> JvmModifier.PACKAGE_LOCAL
+    PsiModifier.PRIVATE -> JvmModifier.PRIVATE
+    else -> null // TODO escalate visibility
   }
 }
 

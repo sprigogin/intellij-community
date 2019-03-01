@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.PlatformUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
@@ -27,8 +28,7 @@ public final class EndUserAgreement {
 
   private static final String PRIVACY_POLICY_CONTENT_FILE_NAME = "Cached";
 
-  // todo: change to EULA after GDPR is mandatory and corresponding resource is hard-coded into the build
-  private static final String DEFAULT_DOC_NAME = PRIVACY_POLICY_DOCUMENT_NAME;
+  private static final String DEFAULT_DOC_NAME = EULA_DOCUMENT_NAME;
   private static final String DEFAULT_DOC_EAP_NAME = DEFAULT_DOC_NAME + "Eap";
   private static final String ACTIVE_DOC_FILE_NAME = "documentName";
   private static final String ACTIVE_DOC_EAP_FILE_NAME = "documentName.eap";
@@ -114,25 +114,23 @@ public final class EndUserAgreement {
 
   @NotNull
   private static Document loadContent(final String docName, InputStream stream) {
-    try {
-      if (stream != null) {
-        final Reader reader = new InputStreamReader(stream instanceof ByteArrayInputStream? stream : new BufferedInputStream(stream), StandardCharsets.UTF_8);
-        try {
-          return new Document(docName, new String(FileUtil.adaptiveLoadText(reader)));
-        }
-        finally {
-          reader.close();
-        }
+    if (stream != null) {
+      try (Reader reader = new InputStreamReader(stream instanceof ByteArrayInputStream ? stream : new BufferedInputStream(stream),
+                                                 StandardCharsets.UTF_8)) {
+        return new Document(docName, new String(FileUtil.adaptiveLoadText(reader)));
       }
-    }
-    catch (IOException e) {
-      LOG.info(e);
+      catch (IOException e) {
+        LOG.info(e);
+      }
     }
     return new Document(docName, "");
   }
 
   @NotNull
   private static String getDocumentName() {
+    if (!PlatformUtils.isCommercialEdition()) {
+      return PRIVACY_POLICY_DOCUMENT_NAME;
+    }
     try {
       final String docName = new String(FileUtilRt.loadFileText(getDocumentNameFile(), StandardCharsets.UTF_8));
       if (!StringUtil.isEmptyOrSpaces(docName)) {
@@ -164,6 +162,10 @@ public final class EndUserAgreement {
       myVersion = parseVersion(text);
     }
 
+    public boolean isPrivacyPolicy() {
+      return PRIVACY_POLICY_DOCUMENT_NAME.equals(myName);
+    }
+
     public boolean isAccepted() {
       final Version thisVersion = getVersion();
       if (thisVersion.isUnknown() || MAGIC_VERSION.equals(thisVersion)) {
@@ -188,22 +190,16 @@ public final class EndUserAgreement {
     @NotNull
     private static Version parseVersion(String text) {
       if (!StringUtil.isEmptyOrSpaces(text)) {
-        try {
-          final BufferedReader reader = new BufferedReader(new StringReader(text));
-          try {
-            final String line = reader.readLine();
-            if (line != null) {
-              final int startComment = line.indexOf(VERSION_COMMENT_START);
-              if (startComment >= 0 ) {
-                final int endComment = line.indexOf(VERSION_COMMENT_END);
-                if (endComment > startComment) {
-                  return Version.fromString(line.substring(startComment + VERSION_COMMENT_START.length(), endComment).trim());
-                }
+        try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
+          final String line = reader.readLine();
+          if (line != null) {
+            final int startComment = line.indexOf(VERSION_COMMENT_START);
+            if (startComment >= 0) {
+              final int endComment = line.indexOf(VERSION_COMMENT_END);
+              if (endComment > startComment) {
+                return Version.fromString(line.substring(startComment + VERSION_COMMENT_START.length(), endComment).trim());
               }
             }
-          }
-          finally {
-            reader.close();
           }
         }
         catch (IOException e) {

@@ -25,6 +25,7 @@ import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiParameterListStub;
 import com.intellij.psi.impl.source.tree.CompositeElement;
+import com.intellij.psi.stubs.StubElement;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -61,10 +62,26 @@ public class PsiParameterListImpl extends JavaStubPsiElement<PsiParameterListStu
   public int getParametersCount() {
     final PsiParameterListStub stub = getGreenStub();
     if (stub != null) {
-      return (int)stub.getChildrenStubs().stream().filter(child -> child.getStubType() == JavaStubElementTypes.PARAMETER).count();
+      int count = 0;
+      for (StubElement child : stub.getChildrenStubs()) {
+        if (child.getStubType() == JavaStubElementTypes.PARAMETER) {
+          count++;
+        }
+      }
+      return count;
     }
 
     return getNode().countChildren(Constants.PARAMETER_BIT_SET);
+  }
+
+  @Override
+  public boolean isEmpty() {
+    final PsiParameterListStub stub = getGreenStub();
+    if (stub != null) {
+      return stub.getChildrenStubs().stream().noneMatch(child -> child.getStubType() == JavaStubElementTypes.PARAMETER);
+    }
+
+    return getNode().findChildByType(Constants.PARAMETER_BIT_SET) == null;
   }
 
   @Override
@@ -77,6 +94,7 @@ public class PsiParameterListImpl extends JavaStubPsiElement<PsiParameterListStu
     }
   }
 
+  @Override
   @NonNls
   public String toString(){
     return "PsiParameterList:" + getText();

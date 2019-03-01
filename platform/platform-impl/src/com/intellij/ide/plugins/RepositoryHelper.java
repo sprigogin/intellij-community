@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
 import com.intellij.ide.IdeBundle;
@@ -22,16 +8,19 @@ import com.intellij.openapi.application.PermanentInstallationID;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.updateSettings.impl.UpdateSettings;
 import com.intellij.openapi.util.BuildNumber;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.util.Url;
+import com.intellij.util.Urls;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.HttpRequests;
 import com.intellij.util.io.URLUtil;
 import com.intellij.util.text.DateFormatUtil;
-import org.apache.http.client.utils.URIBuilder;
+import com.intellij.util.text.VersionComparatorUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.xml.sax.InputSource;
@@ -42,18 +31,16 @@ import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import java.io.*;
 import java.net.HttpURLConnection;
-import java.net.URISyntaxException;
 import java.net.URLConnection;
 import java.util.*;
 
 /**
  * @author stathik
- * @since Mar 28, 2003
  */
 public class RepositoryHelper {
   private static final Logger LOG = Logger.getInstance(RepositoryHelper.class);
   @SuppressWarnings("SpellCheckingInspection") private static final String PLUGIN_LIST_FILE = "availables.xml";
-  @SuppressWarnings("SpellCheckingInspection") private static final String TAG_EXT = ".etag";
+  private static final String TAG_EXT = ".etag";
 
   /**
    * Returns a list of configured plugin hosts.
@@ -102,7 +89,8 @@ public class RepositoryHelper {
   public static List<IdeaPluginDescriptor> loadPlugins(@Nullable String repositoryUrl,
                                                        @Nullable BuildNumber buildnumber,
                                                        @Nullable ProgressIndicator indicator) throws IOException {
-    boolean forceHttps = repositoryUrl == null && IdeaApplication.isLoaded() && UpdateSettings.getInstance().canUseSecureConnection();
+    boolean hostEligibleForHttpsForcing = repositoryUrl == null || repositoryUrl.equals(ApplicationInfoEx.getInstanceEx().getBuiltinPluginsUrl());
+    boolean forceHttps = hostEligibleForHttpsForcing && IdeaApplication.isLoaded() && UpdateSettings.getInstance().canUseSecureConnection();
     return loadPlugins(repositoryUrl, buildnumber, forceHttps, indicator);
   }
 
@@ -111,44 +99,35 @@ public class RepositoryHelper {
                                                        @Nullable BuildNumber build,
                                                        boolean forceHttps,
                                                        @Nullable ProgressIndicator indicator) throws IOException {
-    String url, host, eTag;
+    String eTag;
     File pluginListFile;
-
-    try {
-      URIBuilder uriBuilder;
-
-      if (repositoryUrl == null) {
-        uriBuilder = new URIBuilder(ApplicationInfoImpl.getShadowInstance().getPluginsListUrl());
-        uriBuilder.addParameter("uuid", PermanentInstallationID.get());
-        pluginListFile = new File(PathManager.getPluginsPath(), PLUGIN_LIST_FILE);
-        eTag = loadPluginListETag(pluginListFile);
-      }
-      else {
-        uriBuilder = new URIBuilder(repositoryUrl);
-        pluginListFile = null;
-        eTag = "";
-      }
-
-      if (!URLUtil.FILE_PROTOCOL.equals(uriBuilder.getScheme())) {
-        uriBuilder.addParameter("build", build != null ? build.asString() : ApplicationInfoImpl.getShadowInstance().getApiVersion());
-      }
-
-      host = uriBuilder.getHost();
-      url = uriBuilder.build().toString();
+    Url url;
+    if (repositoryUrl == null) {
+      url = Urls.newFromEncoded(ApplicationInfoImpl.getShadowInstance().getPluginsListUrl());
+      url = url.addParameters(Collections.singletonMap("uuid", PermanentInstallationID.get()));
+      pluginListFile = new File(PathManager.getPluginsPath(), PLUGIN_LIST_FILE);
+      eTag = loadPluginListETag(pluginListFile);
     }
-    catch (URISyntaxException e) {
-      throw new IOException(e);
+    else {
+      url = Urls.newFromEncoded(repositoryUrl);
+      pluginListFile = null;
+      eTag = "";
+    }
+
+    if (!URLUtil.FILE_PROTOCOL.equals(url.getScheme())) {
+      url = url.addParameters(Collections.singletonMap("build", build != null ? build.asString() : ApplicationInfoImpl.getShadowInstance().getApiVersion()));
     }
 
     if (indicator != null) {
-      indicator.setText2(IdeBundle.message("progress.connecting.to.plugin.manager", host));
+      indicator.setText2(IdeBundle.message("progress.connecting.to.plugin.manager", url.getAuthority()));
     }
 
+    Url finalUrl = url;
     List<IdeaPluginDescriptor> descriptors = HttpRequests.request(url)
-      .forceHttps(forceHttps)
-      .tuner(connection -> connection.setRequestProperty("If-None-Match", eTag))
-      .productNameAsUserAgent()
-      .connect(request -> {
+                                                         .forceHttps(forceHttps)
+                                                         .tuner(connection -> connection.setRequestProperty("If-None-Match", eTag))
+                                                         .productNameAsUserAgent()
+                                                         .connect(request -> {
         if (indicator != null) {
           indicator.checkCanceled();
         }
@@ -164,7 +143,7 @@ public class RepositoryHelper {
 
         if (indicator != null) {
           indicator.checkCanceled();
-          indicator.setText2(IdeBundle.message("progress.downloading.list.of.plugins", host));
+          indicator.setText2(IdeBundle.message("progress.downloading.list.of.plugins", finalUrl.getAuthority()));
         }
 
         if (pluginListFile != null) {
@@ -176,7 +155,9 @@ public class RepositoryHelper {
           }
         }
         else {
-          return parsePluginList(request.getReader());
+          try (BufferedReader reader = request.getReader()) {
+            return parsePluginList(reader);
+          }
         }
       });
 
@@ -230,22 +211,45 @@ public class RepositoryHelper {
   }
 
   private static List<IdeaPluginDescriptor> loadPluginList(File file) throws IOException {
-    return parsePluginList(new InputStreamReader(new BufferedInputStream(new FileInputStream(file)), CharsetToolkit.UTF8_CHARSET));
+    try (InputStreamReader reader = new InputStreamReader(new BufferedInputStream(new FileInputStream(file)),
+                                                          CharsetToolkit.UTF8_CHARSET)) {
+      return parsePluginList(reader);
+    }
   }
 
   private static List<IdeaPluginDescriptor> parsePluginList(Reader reader) throws IOException {
+    List<IdeaPluginDescriptor> rawList;
     try {
       SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
       RepositoryContentHandler handler = new RepositoryContentHandler();
       parser.parse(new InputSource(reader), handler);
-      return handler.getPluginsList();
+      rawList = handler.getPluginsList();
     }
     catch (ParserConfigurationException | SAXException | RuntimeException e) {
       throw new IOException(e);
     }
-    finally {
-      reader.close();
+    return getLatestCompatibleForEveryPlugin(rawList);
+  }
+
+  @NotNull
+  private static List<IdeaPluginDescriptor> getLatestCompatibleForEveryPlugin(@NotNull List<IdeaPluginDescriptor> rawList) {
+    LinkedHashMap<PluginId, IdeaPluginDescriptor> filteredPlugins = new LinkedHashMap<>(rawList.size());
+    for (IdeaPluginDescriptor descriptor : rawList) {
+      if (PluginManagerCore.isIncompatible(descriptor)) {
+        continue;
+      }
+
+      PluginId pluginId = descriptor.getPluginId();
+      IdeaPluginDescriptor filteredPluginDescriptor = filteredPlugins.get(pluginId);
+      if (filteredPluginDescriptor == null) {
+        filteredPlugins.put(pluginId, descriptor);
+      } else {
+        if (VersionComparatorUtil.compare(descriptor.getVersion(), filteredPluginDescriptor.getVersion()) > 0) {
+          filteredPlugins.put(pluginId, descriptor);
+        }
+      }
     }
+    return new ArrayList<>(filteredPlugins.values());
   }
 
   private static List<IdeaPluginDescriptor> process(String repositoryUrl, List<IdeaPluginDescriptor> list) {

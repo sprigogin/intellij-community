@@ -64,7 +64,6 @@ class FileEncodingConfigurable extends PerFileConfigurableBase<Charset> {
   FileEncodingConfigurable(@NotNull Project project) {
     super(project, createMappings(project));
     myBOMForUTF8Combo.setModel(new EnumComboBoxModel<>(EncodingProjectManagerImpl.BOMForNewUTF8Files.class));
-    myBOMForUTF8Combo.setRenderer((list, value, index, isSelected, cellHasFocus) -> new JLabel(value.toString()));
     myBOMForUTF8Combo.addItemListener(e -> updateExplanationLabelText());
     myExplanationLabel.setHyperlinkTarget("https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8");
   }
@@ -131,7 +130,7 @@ class FileEncodingConfigurable extends PerFileConfigurableBase<Charset> {
 
   @NotNull
   @Override
-  protected ActionGroup createActionListGroup(@Nullable Object target, @NotNull Consumer<Charset> onChosen) {
+  protected ActionGroup createActionListGroup(@Nullable Object target, @NotNull Consumer<? super Charset> onChosen) {
     VirtualFile file = target instanceof VirtualFile ? (VirtualFile)target : null;
     byte[] b = null;
     try {

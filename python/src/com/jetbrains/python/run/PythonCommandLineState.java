@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.run;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -36,7 +22,6 @@ import com.intellij.execution.ui.ConsoleView;
 import com.intellij.facet.Facet;
 import com.intellij.facet.FacetManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleUtilCore;
@@ -53,7 +38,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
-import com.intellij.remote.RemoteProcessControl;
+import com.intellij.remote.ProcessControlWithMappings;
 import com.intellij.util.PlatformUtils;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.console.PyDebugConsoleBuilder;
@@ -101,7 +86,9 @@ public abstract class PythonCommandLineState extends CommandLineState {
    * sys.argv[1:]</cite>, which are stored in {@link #GROUP_SCRIPT}.
    */
   public static final String GROUP_MODULE = "Module";
+  //TODO: DOC ParametersListUtil
   public static final String GROUP_SCRIPT = "Script";
+  public static final String MODULE_PARAMETER = "-m";
   private final AbstractPythonRunConfiguration myConfig;
 
   private Boolean myMultiprocessDebug = null;
@@ -174,9 +161,9 @@ public abstract class PythonCommandLineState extends CommandLineState {
 
   protected void addTracebackFilter(Project project, ConsoleView consoleView, ProcessHandler processHandler) {
     if (PySdkUtil.isRemote(myConfig.getSdk())) {
-      assert processHandler instanceof RemoteProcessControl;
+      assert processHandler instanceof ProcessControlWithMappings;
       consoleView
-        .addMessageFilter(new PyRemoteTracebackFilter(project, myConfig.getWorkingDirectory(), (RemoteProcessControl)processHandler));
+        .addMessageFilter(new PyRemoteTracebackFilter(project, myConfig.getWorkingDirectory(), (ProcessControlWithMappings)processHandler));
     }
     else {
       consoleView.addMessageFilter(new PythonTracebackFilter(project, myConfig.getWorkingDirectorySafe()));
@@ -226,13 +213,13 @@ public abstract class PythonCommandLineState extends CommandLineState {
     GeneralCommandLine commandLine = generateCommandLine(patchers);
 
     // Extend command line
-    PythonRunConfigurationExtensionsManager.getInstance()
+    PythonRunConfigurationExtensionsManager.Companion.getInstance()
       .patchCommandLine(myConfig, getRunnerSettings(), commandLine, getEnvironment().getRunner().getRunnerId());
 
     ProcessHandler processHandler = processStarter.start(myConfig, commandLine);
 
     // attach extensions
-    PythonRunConfigurationExtensionsManager.getInstance().attachExtensionsToProcess(myConfig, processHandler, getRunnerSettings());
+    PythonRunConfigurationExtensionsManager.Companion.getInstance().attachExtensionsToProcess(myConfig, processHandler, getRunnerSettings());
 
     return processHandler;
   }
@@ -269,9 +256,26 @@ public abstract class PythonCommandLineState extends CommandLineState {
     return new PyRemoteProcessStarter();
   }
 
+  /**
+   * Generate command line and apply patchers
+   *
+   * @param patchers array of patchers
+   * @return generated command line changed by patchers
+   */
+  @NotNull
+  public final GeneralCommandLine generateCommandLine(@Nullable CommandLinePatcher[] patchers) {
+    return applyPatchers(generateCommandLine(), patchers);
+  }
 
-  public GeneralCommandLine generateCommandLine(CommandLinePatcher[] patchers) {
-    GeneralCommandLine commandLine = generateCommandLine();
+  /**
+   * Apply patchers to the given command line
+   *
+   * @param commandLine command line to change
+   * @param patchers    array of patchers
+   * @return command line changed by patchers
+   */
+  @NotNull
+  private static GeneralCommandLine applyPatchers(@NotNull GeneralCommandLine commandLine, @Nullable CommandLinePatcher[] patchers) {
     if (patchers != null) {
       for (CommandLinePatcher patcher : patchers) {
         if (patcher != null) patcher.patchCommandLine(commandLine);
@@ -284,6 +288,14 @@ public abstract class PythonCommandLineState extends CommandLineState {
     return PythonProcessRunner.createProcess(commandLine);
   }
 
+  /**
+   * Generate command line from run configuration.
+   * It can be overridden if commandline shouldn't be based on the run configuration or when it requires some additional changes
+   * before patchers applying.
+   *
+   * @return generated command line
+   */
+  @NotNull
   public GeneralCommandLine generateCommandLine() {
     GeneralCommandLine commandLine = createPythonCommandLine(myConfig.getProject(), myConfig, isDebug(), myRunWithPty);
 
@@ -348,16 +360,15 @@ public abstract class PythonCommandLineState extends CommandLineState {
 
     buildPythonPath(project, commandLine, runParams, isDebug);
 
-    for (PythonCommandLineEnvironmentProvider envProvider : Extensions.getExtensions(PythonCommandLineEnvironmentProvider.EP_NAME)) {
+    for (PythonCommandLineEnvironmentProvider envProvider : PythonCommandLineEnvironmentProvider.EP_NAME.getExtensionList()) {
       envProvider.extendEnvironment(project, commandLine, runParams);
     }
   }
 
   private static void setupVirtualEnvVariables(PythonRunParams myConfig, Map<String, String> env, String sdkHome) {
     Sdk sdk = PythonSdkType.findSdkByPath(sdkHome);
-    if (Registry.is("python.activate.virtualenv.on.run") && sdk != null &&
-        (PythonSdkType.isVirtualEnv(sdkHome) || PythonSdkType.isCondaVirtualEnv(sdk))) {
-
+    if (sdk != null &&
+        (Registry.is("python.activate.virtualenv.on.run") && PythonSdkType.isVirtualEnv(sdkHome) || PythonSdkType.isConda(sdk))) {
       Map<String, String> environment = sdk.getUserData(PythonSdkType.ENVIRONMENT_KEY);
 
       if (environment == null) {
@@ -371,7 +382,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
       for (Map.Entry<String, String> e : myConfig.getEnvs().entrySet()) {
         if (environment.containsKey(e.getKey())) {
           if ("PATH".equals(e.getKey())) {
-            env.put(e.getKey(), PythonEnvUtil.appendToPathEnvVar(env.get("PATH"), e.getValue()));
+            env.put(e.getKey(), PythonEnvUtil.addToPathEnvVar(env.get("PATH"), e.getValue(), true));
           }
           else {
             env.put(e.getKey(), e.getValue());
@@ -412,7 +423,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
                                     final String interpreterPath) {
     final PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(interpreterPath);
     if (flavor != null) {
-      flavor.initPythonPath(commandLine, pathList);
+      flavor.initPythonPath(commandLine, passParentEnvs, pathList);
     }
     else {
       PythonSdkFlavor.initPythonPath(commandLine.getEnvironment(), passParentEnvs, pathList);

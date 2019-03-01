@@ -19,6 +19,7 @@
  */
 package com.intellij.psi.impl.source.codeStyle;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeStyle.CodeStyleFacade;
 import com.intellij.lang.Language;
 import com.intellij.openapi.editor.Document;
@@ -27,27 +28,31 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.joinLines.JoinedLinesSpacingCalculator;
 import com.intellij.psi.codeStyle.lineIndent.LineIndentProvider;
 import com.intellij.psi.codeStyle.lineIndent.LineIndentProviderEP;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import static java.lang.Math.max;
+
 public class CodeStyleFacadeImpl extends CodeStyleFacade {
-  private final Project myProject;
+  private final @Nullable Project myProject;
 
   public CodeStyleFacadeImpl() {
     this(null);
   }
 
-  public CodeStyleFacadeImpl(final Project project) {
+  public CodeStyleFacadeImpl(final @Nullable Project project) {
     myProject = project;
   }
 
   @Override
+  @Deprecated
   public int getIndentSize(final FileType fileType) {
-    return CodeStyleSettingsManager.getSettings(myProject).getIndentSize(fileType);
+    return CodeStyle.getProjectOrDefaultSettings(myProject).getIndentSize(fileType);
   }
 
   @Override
@@ -72,13 +77,25 @@ public class CodeStyleFacadeImpl extends CodeStyleFacade {
   }
 
   @Override
-  public String getLineSeparator() {
-    return CodeStyleSettingsManager.getSettings(myProject).getLineSeparator();
+  public int getJoinedLinesSpacing(@NotNull Editor editor, @Nullable Language language, int offset, boolean allowDocCommit) {
+    if (myProject == null) return 0;
+    LineIndentProvider lineIndentProvider = LineIndentProviderEP.findLineIndentProvider(language);
+    int space = lineIndentProvider instanceof JoinedLinesSpacingCalculator
+                ? ((JoinedLinesSpacingCalculator)lineIndentProvider).getJoinedLinesSpacing(myProject, editor, language, offset)
+                : -1;
+    if (space < 0 && allowDocCommit) {
+      final Document document = editor.getDocument();
+      PsiDocumentManager.getInstance(myProject).commitDocument(document);
+      PsiFile file = PsiDocumentManager.getInstance(myProject).getPsiFile(document);
+      if (file == null) return 0;
+      return max(0, CodeStyleManager.getInstance(myProject).getSpacing(file, offset));
+    }
+    return max(0, space);
   }
 
   @Override
-  public boolean projectUsesOwnSettings() {
-    return myProject != null && CodeStyleSettingsManager.getInstance(myProject).USE_PER_PROJECT_SETTINGS;
+  public String getLineSeparator() {
+    return CodeStyle.getProjectOrDefaultSettings(myProject).getLineSeparator();
   }
 
   @Override
@@ -88,32 +105,16 @@ public class CodeStyleFacadeImpl extends CodeStyleFacade {
 
   @Override
   public int getRightMargin(Language language) {
-    return CodeStyleSettingsManager.getSettings(myProject).getRightMargin(language);
-  }
-
-  @Override
-  @Deprecated
-  public boolean isWrapWhenTypingReachesRightMargin() {
-    return CodeStyleSettingsManager.getSettings(myProject).WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN;
-  }
-
-  @Override
-  public boolean isWrapOnTyping(@Nullable Language language) {
-    return CodeStyleSettingsManager.getSettings(myProject).isWrapOnTyping(language);
+    return CodeStyle.getProjectOrDefaultSettings(myProject).getRightMargin(language);
   }
 
   @Override
   public int getTabSize(final FileType fileType) {
-    return CodeStyleSettingsManager.getSettings(myProject).getTabSize(fileType);
-  }
-
-  @Override
-  public boolean isSmartTabs(final FileType fileType) {
-    return CodeStyleSettingsManager.getSettings(myProject).isSmartTabs(fileType);
+    return CodeStyle.getProjectOrDefaultSettings(myProject).getTabSize(fileType);
   }
 
   @Override
   public boolean useTabCharacter(final FileType fileType) {
-    return CodeStyleSettingsManager.getSettings(myProject).useTabCharacter(fileType);
+    return CodeStyle.getProjectOrDefaultSettings(myProject).useTabCharacter(fileType);
   }
 }

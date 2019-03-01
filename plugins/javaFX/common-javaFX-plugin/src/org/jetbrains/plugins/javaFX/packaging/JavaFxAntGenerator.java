@@ -105,7 +105,7 @@ public class JavaFxAntGenerator {
     final List<Pair> fileset2Jar = new ArrayList<>();
     fileset2Jar.add(Couple.of("dir", tempDirPath));
     fileset2Jar.add(Couple.of("excludes", "**/*.jar"));
-    createJarTag.add(new SimpleTag("fileset", fileset2Jar.toArray(new Pair[fileset2Jar.size()])));
+    createJarTag.add(new SimpleTag("fileset", fileset2Jar.toArray(new Pair[0])));
 
     createJarTag.add(createResourcesTag(preloaderFiles, false, allButPreloader, allButSelf, all));
 
@@ -323,7 +323,7 @@ public class JavaFxAntGenerator {
       myValue = null;
     }
 
-    public SimpleTag(String name, Collection<Pair> pairs) {
+    public SimpleTag(String name, Collection<? extends Pair> pairs) {
       myName = name;
       myPairs = new ArrayList<>(pairs);
       myValue = null;
@@ -348,7 +348,7 @@ public class JavaFxAntGenerator {
     }
 
     public Pair[] getPairs() {
-      return myPairs.toArray(new Pair[myPairs.size()]);
+      return myPairs.toArray(new Pair[0]);
     }
 
     public String getValue() {

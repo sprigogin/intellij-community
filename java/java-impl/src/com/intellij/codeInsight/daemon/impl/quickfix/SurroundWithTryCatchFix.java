@@ -28,6 +28,7 @@ import com.intellij.psi.*;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -43,7 +44,7 @@ public class SurroundWithTryCatchFix implements IntentionAction {
         element instanceof PsiResourceVariable ||
         (element instanceof PsiExpression &&
          !(element instanceof PsiMethodReferenceExpression) &&
-         ControlFlowUtils.canExtractStatement((PsiExpression)element, false))) {
+         ControlFlowUtils.canExtractStatement(ExpressionUtils.getTopLevelExpression((PsiExpression)element)))) {
       myElement = element;
     }
   }
@@ -62,7 +63,13 @@ public class SurroundWithTryCatchFix implements IntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return myElement != null && myElement.isValid();
+    if (myElement != null && myElement.isValid()) {
+      PsiElement parentStatement = RefactoringUtil.getParentStatement(myElement, false);
+      return !(parentStatement instanceof PsiDeclarationStatement &&
+               ((PsiDeclarationStatement)parentStatement).getDeclaredElements()[0] instanceof PsiClass);
+    }
+
+    return false;
   }
 
   @Override
@@ -72,7 +79,7 @@ public class SurroundWithTryCatchFix implements IntentionAction {
     editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(0, 0));
 
     if (myElement instanceof PsiExpression) {
-      myElement = RefactoringUtil.ensureCodeBlock((PsiExpression)myElement);
+      myElement = RefactoringUtil.ensureCodeBlock(ExpressionUtils.getTopLevelExpression((PsiExpression)myElement));
     }
     myElement = RefactoringUtil.getParentStatement(myElement, false);
     if (myElement == null) return;

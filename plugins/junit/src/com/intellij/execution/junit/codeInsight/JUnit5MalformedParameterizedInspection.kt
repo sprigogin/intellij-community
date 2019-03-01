@@ -14,6 +14,7 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.execution.junit.JUnitUtil
 import com.intellij.execution.junit.codeInsight.references.MethodSourceReference
+import com.intellij.lang.jvm.JvmModifier
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdkVersion
@@ -25,7 +26,6 @@ import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReferen
 import com.intellij.psi.util.InheritanceUtil
 import com.intellij.psi.util.PsiUtil
 import com.intellij.psi.util.TypeConversionUtil
-import com.intellij.util.containers.ContainerUtil
 import com.siyeh.InspectionGadgetsBundle
 import com.siyeh.ig.junit.JUnitCommonClassNames
 import com.siyeh.ig.psiutils.TestUtils
@@ -33,14 +33,12 @@ import org.jetbrains.annotations.Nls
 import java.util.*
 
 class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTool() {
-  object Annotations {
+  private object Annotations {
     val EXTENDS_WITH = listOf(JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_EXTENSION_EXTEND_WITH)
   }
 
   @Nls
-  override fun getDisplayName(): String {
-    return InspectionGadgetsBundle.message("junit5.valid.parameterized.configuration.display.name")
-  }
+  override fun getDisplayName(): String = InspectionGadgetsBundle.message("junit5.valid.parameterized.configuration.display.name")
 
 
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -62,7 +60,7 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
           }
 
           var noMultiArgsProvider = true
-          var source : PsiAnnotation? = null
+          var source: PsiAnnotation? = null
           MetaAnnotationUtil.findMetaAnnotations(method, JUnitCommonClassNames.SOURCE_ANNOTATIONS).forEach {
             when (it.qualifiedName) {
               JUnitCommonClassNames.ORG_JUNIT_JUPITER_PARAMS_PROVIDER_METHOD_SOURCE -> {
@@ -89,6 +87,12 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
                   noMultiArgsProvider = false
                 }
               }
+              JUnitCommonClassNames.ORG_JUNIT_JUPITER_PARAMS_PROVIDER_ARGUMENTS_SOURCES -> {
+                if (source == null) {
+                  val attributes = it.findAttributeValue(PsiAnnotation.DEFAULT_REFERENCED_METHOD_NAME)
+                  noMultiArgsProvider = (attributes as? PsiArrayInitializerMemberValue)?.initializers?.isEmpty() ?: false
+                }
+              }
             }
           }
 
@@ -97,7 +101,7 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
               holder.registerProblem(parameterizedAnnotation[0], "No sources are provided, the suite would be empty")
             }
             else if (hasMultipleParameters(method)) {
-                holder.registerProblem(source!!, "Multiple parameters are not supported by this source")
+              holder.registerProblem(source!!, "Multiple parameters are not supported by this source")
             }
           }
         }
@@ -109,19 +113,26 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
       }
 
       private fun checkEnumSource(method: PsiMethod, enumSource: PsiAnnotation) {
-        processArrayInAnnotationParameter(enumSource.findAttributeValue("value"), { value ->
-          if (value is PsiClassObjectAccessExpression) {
-            checkSourceTypeAndParameterTypeAgree(method, value, value.operand.type)
-          }
-        })
+        // @EnumSource#value type is Class<?>, not a array
+        val value = enumSource.findAttributeValue(PsiAnnotation.DEFAULT_REFERENCED_METHOD_NAME)
+        if (value is PsiClassObjectAccessExpression) {
+          val enumType = value.operand.type
+          checkSourceTypeAndParameterTypeAgree(method, value, enumType)
+          checkEnumConstants(enumSource, enumType)
+        }
       }
 
       private fun checkValuesSource(method: PsiMethod, valuesSource: PsiAnnotation) {
-        val possibleValues = ContainerUtil.immutableMapBuilder<String, PsiType>()
-          .put("strings", PsiType.getJavaLangString(method.manager, method.resolveScope))
-          .put("ints", PsiType.INT)
-          .put("longs", PsiType.LONG)
-          .put("doubles", PsiType.DOUBLE).build()
+        val possibleValues = mapOf(
+          "strings" to PsiType.getJavaLangString(method.manager, method.resolveScope),
+          "ints" to PsiType.INT,
+          "longs" to PsiType.LONG,
+          "doubles" to PsiType.DOUBLE,
+          "shorts" to PsiType.SHORT,
+          "bytes" to PsiType.BYTE,
+          "floats" to PsiType.FLOAT,
+          "chars" to PsiType.CHAR,
+          "classes" to PsiType.getJavaLangClass(method.manager, method.resolveScope))
 
         for (valueKey in possibleValues.keys) {
           processArrayInAnnotationParameter(valuesSource.findDeclaredAttributeValue(valueKey),
@@ -145,59 +156,86 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
             val reference = refs.first()
             val fixes = if (reference != null) FileReferenceQuickFixProvider.registerQuickFix(reference as FileReference).toTypedArray()
                         else emptyArray()
-            holder.registerProblem(attributeValue, "Cannot resolve file source: \'" + attributeValue.text + "\'", *fixes)
+            holder.registerProblem(attributeValue, "Cannot resolve file source: \'${attributeValue.text}\'", *fixes)
           }
         })
       }
 
       private fun checkMethodSource(method: PsiMethod, methodSource: PsiAnnotation) {
+        val containingClass = method.containingClass!!
         val annotationMemberValue = methodSource.findDeclaredAttributeValue("value")
-        processArrayInAnnotationParameter(annotationMemberValue, { attributeValue ->
-          for (reference in attributeValue.references) {
-            if (reference is MethodSourceReference) {
-              val containingClass = method.containingClass
-              val resolve = reference.resolve()
-              if (resolve !is PsiMethod) {
-                var createFix : CreateMethodQuickFix? = null
-                if (containingClass != null && holder.isOnTheFly) {
-                  val staticModifier = if (!TestUtils.testInstancePerClass(containingClass)) " static" else "";
-                  createFix = CreateMethodQuickFix.createFix(containingClass,
-                                                             "private$staticModifier Object[][] " + reference.value + "()",
-                                                             "return new Object[][] {};")
-                }
-                holder.registerProblem(attributeValue,
-                                       "Cannot resolve target method source: \'" + reference.value + "\'",
-                                       createFix)
-              }
-              else {
-                val sourceProvider : PsiMethod = resolve
-                val providerName = sourceProvider.name
-
-                if (!sourceProvider.hasModifierProperty(PsiModifier.STATIC) &&
-                    containingClass != null && !TestUtils.testInstancePerClass(containingClass)) {
-                  holder.registerProblem(attributeValue, "Method source \'$providerName\' must be static",
-                                         ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
-                                         QuickFixFactory.getInstance().createModifierListFix(sourceProvider, PsiModifier.STATIC, true, false))
-                }
-                else if (sourceProvider.parameterList.parametersCount != 0) {
-                  holder.registerProblem(attributeValue, "Method source \'$providerName\' should have no parameters")
+        if (annotationMemberValue == null) {
+          if (methodSource.findAttributeValue(PsiAnnotation.DEFAULT_REFERENCED_METHOD_NAME) == null) return
+          val providerName = method.name
+          val methods = containingClass.findMethodsBySignature(
+            JavaPsiFacade.getElementFactory(method.project).createMethodFromText("void $providerName()", method), false)
+          if (!methods.isEmpty()) {
+            doCheckSourceProvider(methods[0], containingClass, methodSource, method)
+          }
+          else {
+            highlightAbsentSourceProvider(containingClass, methodSource, providerName)
+          }
+        }
+        else {
+          processArrayInAnnotationParameter(annotationMemberValue, { attributeValue ->
+            for (reference in attributeValue.references) {
+              if (reference is MethodSourceReference) {
+                val resolve = reference.resolve()
+                if (resolve !is PsiMethod) {
+                  highlightAbsentSourceProvider(containingClass, attributeValue, reference.value)
                 }
                 else {
-                  val componentType = getComponentType(sourceProvider.returnType, method)
-                  if (componentType == null) {
-                    holder.registerProblem(attributeValue,
-                                           "Method source \'$providerName\' must have one of the following return type: Stream<?>, Iterator<?>, Iterable<?> or Object[]")
-                  }
-                  else if (hasMultipleParameters(method) && !isArgumentsInheritor(componentType) &&
-                           !componentType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT) &&
-                           !componentType.deepComponentType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
-                    holder.registerProblem(attributeValue, "Multiple parameters have to be wrapped in Arguments")
-                  }
+                  val sourceProvider : PsiMethod = resolve
+                  doCheckSourceProvider(sourceProvider, containingClass, attributeValue, method)
                 }
               }
             }
+          })
+        }
+      }
+
+      private fun highlightAbsentSourceProvider(containingClass: PsiClass,
+                                                attributeValue: PsiElement,
+                                                sourceProviderName: String) {
+        var createFix: CreateMethodQuickFix? = null
+        if (holder.isOnTheFly) {
+          val staticModifier = if (!TestUtils.testInstancePerClass(containingClass)) " static" else ""
+          createFix = CreateMethodQuickFix.createFix(containingClass,
+                                                     "private$staticModifier Object[][] $sourceProviderName()",
+                                                     "return new Object[][] {};")
+        }
+        holder.registerProblem(attributeValue,
+                               "Cannot resolve target method source: \'$sourceProviderName\'",
+                               createFix)
+      }
+
+      private fun doCheckSourceProvider(sourceProvider: PsiMethod,
+                                        containingClass: PsiClass?,
+                                        attributeValue: PsiElement,
+                                        method: PsiMethod) {
+        val providerName = sourceProvider.name
+
+        if (!sourceProvider.hasModifierProperty(PsiModifier.STATIC) &&
+            containingClass != null && !TestUtils.testInstancePerClass(containingClass)) {
+          holder.registerProblem(attributeValue, "Method source \'$providerName\' must be static",
+                                 ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
+                                 QuickFixFactory.getInstance().createModifierListFix(sourceProvider, PsiModifier.STATIC, true, false))
+        }
+        else if (sourceProvider.parameterList.parametersCount != 0) {
+          holder.registerProblem(attributeValue, "Method source \'$providerName\' should have no parameters")
+        }
+        else {
+          val componentType = getComponentType(sourceProvider.returnType, method)
+          if (componentType == null) {
+            holder.registerProblem(attributeValue,
+                                   "Method source \'$providerName\' must have one of the following return type: Stream<?>, Iterator<?>, Iterable<?> or Object[]")
           }
-        })
+          else if (hasMultipleParameters(method) && !isArgumentsInheritor(componentType) &&
+                   !componentType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT) &&
+                   !componentType.deepComponentType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
+            holder.registerProblem(attributeValue, "Multiple parameters have to be wrapped in Arguments")
+          }
+        }
       }
 
       private fun processArrayInAnnotationParameter(attributeValue: PsiAnnotationMemberValue?,
@@ -208,6 +246,30 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
         else if (attributeValue is PsiArrayInitializerMemberValue) {
           for (memberValue in attributeValue.initializers) {
             processArrayInAnnotationParameter(memberValue, checker)
+          }
+        }
+      }
+
+      private fun checkEnumConstants(enumSource: PsiAnnotation, enumType: PsiType) {
+        val mode = enumSource.findAttributeValue("mode")
+        if (mode is PsiReferenceExpression && ("INCLUDE" == mode.referenceName || "EXCLUDE" == mode.referenceName)) {
+          val allEnumConstants = (PsiUtil.resolveClassInClassTypeOnly(enumType) ?: return).fields
+            .filterIsInstance<PsiEnumConstant>()
+            .map { it.name }
+            .toSet()
+          val definedConstants = mutableSetOf<String>()
+          processArrayInAnnotationParameter(enumSource.findAttributeValue("names")) { name ->
+            if (name is PsiLiteralExpression) {
+              val value = name.value
+              if (value is String) {
+                if (!allEnumConstants.contains(value)) {
+                  holder.registerProblem(name, "Can't resolve enum constant reference.")
+                }
+                else if (!definedConstants.add(value)) {
+                  holder.registerProblem(name, "Duplicate enum constant name")
+                }
+              }
+            }
           }
         }
       }
@@ -228,12 +290,24 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
                 if (psiClass.isEnum && psiClass.findFieldByName((attributeValue as PsiLiteral).value as String?, false) != null) return
                 //implicit java time conversion
                 val qualifiedName = psiClass.qualifiedName
-                if (qualifiedName != null && qualifiedName.startsWith("java.time.")) return
+                if (qualifiedName != null) {
+                  if (qualifiedName.startsWith("java.time.")) return
+                  if (qualifiedName.equals("java.nio.file.Path")) return
+                }
+
+                val factoryMethod: (PsiMethod) -> Boolean = {
+                  !it.hasModifier(JvmModifier.PRIVATE) &&
+                   it.parameterList.parametersCount == 1 &&
+                   it.parameterList.parameters[0].type.equalsToText(CommonClassNames.JAVA_LANG_STRING)
+                }
+
+                if (!psiClass.hasModifier(JvmModifier.ABSTRACT) && psiClass.constructors.find(factoryMethod) != null) return
+                if (psiClass.methods.find { it.hasModifier(JvmModifier.STATIC) && factoryMethod(it) } != null) return
               }
             }
             if (AnnotationUtil.isAnnotated(parameters[0], JUnitCommonClassNames.ORG_JUNIT_JUPITER_PARAMS_CONVERTER_CONVERT_WITH, 0)) return
             holder.registerProblem(attributeValue,
-                                   "No implicit conversion found to convert object of type " + componentType.presentableText + " to " + paramType.presentableText)
+                                   "No implicit conversion found to convert object of type ${componentType.presentableText} to ${paramType.presentableText}")
           }
         }
       }
@@ -266,7 +340,7 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
     val containingClass = method.containingClass
     return containingClass != null &&
              method.parameterList.parameters
-             .filter { it ->
+             .filter {
                !InheritanceUtil.isInheritor(it.type, JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_TEST_INFO) &&
                !InheritanceUtil.isInheritor(it.type, JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_TEST_REPORTER)
              }
@@ -278,13 +352,13 @@ class JUnit5MalformedParameterizedInspection : AbstractBaseJavaLocalInspectionTo
 
 
 class ChangeAnnotationFix(testAnnotation: PsiAnnotation, val targetAnnotation: String) : LocalQuickFixAndIntentionActionOnPsiElement(testAnnotation) {
-  override fun getFamilyName() = "Replace annotation"
+  override fun getFamilyName(): String = "Replace annotation"
 
   override fun invoke(project: Project, file: PsiFile, editor: Editor?, startElement: PsiElement, endElement: PsiElement) {
-    val annotation = JavaPsiFacade.getElementFactory(project).createAnnotationFromText("@" + targetAnnotation, startElement)
+    val annotation = JavaPsiFacade.getElementFactory(project).createAnnotationFromText("@$targetAnnotation", startElement)
     JavaCodeStyleManager.getInstance(project).shortenClassReferences(startElement.replace(annotation))
   }
 
-  override fun getText() = "Change to " + StringUtil.getShortName(targetAnnotation)
+  override fun getText(): String = "Change to " + StringUtil.getShortName(targetAnnotation)
 
 }

@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.projectRoot
 
+import com.intellij.ide.highlighter.ArchiveFileType
 import com.intellij.jarRepository.JarRepositoryManager
 import com.intellij.jarRepository.RepositoryAttachDialog
 import com.intellij.jarRepository.RepositoryLibraryType
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.Result
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -41,6 +27,7 @@ import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditorBase
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.*
 import com.intellij.openapi.vfs.newvfs.RefreshQueue
@@ -62,7 +49,7 @@ abstract class ConvertToRepositoryLibraryActionBase(protected val context: Struc
   "Convert to Repository Library...",
   "Convert a regular library to a repository library which additionally stores its Maven coordinates, so the IDE can automatically download the library JARs if they are missing",
   null) {
-  protected val project = context.project
+  protected val project: Project = context.project
 
   protected abstract fun getSelectedLibrary(): LibraryEx?
 
@@ -80,7 +67,8 @@ abstract class ConvertToRepositoryLibraryActionBase(protected val context: Struc
 
   private fun downloadLibraryAndReplace(library: LibraryEx,
                                         mavenCoordinates: JpsMavenRepositoryLibraryDescriptor) {
-    val libraryProperties = RepositoryLibraryProperties(mavenCoordinates.groupId, mavenCoordinates.artifactId, mavenCoordinates.version, mavenCoordinates.isIncludeTransitiveDependencies)
+    val libraryProperties = RepositoryLibraryProperties(mavenCoordinates.groupId, mavenCoordinates.artifactId, mavenCoordinates.version,
+                                                        mavenCoordinates.isIncludeTransitiveDependencies, mavenCoordinates.excludedDependencies)
     val hasSources = RepositoryUtils.libraryHasSources(library)
     val hasJavadoc = RepositoryUtils.libraryHasJavaDocs(library)
     LOG.debug("Resolving $mavenCoordinates")
@@ -151,7 +139,8 @@ abstract class ConvertToRepositoryLibraryActionBase(protected val context: Struc
       return null
     }
 
-    return JpsMavenRepositoryLibraryDescriptor(dialog.coordinateText, dialog.includeTransitiveDependencies)
+    return JpsMavenRepositoryLibraryDescriptor(dialog.coordinateText, dialog.includeTransitiveDependencies,
+                                               emptyList<String>())
   }
 
   private fun replaceByLibrary(library: Library, configuration: NewLibraryConfiguration) {
@@ -233,21 +222,19 @@ private class ComparingJarFilesTask(project: Project, private val downloadedFile
         filesToDelete += downloadedIoFileToCompare
       }
 
-      object : WriteAction<Unit>() {
-        override fun run(result: Result<Unit>) {
-          libraryFileToCompare = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(libraryIoFileToCompare)!!
-          downloadedFileToCompare = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(downloadedIoFileToCompare)!!
-        }
-      }.execute()
+      WriteAction.computeAndWait(ThrowableComputable<Unit, RuntimeException> {
+        libraryFileToCompare = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(libraryIoFileToCompare)!!
+        downloadedFileToCompare = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(downloadedIoFileToCompare)!!
+      })
+
       RefreshQueue.getInstance().refresh(false, false, null, libraryFileToCompare, downloadedFileToCompare)
 
       val jarFilesToRefresh = ArrayList<VirtualFile>()
-      object : WriteAction<Unit>() {
-        override fun run(result: Result<Unit>) {
-          collectNestedJars(libraryFileToCompare, jarFilesToRefresh)
-          collectNestedJars(downloadedFileToCompare, jarFilesToRefresh)
-        }
-      }.execute()
+      WriteAction.computeAndWait(ThrowableComputable<Unit, RuntimeException> {
+        collectNestedJars(libraryFileToCompare, jarFilesToRefresh)
+        collectNestedJars(downloadedFileToCompare, jarFilesToRefresh)
+      })
+
       RefreshQueue.getInstance().refresh(false, true, null, jarFilesToRefresh)
     }
   }
@@ -256,7 +243,7 @@ private class ComparingJarFilesTask(project: Project, private val downloadedFile
     if (file.isDirectory) {
       file.children.forEach { collectNestedJars(it, result) }
     }
-    else if (file.fileType == StdFileTypes.ARCHIVE) {
+    else if (file.fileType == ArchiveFileType.INSTANCE) {
       val jarRootUrl = VfsUtil.getUrlForLibraryRoot(VfsUtil.virtualToIoFile(file))
       VirtualFileManager.getInstance().refreshAndFindFileByUrl(jarRootUrl)?.let { result.add(it) }
     }
@@ -300,7 +287,7 @@ private class ComparingJarFilesTask(project: Project, private val downloadedFile
           val len2 = input2.read(buffer2)
           if (len1 != len2) return false
           if (len1 <= 0) break
-          for (i in 0..len1 - 1) {
+          for (i in 0 until len1) {
             if (buffer1[i] != buffer2[i]) return false
           }
         }

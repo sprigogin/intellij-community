@@ -1,32 +1,18 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
 import com.intellij.configurationStore.ComponentStoreImpl
-import com.intellij.configurationStore.SchemeManagerFactoryBase
 import com.intellij.configurationStore.StateStorageManagerImpl
 import com.intellij.configurationStore.reloadAppStore
+import com.intellij.configurationStore.schemeManager.SchemeManagerFactoryBase
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.stateStore
-import com.intellij.openapi.options.ConfigurableUi
 import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.progress.runModalTask
 import com.intellij.ui.layout.*
 import com.intellij.util.ui.ComboBoxModelEditor
 import com.intellij.util.ui.ListItemEditor
+import kotlinx.coroutines.runBlocking
 import java.util.*
 import javax.swing.JButton
 
@@ -34,7 +20,7 @@ internal class RepositoryItem(var url: String? = null) {
   override fun toString() = url ?: ""
 }
 
-internal fun createRepositoryListEditor(icsManager: IcsManager): ConfigurableUi<IcsSettings> {
+internal fun createRepositoryListEditor(icsManager: IcsManager): ConfigurableUiEx<IcsSettings> {
   val editor = ComboBoxModelEditor(object: ListItemEditor<RepositoryItem> {
     override fun getItemClass() = RepositoryItem::class.java
 
@@ -43,27 +29,29 @@ internal fun createRepositoryListEditor(icsManager: IcsManager): ConfigurableUi<
 
   val deleteButton = JButton("Delete")
   deleteButton.addActionListener {
-    editor.model.selected?.let {
-      editor.model.remove(it)
+    editor.model.selected?.let { selected ->
+      editor.model.remove(selected)
       deleteButton.isEnabled = editor.model.selected != null
     }
   }
 
-  return object: ConfigurableUi<IcsSettings> {
-    private var noRepositoryRow: Row? = null
+  return object: ConfigurableUiEx<IcsSettings> {
     private var repositoryRow: Row? = null
 
     override fun isModified(settings: IcsSettings) = editor.isModified
 
-    override fun getComponent() = panel {
-      noRepositoryRow = row("Repository:") {
-        hint("Use File -> Settings Repository... to configure")
-      }
-      repositoryRow = row("Repository:") {
-        editor.comboBox()
-        deleteButton()
+    override fun buildUi(builder: LayoutBuilder) {
+      builder.apply {
+        repositoryRow = row("Repository:") {
+          cell {
+            editor.comboBox(comment = "Use File -> Settings Repository... to configure")
+            deleteButton()
+          }
+        }
       }
     }
+
+    override fun getComponent() = panel(init = ::buildUi)
 
     override fun apply(settings: IcsSettings) {
       val newList = editor.apply()
@@ -82,9 +70,6 @@ internal fun createRepositoryListEditor(icsManager: IcsManager): ConfigurableUi<
 
       editor.reset(list)
       editor.model.selectedItem = upstream
-
-      noRepositoryRow!!.visible = list.isEmpty()
-      repositoryRow!!.visible = list.isNotEmpty()
 
       deleteButton.isEnabled = editor.model.selectedItem != null
     }
@@ -110,7 +95,7 @@ private fun deleteRepository(icsManager: IcsManager) {
       val updater = repositoryManager.fetch(indicator)
       indicator.checkCanceled()
       // ignore result, we don't need to apply it
-      updater.merge()
+      runBlocking { updater.merge() }
       indicator.checkCanceled()
       if (!updater.definitelySkipPush) {
         repositoryManager.push(indicator)
@@ -124,7 +109,7 @@ private fun deleteRepository(icsManager: IcsManager) {
     indicator.isIndeterminate = true
 
     repositoryManager.deleteRepository()
-    icsManager.repositoryActive = false
+    icsManager.isRepositoryActive = false
   }
 
   val store = ApplicationManager.getApplication().stateStore as ComponentStoreImpl

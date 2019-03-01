@@ -64,7 +64,7 @@ public class AlphaUnsortedPropertiesFileInspection extends LocalInspectionTool {
           final List<PropertiesFile> allFiles = resourceBundle.getPropertiesFiles();
           holder.registerProblem(file, String.format(MESSAGE_TEMPLATE_WHOLE_RESOURCE_BUNDLE, resourceBundleBaseName),
                                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
-                                 new PropertiesSorterQuickFix(allFiles.toArray(new PropertiesFile[allFiles.size()])));
+                                 new PropertiesSorterQuickFix(allFiles.toArray(new PropertiesFile[0])));
           return;
         }
         if (!propertiesFile.isAlphaSorted()) {
@@ -146,11 +146,13 @@ public class AlphaUnsortedPropertiesFileInspection extends LocalInspectionTool {
     propertiesList.replace(fakePropertiesList);
   }
 
+  @Override
   @NotNull
   public String getDisplayName() {
     return "Alphabetically Unsorted Properties File or Resource Bundle";
   }
 
+  @Override
   @NotNull
   public String getShortName() {
     return "AlphaUnsortedPropertiesFile";

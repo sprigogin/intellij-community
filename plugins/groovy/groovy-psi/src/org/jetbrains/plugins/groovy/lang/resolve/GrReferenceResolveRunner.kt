@@ -1,33 +1,30 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.psi.*
 import com.intellij.psi.scope.PsiScopeProcessor
-import com.intellij.psi.util.InheritanceUtil
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.InheritanceUtil.isInheritor
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.psi.util.parents
+import com.intellij.psi.util.strictParents
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult
-import org.jetbrains.plugins.groovy.lang.psi.api.SpreadState
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationArrayInitializer
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationNameValuePair
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
-import org.jetbrains.plugins.groovy.lang.psi.impl.GrTraitType
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyPsiManager
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyResolveResultImpl
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil
-import org.jetbrains.plugins.groovy.lang.psi.typeEnhancers.ClosureParameterEnhancer
-import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil
-import org.jetbrains.plugins.groovy.lang.psi.util.treeWalkUpAndGetArray
-import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil.canResolveToMethod
-import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil.isDefinitelyKeyOfMap
-import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint
-import org.jetbrains.plugins.groovy.lang.resolve.processors.GroovyResolverProcessorBuilder
+import org.jetbrains.plugins.groovy.lang.psi.util.isThisExpression
+import org.jetbrains.plugins.groovy.lang.psi.util.treeWalkUpAndGet
+import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint.RESOLVE_CONTEXT
+import org.jetbrains.plugins.groovy.lang.resolve.processors.CodeFieldProcessor
 import org.jetbrains.plugins.groovy.lang.resolve.processors.LocalVariableProcessor
+import org.jetbrains.plugins.groovy.lang.resolve.processors.ReferenceExpressionClassProcessor
 
-private class GrReferenceResolveRunner(val place: GrReferenceExpression, val processor: PsiScopeProcessor) {
+class GrReferenceResolveRunner(val place: GrReferenceExpression, val processor: PsiScopeProcessor) {
 
   fun resolveReferenceExpression(): Boolean {
     val processNonCode = PsiTreeUtil.skipParentsOfType(
@@ -41,29 +38,19 @@ private class GrReferenceResolveRunner(val place: GrReferenceExpression, val pro
       if (place.context is GrMethodCall && !ClosureMissingMethodContributor.processMethodsFromClosures(place, processor)) return false
     }
     else {
-      val state = initialState.put(ClassHint.RESOLVE_CONTEXT, qualifier)
+      val state = initialState.put(RESOLVE_CONTEXT, qualifier)
       if (place.dotTokenType === GroovyTokenTypes.mSPREAD_DOT) {
-        return processSpread(qualifier.type, state)
+        return qualifier.type.processSpread(processor, state, place, place.parent !is GrMethodCall)
       }
       else {
         if (ResolveUtil.isClassReference(place)) return false
-        if (!processJavaLangClass(qualifier, initialState)) return false
         if (!processQualifier(qualifier, initialState)) return false
       }
     }
+    if (processNonCode) {
+      if (!ResolveUtil.processCategoryMembers(place, processor, initialState)) return false
+    }
     return true
-  }
-
-  private fun processJavaLangClass(qualifier: GrExpression, initialState: ResolveState): Boolean {
-    if (qualifier !is GrReferenceExpression) return true
-
-    //optimization: only 'class' or 'this' in static context can be an alias of java.lang.Class
-    if ("class" != qualifier.referenceName && !PsiUtil.isThisReference(qualifier) && qualifier.resolve() !is PsiClass) return true
-
-    val classType = ResolveUtil.unwrapClassType(qualifier.getType())
-    return classType?.let {
-      processQualifierType(classType, initialState)
-    } ?: true
   }
 
   private fun processQualifier(qualifier: GrExpression, state: ResolveState): Boolean {
@@ -77,132 +64,152 @@ private class GrReferenceResolveRunner(val place: GrReferenceExpression, val pro
         else if (resolved != null && !resolved.processDeclarations(processor, state, null, place)) return false
         if (resolved !is PsiPackage) {
           val objectQualifier = TypesUtil.getJavaLangObject(place)
-          if (!processQualifierType(objectQualifier, state)) return false
+          if (!objectQualifier.processReceiverType(processor, state, place)) return false
         }
       }
     }
     else {
-      if (!processQualifierType(qualifierType, state)) return false
+      if (!qualifierType.processReceiverType(processor, state, place)) return false
+      if (place.parent !is GrMethodCall && isInheritor(qualifierType, CommonClassNames.JAVA_UTIL_COLLECTION)) {
+        return qualifierType.processSpread(processor, state, place, true)
+      }
     }
     return true
   }
-
-  private fun processQualifierType(qualifierType: PsiType, state: ResolveState): Boolean {
-    val type = (qualifierType as? PsiDisjunctionType)?.leastUpperBound ?: qualifierType
-    return doProcessQualifierType(type, state)
-  }
-
-  private fun doProcessQualifierType(qualifierType: PsiType, state: ResolveState): Boolean {
-    if (qualifierType is PsiIntersectionType) {
-      return qualifierType.conjuncts.find { !processQualifierType(it, state) } == null
-    }
-
-    if (qualifierType is PsiCapturedWildcardType) {
-      val wildcard = qualifierType.wildcard
-      if (wildcard.isExtends) {
-        return processQualifierType(wildcard.extendsBound, state)
-      }
-    }
-    if (qualifierType is PsiWildcardType) {
-      if (qualifierType.isExtends) {
-        return processQualifierType(qualifierType.extendsBound, state)
-      }
-    }
-
-    // Process trait type conjuncts in reversed order because last applied trait matters.
-    if (qualifierType is GrTraitType) return qualifierType.conjuncts.findLast { !processQualifierType(it, state) } == null
-
-    if (qualifierType is PsiClassType) {
-      val qualifierResult = qualifierType.resolveGenerics()
-      qualifierResult.element?.let {
-        val resolveState = state.put(PsiSubstitutor.KEY, qualifierResult.substitutor)
-        if (!ResolveUtil.processClassDeclarations(it, processor, resolveState, null, place)) return false
-      }
-    }
-    else if (qualifierType is PsiPrimitiveType) {
-      val boxedType = qualifierType.getBoxedType(place) ?: return true
-      return processQualifierType(boxedType, state)
-    }
-    else if (qualifierType is PsiArrayType) {
-      GroovyPsiManager.getInstance(place.project).getArrayClass(qualifierType.componentType)?.let {
-        if (!ResolveUtil.processClassDeclarations(it, processor, state, null, place)) return false
-      }
-    }
-
-    if (place.parent !is GrMethodCall && InheritanceUtil.isInheritor(qualifierType, CommonClassNames.JAVA_UTIL_COLLECTION)) {
-      if (!processSpread(qualifierType, state)) return false
-    }
-
-    if (state.processNonCodeMembers()) {
-      if (!ResolveUtil.processCategoryMembers(place, processor, state)) return false
-      if (!ResolveUtil.processNonCodeMembers(qualifierType, processor, place, state)) return false
-    }
-    return true
-  }
-
-  private fun processSpread(qualifierType: PsiType?, state: ResolveState): Boolean {
-    val componentType = ClosureParameterEnhancer.findTypeForIteration(qualifierType, place) ?: return true
-    val spreadState = SpreadState.create(qualifierType, state.get(SpreadState.SPREAD_STATE))
-    return processQualifierType(componentType, state.put(SpreadState.SPREAD_STATE, spreadState))
-  }
 }
 
-fun GrReferenceExpression.getCallVariants(upToArgument: GrExpression?): Array<out GroovyResolveResult> {
-  val processor = GroovyResolverProcessorBuilder.builder()
-    .setAllVariants(true)
-    .setUpToArgument(upToArgument)
-    .build(this)
-  GrReferenceResolveRunner(this, processor).resolveReferenceExpression()
-  return processor.candidatesArray
-}
 
-fun GrReferenceExpression.resolveReferenceExpression(forceRValue: Boolean, incomplete: Boolean): Array<out GroovyResolveResult> {
-  resolvePackageOrClass()?.let { return arrayOf(it) }
-
-  val localVariableResults = resolveLocalVariable()
-  if (localVariableResults.isNotEmpty()) return localVariableResults
-
-  if (!canResolveToMethod(this) && isDefinitelyKeyOfMap(this)) return GroovyResolveResult.EMPTY_ARRAY
-  val processor = GroovyResolverProcessorBuilder.builder()
-    .setForceRValue(forceRValue)
-    .setIncomplete(incomplete)
-    .build(this)
-  GrReferenceResolveRunner(this, processor).resolveReferenceExpression()
-  return processor.candidatesArray
-}
-
-private fun GrReferenceExpression.resolvePackageOrClass(): GroovyResolveResult? {
-  return doResolvePackageOrClass()?.let { GroovyResolveResultImpl(it, true) }
-}
+private fun GrReferenceExpression.resolvePackageOrClass() = doResolvePackageOrClass()?.let(::ElementResolveResult)
 
 private fun GrReferenceExpression.doResolvePackageOrClass(): PsiElement? {
+  val qname = qualifiedReferenceName ?: return null
+
   val facade = JavaPsiFacade.getInstance(project)
   val scope = resolveScope
 
-  fun GrReferenceExpression.resolveClass(): PsiClass? {
-    if (parent is GrMethodCall) return null
-    val name = referenceName ?: return null
-    if (name.isEmpty() || !name.first().isUpperCase()) return null
-    val qname = qualifiedReferenceName ?: return null
-    return facade.findClass(qname, scope)
-  }
-
   if (isQualified) {
-    resolveClass()?.let { return it }
+    val clazz = resolveClassFqn(facade, scope)
+    clazz?.let { return it }
   }
 
-  for (parent in parents().drop(1)) {
-    if (parent !is GrReferenceExpression) return null
-    if (parent.resolveClass() == null) continue
-    val qname = qualifiedReferenceName!!
-    return facade.findPackage(qname)
+  // We are in `сom.foo` from `com.foo.bar.Baz`.
+  // Go up and find if any parent resolves to a class => this expression is a package reference.
+  // This expression may also be a class reference, and this is handled in [resolveUnqualifiedType].
+  for (parent in strictParents()) {
+    if (parent !is GrReferenceExpression) {
+      // next parent is not a reference expression
+      // => next parent is not a class fully qualified name
+      // => this expression is not a package reference
+      return null
+    }
+    val clazz = parent.resolveClassFqn(facade, scope)
+    if (clazz != null) {
+      val p = facade.findPackage(qname)
+      if (isQualified && p == null) {
+        log.error("Found a class '${clazz.qualifiedName}' but not a package '$qname'")
+      }
+      return p
+    }
   }
 
   return null
 }
 
-private fun GrReferenceExpression.resolveLocalVariable(): Array<out GroovyResolveResult> {
-  if (isQualified) return GroovyResolveResult.EMPTY_ARRAY
-  val name = referenceName ?: return GroovyResolveResult.EMPTY_ARRAY
-  return treeWalkUpAndGetArray(LocalVariableProcessor(name))
+private fun GrReferenceExpression.resolveClassFqn(facade: JavaPsiFacade, scope: GlobalSearchScope): PsiClass? {
+  if (parent is GrMethodCall) return null
+  val name = referenceName ?: return null
+  if (name.isEmpty() || !name.first().isUpperCase()) return null
+  val qname = qualifiedReferenceName ?: return null
+  return facade.findClass(qname, scope)
+}
+
+/**
+ * Resolves elements that exist before transformations are run.
+ *
+ * @see org.codehaus.groovy.control.ResolveVisitor
+ */
+internal fun GrReferenceExpression.doResolveStatic(): GroovyResolveResult? {
+  val name = referenceName ?: return null
+
+  val fqnResult = resolvePackageOrClass()
+  if (fqnResult != null) {
+    return fqnResult
+  }
+
+  val qualifier = qualifier
+
+  if (qualifier == null) {
+    val localVariable = resolveToLocalVariable(name)
+    if (localVariable != null) {
+      return localVariable
+    }
+  }
+
+  if (parent !is GrMethodCall) {
+    if (qualifier == null || qualifier.isThisExpression()) {
+      val field = resolveToField(name)
+      if (field != null && checkCurrentClass(field.element, this)) {
+        return field
+      }
+    }
+    if (qualifier == null) {
+      // at this point:
+      // - the reference is org.codehaus.groovy.ast.expr.VariableExpression
+      // - the reference doesn't resolve to a variable, meaning it accesses org.codehaus.groovy.ast.DynamicVariable
+      return resolveUnqualifiedType(name)
+    }
+    if (qualifier is GrReferenceExpression) {
+      return resolveQualifiedType(name, qualifier)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Walks up the tree and returns when the first [local variable][GrVariable] is found.
+ *
+ * @name local variable name
+ * @receiver call site
+ * @return empty collection or a collection with 1 local variable result
+ */
+fun PsiElement.resolveToLocalVariable(name: String): ElementResolveResult<GrVariable>? {
+  return treeWalkUpAndGet(LocalVariableProcessor(name))
+}
+
+/**
+ * Walks up the tree and returns when the first code [field][GrField] is found.
+ *
+ * @name field name
+ * @receiver call site
+ * @return empty collection or a collection with 1 code field result
+ */
+private fun PsiElement.resolveToField(name: String): ElementResolveResult<GrField>? {
+  return treeWalkUpAndGet(CodeFieldProcessor(name, this))
+}
+
+/**
+ * Checks if resolved [field] is a field of current class owner.
+ *
+ * @see org.codehaus.groovy.control.ResolveVisitor.currentClass
+ */
+private fun checkCurrentClass(field: GrField, place: PsiElement): Boolean {
+  val containingClass = field.containingClass ?: return false
+  return containingClass == place.getOwner()
+}
+
+/**
+ * @see org.codehaus.groovy.control.ResolveVisitor.transformVariableExpression
+ */
+private fun PsiElement.resolveUnqualifiedType(name: String): GroovyResolveResult? {
+  val processor = ReferenceExpressionClassProcessor(name, this)
+  processUnqualified(processor, ResolveState.initial())
+  return processor.result
+}
+
+private fun PsiElement.resolveQualifiedType(name: String, qualifier: GrReferenceExpression): GroovyResolveResult? {
+  val classQualifier = qualifier.staticReference.resolve() as? PsiClass ?: return null
+  val processor = ReferenceExpressionClassProcessor(name, this)
+  classQualifier.processDeclarations(processor, ResolveState.initial(), null, this)
+  return processor.result
 }

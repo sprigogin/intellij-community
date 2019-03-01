@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.commander;
 
 import com.intellij.diff.actions.CompareFilesAction;
@@ -42,6 +28,7 @@ import com.intellij.ui.AutoScrollToSourceHandler;
 import com.intellij.util.SmartList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.ListDataEvent;
@@ -261,7 +248,7 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
         strokes.add(((KeyboardShortcut)shortcut).getFirstKeyStroke());
       }
     }
-    return strokes.toArray(new KeyStroke[strokes.size()]);
+    return strokes.toArray(new KeyStroke[0]);
   }
 
   private DefaultActionGroup createToolbarActions() {
@@ -270,12 +257,12 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
 
     final AnAction backAction = new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         myHistory.back();
       }
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         super.update(e);
         e.getPresentation().setEnabled(myHistory.canGoBack());
       }
@@ -285,12 +272,12 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
 
     final AnAction forwardAction = new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         myHistory.forward();
       }
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         super.update(e);
         e.getPresentation().setEnabled(myHistory.canGoForward());
       }
@@ -427,9 +414,7 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
     final CommanderPanel inactivePanel = getInactivePanel();
     inactivePanel.setActive(true);
     activePanel.setActive(false);
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(getPreferredFocusedComponent(inactivePanel), true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(getPreferredFocusedComponent(inactivePanel), true));
   }
 
   public void enterElementInActivePanel(final PsiElement element) {
@@ -468,7 +453,7 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
   }
 
   @Override
-  public Object getData(final String dataId) {
+  public Object getData(@NotNull final String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) {
       return HelpID.COMMANDER;
     }
@@ -547,7 +532,7 @@ public class Commander extends JPanel implements PersistentStateComponent<Elemen
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     myElement = state;
     processConfigurationElement();
     myElement = null;

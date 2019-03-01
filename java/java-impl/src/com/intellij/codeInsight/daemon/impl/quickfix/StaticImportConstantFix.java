@@ -23,7 +23,6 @@ import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.psi.util.TypeConversionUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,19 +63,20 @@ public class StaticImportConstantFix extends StaticImportMemberFix<PsiField> {
         element.getParent() instanceof PsiAnnotation) {
       return Collections.emptyList();
     }
-    final StaticMembersProcessor<PsiField> processor = new StaticMembersProcessor<PsiField>(element, showMembersFromDefaultPackage(), searchMode) {
+    final StaticMembersProcessor<PsiField> processor = new StaticMembersProcessor<PsiField>(element, toAddStaticImports(), searchMode) {
       @Override
       protected boolean isApplicable(PsiField field, PsiElement place) {
-        final PsiType expectedType = getExpectedType();
-        return expectedType == null || TypeConversionUtil.isAssignable(expectedType, field.getType());
+        PsiType fieldType = field.getType();
+        return isApplicableFor(fieldType);
       }
     };
     cache.processFieldsWithName(name, processor, element.getResolveScope(), null);
     return processor.getMembersToImport(applicableOnly);
   }
 
+  @Override
   @NotNull
-  protected StaticImportMethodQuestionAction<PsiField> createQuestionAction(List<PsiField> methodsToImport, @NotNull Project project, Editor editor) {
+  protected StaticImportMethodQuestionAction<PsiField> createQuestionAction(List<? extends PsiField> methodsToImport, @NotNull Project project, Editor editor) {
     return new StaticImportMethodQuestionAction<PsiField>(project, editor, methodsToImport, myRef) {
       @NotNull
       @Override
@@ -107,7 +107,7 @@ public class StaticImportConstantFix extends StaticImportMemberFix<PsiField> {
   }
 
   @Override
-  protected boolean showMembersFromDefaultPackage() {
-    return false;
+  protected boolean toAddStaticImports() {
+    return true;
   }
 }

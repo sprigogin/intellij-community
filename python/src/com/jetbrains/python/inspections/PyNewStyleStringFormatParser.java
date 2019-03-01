@@ -17,7 +17,7 @@ package com.jetbrains.python.inspections;
 
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
-import com.jetbrains.python.psi.impl.PyStringLiteralExpressionImpl;
+import com.jetbrains.python.psi.PyStringLiteralUtil;
 import gnu.trove.TIntArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,7 +45,7 @@ public class PyNewStyleStringFormatParser {
   }
 
   public static class ParseResult {
-    private PyNewStyleStringFormatParser myParser;
+    private final PyNewStyleStringFormatParser myParser;
 
     public ParseResult(@NotNull PyNewStyleStringFormatParser parser) {
       myParser = parser;
@@ -79,7 +79,7 @@ public class PyNewStyleStringFormatParser {
 
   private PyNewStyleStringFormatParser(@NotNull String nodeText) {
     myNodeText = nodeText;
-    myNodeContentRange = PyStringLiteralExpressionImpl.getNodeTextRange(nodeText);
+    myNodeContentRange = PyStringLiteralUtil.getContentRange(nodeText);
   }
 
   private void parseTopLevel() {
@@ -275,7 +275,7 @@ public class PyNewStyleStringFormatParser {
       }
       else {
         try {
-          setPosition(Integer.parseInt(name));
+          setManualPosition(Integer.parseInt(name));
         }
         catch (NumberFormatException e) {
           setMappingKey(StringUtil.nullize(name));
@@ -308,12 +308,12 @@ public class PyNewStyleStringFormatParser {
 
     /**
      * The identifier (presumably, valid) or the index in the name part of the field after "{" and before the first "." or "[".
-     * It's always present, but might be empty. Depending on its content either {@link #getMappingKey()}, {@link #getPosition()} or
+     * It's always present, but might be empty. Depending on its content either {@link #getMappingKey()}, {@link #getManualPosition()} or
      * {@link #getAutoPosition()} returns non-null value.
      *
      * @see #getFirstNameRange()
      * @see #getMappingKey()
-     * @see #getPosition()
+     * @see #getManualPosition()
      * @see #getAutoPosition()
      */
     @NotNull

@@ -78,10 +78,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
       public void visitAnonymousClass(final PsiAnonymousClass aClass) {
         super.visitAnonymousClass(aClass);
         final PsiElement parent = aClass.getParent();
-        final PsiElement lambdaContext = parent != null ? parent.getParent() : null;
-        if (lambdaContext != null &&
-            (LambdaUtil.isValidLambdaContext(lambdaContext) || !(lambdaContext instanceof PsiExpressionStatement)) &&
-            canBeConvertedToLambda(aClass, false, isOnTheFly || reportNotAnnotatedInterfaces, Collections.emptySet())) {
+        if (canBeConvertedToLambda(aClass, false, isOnTheFly || reportNotAnnotatedInterfaces, Collections.emptySet())) {
           final PsiElement lBrace = aClass.getLBrace();
           LOG.assertTrue(lBrace != null);
           final TextRange rangeInElement = new TextRange(0, aClass.getStartOffsetInParent() + lBrace.getStartOffsetInParent());
@@ -100,8 +97,10 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
     };
   }
 
-  static boolean hasRuntimeAnnotations(PsiMethod method, @NotNull Set<String> runtimeAnnotationsToIgnore) {
-    PsiAnnotation[] annotations = method.getModifierList().getAnnotations();
+  public static boolean hasRuntimeAnnotations(PsiModifierListOwner listOwner, @NotNull Set<String> runtimeAnnotationsToIgnore) {
+    PsiModifierList modifierList = listOwner.getModifierList();
+    if (modifierList == null) return false;
+    PsiAnnotation[] annotations = modifierList.getAnnotations();
     for (PsiAnnotation annotation : annotations) {
       PsiJavaCodeReferenceElement ref = annotation.getNameReferenceElement();
       PsiElement target = ref != null ? ref.resolve() : null;
@@ -199,6 +198,22 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
                                                boolean acceptParameterizedFunctionTypes,
                                                boolean reportNotAnnotatedInterfaces,
                                                @NotNull Set<String> ignoredRuntimeAnnotations) {
+    PsiElement parent = aClass.getParent();
+    final PsiElement lambdaContext = parent != null ? PsiUtil.skipParenthesizedExprUp(parent.getParent()) : null;
+    if (lambdaContext == null || !LambdaUtil.isValidLambdaContext(lambdaContext) && !(lambdaContext instanceof PsiReferenceExpression)) return false;
+    return isLambdaForm(aClass, acceptParameterizedFunctionTypes, reportNotAnnotatedInterfaces, ignoredRuntimeAnnotations);
+  }
+
+  public static boolean isLambdaForm(PsiAnonymousClass aClass,
+                                   boolean acceptParameterizedFunctionTypes,
+                                   @NotNull Set<String> ignoredRuntimeAnnotations) {
+    return isLambdaForm(aClass, acceptParameterizedFunctionTypes, true, ignoredRuntimeAnnotations);
+  }
+
+  public static boolean isLambdaForm(PsiAnonymousClass aClass,
+                                     boolean acceptParameterizedFunctionTypes,
+                                     boolean reportNotAnnotatedInterfaces,
+                                     @NotNull Set<String> ignoredRuntimeAnnotations) {
     if (PsiUtil.getLanguageLevel(aClass).isAtLeast(LanguageLevel.JDK_1_8)) {
       final PsiClassType baseClassType = aClass.getBaseClassType();
       final PsiClassType.ClassResolveResult resolveResult = baseClassType.resolveGenerics();
@@ -293,7 +308,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
 
     ReplaceWithLambdaFix
       .giveUniqueNames(project, elementFactory, lambdaExpression,
-                       usedLocalNames, variables.toArray(new PsiVariable[variables.size()]));
+                       usedLocalNames, variables.toArray(new PsiVariable[0]));
 
     final PsiExpression singleExpr = RedundantLambdaCodeBlockInspection.isCodeBlockRedundant(lambdaExpression.getBody());
     if (singleExpr != null) {
@@ -335,7 +350,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
 
   private static void collectLocalVariablesDefinedInsideLambda(PsiLambdaExpression lambdaExpression,
                                                                final Set<PsiVariable> variables,
-                                                               Set<String> namesOfVariablesInTheBlock) {
+                                                               Set<? super String> namesOfVariablesInTheBlock) {
     PsiElement block = PsiUtil.getTopLevelEnclosingCodeBlock(lambdaExpression, null);
     if (block == null) {
       block = lambdaExpression;
@@ -457,8 +472,9 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
                                                             PsiCallExpression callExpression) {
     if (psiMethod != null && !psiMethod.hasModifierProperty(PsiModifier.STATIC)) {
       final PsiClass containingClass = psiMethod.getContainingClass();
-      if (containingClass != null && CommonClassNames.JAVA_LANG_OBJECT.equals(containingClass.getQualifiedName())) {
-        return false;
+      if (containingClass != null && 
+          CommonClassNames.JAVA_LANG_OBJECT.equals(containingClass.getQualifiedName())) {
+        return !(callExpression instanceof PsiMethodCallExpression && ((PsiMethodCallExpression)callExpression).getMethodExpression().isQualified());
       }
 
       if (callExpression instanceof PsiMethodCallExpression &&
@@ -474,7 +490,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
     return false;
   }
 
-  public static void restoreComments(Collection<PsiComment> comments, PsiElement lambda) {
+  public static void restoreComments(Collection<? extends PsiComment> comments, PsiElement lambda) {
     PsiElement anchor = PsiTreeUtil.getParentOfType(lambda, PsiStatement.class, PsiField.class);
     if (anchor == null) {
       anchor = lambda;
@@ -490,7 +506,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
     private final PsiMethod myMethod;
     private final PsiAnonymousClass myAnonymClass;
 
-    public ForbiddenRefsChecker(PsiMethod method, PsiAnonymousClass aClass) {
+    ForbiddenRefsChecker(PsiMethod method, PsiAnonymousClass aClass) {
       myMethod = method;
       myAnonymClass = aClass;
     }
@@ -502,11 +518,7 @@ public class AnonymousCanBeLambdaInspection extends AbstractBaseJavaLocalInspect
       super.visitMethodCallExpression(methodCallExpression);
       final PsiMethod psiMethod = methodCallExpression.resolveMethod();
       if (psiMethod == myMethod ||
-          functionalInterfaceMethodReferenced(psiMethod, myAnonymClass, methodCallExpression) ||
-          psiMethod != null &&
-          !methodCallExpression.getMethodExpression().isQualified() &&
-          "getClass".equals(psiMethod.getName()) &&
-          psiMethod.getParameterList().getParametersCount() == 0) {
+          functionalInterfaceMethodReferenced(psiMethod, myAnonymClass, methodCallExpression)) {
         myBodyContainsForbiddenRefs = true;
       }
     }

@@ -20,12 +20,9 @@ import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.dataFlow.DataFlowInspection;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.testFramework.IdeaTestUtil;
+import com.intellij.testFramework.ExpectedHighlightingData;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,17 +30,11 @@ import org.jetbrains.annotations.NotNull;
  * @author peter
  */
 public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
-  private static final DefaultLightProjectDescriptor PROJECT_DESCRIPTOR = new DefaultLightProjectDescriptor() {
-    @Override
-    public Sdk getSdk() {
-      return PsiTestUtil.addJdkAnnotations(IdeaTestUtil.getMockJdk18());
-    }
-  };
 
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return PROJECT_DESCRIPTOR;
+    return JAVA_8_ANNOTATED;
   }
 
   @Override
@@ -63,9 +54,9 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
   public void testMethodReferenceConstantValue() { doTestWithCustomAnnotations(); }
 
   public void testOptionalOfNullable() { doTest(); }
+  public void testPrimitiveOptional() { doTest(); }
   public void testOptionalOrElse() { doTest(); }
-  public void testOptionalIsPresent() { doTest(); }
-  public void testOptionalGetWithoutIsPresent() {
+  public void testOptionalIsPresent() {
     myFixture.addClass("package org.junit;" +
                        "public class Assert {" +
                        "  public static void assertTrue(boolean b) {}" +
@@ -195,8 +186,13 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
     doTest();
   }
   public void testStreamInlining() { doTest(); }
+  public void testStreamCollectorInlining() { doTest(); }
   public void testStreamComparatorInlining() { doTest(); }
   public void testStreamKnownSource() { doTest(); }
+  public void testStreamTypeAnnoInlining() {
+    setupTypeUseAnnotations("foo", myFixture);
+    doTest();
+  }
   
   public void testMapGetWithNotNullKeys() { doTestWithCustomAnnotations(); }
   public void testInferNestedForeachNullability() { doTestWithCustomAnnotations(); }
@@ -209,15 +205,50 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
   public void testCastInstanceOf() { doTest(); }
 
   public void testMutabilityBasics() {
-    myFixture.addClass("package org.jetbrains.annotations;public @interface ReadOnly {}");
+    myFixture.addClass("package org.jetbrains.annotations;public @interface Unmodifiable {}");
     doTest();
   }
 
-  public void testMutabilityJdk() {
-    doTest();
-  }
+  public void testMutabilityJdk() { ExpectedHighlightingData.expectedDuplicatedHighlighting(this::doTest); }
 
   public void testPrimitiveGetters() { doTest(); }
   public void testUnknownOnStack() { doTest(); }
   public void testMapUpdateInlining() { doTestWithCustomAnnotations(); }
+  public void testHashMapImplementation() { doTest(); }
+
+  public void testOptionalTooComplex() { doTest(); }
+
+  public void testMethodReferenceBoundToNullable() { doTestWithCustomAnnotations(); }
+  public void testEscapeAnalysis() { doTest(); }
+  public void testThisAsVariable() { doTest(); }
+  public void testQueuePeek() { doTest(); }
+  public void testForeachCollectionElement() { doTest(); }
+  public void testContractReturnValues() { doTest(); }
+  public void testTryFinallySimple() { doTest(); }
+  public void testAssertAll() {
+    myFixture.addClass("package org.junit.jupiter.api;\n" +
+                       "\n" +
+                       "import org.junit.jupiter.api.function.Executable;\n" +
+                       "\n" +
+                       "public class Assertions {\n" +
+                       "  public static void assertAll(String s, Executable... e) {}\n" +
+                       "  public static void assertAll(Executable... e) {}\n" +
+                       "  public static void assertNotNull(Object o) {}\n" +
+                       "  public static void assertTrue(boolean b) {}\n" +
+                       "}");
+    myFixture.addClass("package org.junit.jupiter.api.function;public interface Executable { void execute() throws Throwable;}\n");
+    doTest();
+  }
+
+  public void testConflictsInInferredTypes() { 
+    setupAmbiguousAnnotations("foo", myFixture);
+    doTest();
+  }
+  public void testObjectsEquals() { doTest(); }
+  public void testManyObjectEquals() { doTest(); }
+  public void testLambdaAfterNullCheck() { doTest(); }
+  public void testFlatMapSideEffect() { doTest(); }
+  public void testOptionalValueTracking() { doTest(); }
+  public void testClearZeroesSize() { doTest(); }
+  public void testLambdaInlineReassignReturnWithDeeperEquality() { doTest(); }
 }

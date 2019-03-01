@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.debugger.actions;
 
@@ -13,24 +11,21 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.ui.Messages;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.XExpression;
-import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.frame.XValue;
-import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
-import com.intellij.xdebugger.impl.ui.XDebuggerExpressionEditor;
+import com.intellij.xdebugger.impl.evaluate.XExpressionDialog;
 import com.sun.jdi.Method;
 import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
@@ -39,6 +34,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 public class ForceEarlyReturnAction extends DebuggerAction {
+  @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     final JavaStackFrame stackFrame = PopFrameAction.getStackFrame(e);
@@ -66,12 +62,18 @@ public class ForceEarlyReturnAction extends DebuggerAction {
           return;
         }
 
-        if ("void".equals(method.returnTypeName())) {
+        if (DebuggerUtilsEx.isVoid(method)) {
           forceEarlyReturnWithFinally(thread.getVirtualMachine().mirrorOfVoid(), stackFrame, debugProcess, null);
         }
         else {
           ApplicationManager.getApplication().invokeLater(
-            () -> new ReturnExpressionDialog(project, debugProcess.getXdebugProcess().getEditorsProvider(), debugProcess, stackFrame).show());
+            () -> new XExpressionDialog(project, debugProcess.getXdebugProcess().getEditorsProvider(), "forceReturnValue",
+                                        "Return Value", stackFrame.getSourcePosition(), null) {
+              @Override
+              protected void doOKAction() {
+                evaluateAndReturn(project, stackFrame, debugProcess, getExpression(), this);
+              }
+            }.show());
         }
       }
     });
@@ -110,8 +112,9 @@ public class ForceEarlyReturnAction extends DebuggerAction {
                                        @Nullable final DialogWrapper dialog) {
     debugProcess.getManagerThread().schedule(new DebuggerCommandImpl() {
       @Override
-      protected void action() throws Exception {
+      protected void action() {
         try {
+          debugProcess.startWatchingMethodReturn(thread);
           thread.forceEarlyReturn(value);
         }
         catch (Exception e) {
@@ -163,6 +166,7 @@ public class ForceEarlyReturnAction extends DebuggerAction {
     PopFrameAction.showError(project, message, UIUtil.removeMnemonic(ActionsBundle.actionText("Debugger.ForceEarlyReturn")));
   }
 
+  @Override
   public void update(@NotNull AnActionEvent e) {
     boolean enable = false;
 
@@ -176,47 +180,6 @@ public class ForceEarlyReturnAction extends DebuggerAction {
     }
     else {
       e.getPresentation().setVisible(enable);
-    }
-  }
-
-  private static class ReturnExpressionDialog extends DialogWrapper {
-    private final Project myProject;
-    private final XDebuggerEditorsProvider myEditorsProvider;
-    private final DebugProcessImpl myProcess;
-    private final JavaStackFrame myFrame;
-    private final XDebuggerExpressionEditor myEditor;
-
-    public ReturnExpressionDialog(@NotNull Project project,
-                                  XDebuggerEditorsProvider provider,
-                                  DebugProcessImpl process,
-                                  JavaStackFrame frame) {
-      super(project);
-      myProject = project;
-      myEditorsProvider = provider;
-      myProcess = process;
-      myFrame = frame;
-      myEditor = new XDebuggerExpressionEditor(myProject, myEditorsProvider, "forceReturnValue", myFrame.getSourcePosition(),
-                                               XExpressionImpl.EMPTY_EXPRESSION, false, true, false);
-
-      setTitle("Return Value");
-      init();
-    }
-
-    @Nullable
-    @Override
-    protected JComponent createCenterPanel() {
-      return myEditor.getComponent();
-    }
-
-    @Nullable
-    @Override
-    public JComponent getPreferredFocusedComponent() {
-      return myEditor.getPreferredFocusedComponent();
-    }
-
-    @Override
-    protected void doOKAction() {
-      evaluateAndReturn(myProject, myFrame, myProcess, myEditor.getExpression(), this);
     }
   }
 }

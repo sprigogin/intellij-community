@@ -50,7 +50,7 @@ public class PythonDebugLanguageConsoleView extends DuplexConsoleView<ConsoleVie
 
     enableConsole(!PyConsoleOptions.getInstance(project).isShowDebugConsoleByDefault());
 
-    getSwitchConsoleActionPresentation().setIcon(PythonIcons.Python.Debug.CommandLine);
+    getSwitchConsoleActionPresentation().setIcon(PythonIcons.Python.PythonConsole);
     getSwitchConsoleActionPresentation().setText(PyBundle.message("run.configuration.show.command.line.action.name"));
 
     List<AnAction> actions = ContainerUtil.newArrayList(PyConsoleUtil.createTabCompletionAction(getPydevConsoleView()));
@@ -98,13 +98,13 @@ public class PythonDebugLanguageConsoleView extends DuplexConsoleView<ConsoleVie
       PythonConsoleView console = getPydevConsoleView();
       if (!myDebugConsoleInitialized && console.getExecuteActionHandler() != null) {
         if (!console.getExecuteActionHandler().getConsoleCommunication().isWaitingForInput()) {
-          console.addConsoleFolding(true);
+          console.addConsoleFolding(true, false);
           showStartMessageForFirstExecution(DEBUG_CONSOLE_START_COMMAND, console);
         }
         myDebugConsoleInitialized = true;
+        console.initialized();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> console.requestFocus());
       }
-
-      IdeFocusManager.findInstance().requestFocus(console.getConsoleEditor().getContentComponent(), true);
     }
   }
 

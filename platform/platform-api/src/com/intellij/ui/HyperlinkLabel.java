@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ui;
 
@@ -21,8 +7,10 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.PlatformColors;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.accessibility.AccessibleAction;
@@ -70,14 +58,14 @@ public class HyperlinkLabel extends HighlightableComponent {
   public HyperlinkLabel(String text) {
     this(text, UIUtil.getLabelBackground());
   }
-  
+
   public HyperlinkLabel(String text, Color background) {
     this(text, PlatformColors.BLUE, background, PlatformColors.BLUE);
   }
 
   public HyperlinkLabel(String text, final Color textForegroundColor, final Color textBackgroundColor, final Color textEffectColor) {
-    myAnchorAttributes = UIUtil.isUnderWin10LookAndFeel() ?
-      new Win10TextAttributes(textBackgroundColor) :
+    myAnchorAttributes = UIUtil.isUnderDarcula() || UIUtil.isUnderIntelliJLaF() ?
+      new CustomTextAttributes(textBackgroundColor) :
       new TextAttributes(textForegroundColor, textBackgroundColor, textEffectColor, EffectType.LINE_UNDERSCORE, Font.PLAIN);
 
     enforceBackgroundOutsideText(textBackgroundColor);
@@ -177,7 +165,7 @@ public class HyperlinkLabel extends HighlightableComponent {
   }
 
   @Override
-  public void setText(String text) {
+  public void setText(@Nullable String text) {
     applyFont();
     myUseIconAsLink = false;
     super.setText(text);
@@ -202,6 +190,7 @@ public class HyperlinkLabel extends HighlightableComponent {
     myListeners.remove(listener);
   }
 
+  @NotNull
   public String getText() {
     return myHighlightedText.getText();
   }
@@ -325,16 +314,16 @@ public class HyperlinkLabel extends HighlightableComponent {
     }
   }
 
-  private class Win10TextAttributes extends TextAttributes {
-    private Win10TextAttributes(Color textBackgroundColor) {
+  private class CustomTextAttributes extends TextAttributes {
+    private CustomTextAttributes(Color textBackgroundColor) {
       super(null, textBackgroundColor, null, null, Font.PLAIN);
     }
 
     @Override public Color getForegroundColor() {
       return !isEnabled() ? UIManager.getColor("Label.disabledForeground") :
-             myMousePressed ? UIManager.getColor("link.pressed.foreground") :
-             myMouseHover ? UIManager.getColor("link.hover.foreground") :
-             UIManager.getColor("link.foreground");
+             myMousePressed ? JBUI.CurrentTheme.Link.linkPressedColor() :
+             myMouseHover ? JBUI.CurrentTheme.Link.linkHoverColor() :
+             JBUI.CurrentTheme.Link.linkColor();
     }
 
     @Override public Color getEffectColor() {

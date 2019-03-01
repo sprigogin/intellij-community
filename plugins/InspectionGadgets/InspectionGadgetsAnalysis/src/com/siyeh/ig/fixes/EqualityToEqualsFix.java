@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@
 package com.siyeh.ig.fixes;
 
 import com.intellij.codeInsight.NullableNotNullManager;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
@@ -39,6 +39,7 @@ public class EqualityToEqualsFix extends InspectionGadgetsFix {
   /**
    * @deprecated use {@link #buildFix(PsiBinaryExpression)} instead
    */
+  @Deprecated
   public EqualityToEqualsFix() {
     this(true);
   }
@@ -75,15 +76,20 @@ public class EqualityToEqualsFix extends InspectionGadgetsFix {
   @NotNull
   @Override
   public String getName() {
-    return myNegated
-           ? InspectionGadgetsBundle.message("inequality.to.not.equals.quickfix")
-           : InspectionGadgetsBundle.message("equality.to.equals.quickfix");
+    return getFixName(myNegated);
+  }
+
+  @NotNull
+  public static String getFixName(boolean negated) {
+    return negated
+           ? CommonQuickFixBundle.message("fix.replace.x.with.y", "!=", "!equals()")
+           : CommonQuickFixBundle.message("fix.replace.x.with.y", "==", "equals()");
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return InspectionGadgetsBundle.message("equality.to.equals.quickfix");
+    return getFixName(false);
   }
 
   @Override
@@ -104,13 +110,8 @@ public class EqualityToEqualsFix extends InspectionGadgetsFix {
     if (JavaTokenType.NE.equals(expression.getOperationTokenType())) {
       newExpression.append('!');
     }
-    if (ParenthesesUtils.getPrecedence(lhs) > ParenthesesUtils.METHOD_CALL_PRECEDENCE) {
-      newExpression.append('(').append(commentTracker.markUnchanged(lhs).getText()).append(')');
-    }
-    else {
-      newExpression.append(commentTracker.markUnchanged(lhs).getText());
-    }
-    newExpression.append(".equals(").append(commentTracker.markUnchanged(rhs).getText()).append(')');
+    newExpression.append(commentTracker.text(lhs, ParenthesesUtils.METHOD_CALL_PRECEDENCE));
+    newExpression.append(".equals(").append(commentTracker.text(rhs)).append(')');
 
     PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression.toString(), commentTracker);
   }

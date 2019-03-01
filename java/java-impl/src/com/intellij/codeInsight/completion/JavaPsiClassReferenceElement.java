@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.lookup.*;
 import com.intellij.codeInsight.lookup.impl.JavaElementLookupRenderer;
@@ -23,10 +24,8 @@ import com.intellij.openapi.util.ClassConditionKey;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +40,7 @@ public class JavaPsiClassReferenceElement extends LookupItem<Object> implements 
   private final SmartPsiElementPointer<PsiClass> myClass;
   private final String myQualifiedName;
   private String myForcedPresentableName;
-  private String myPackageDisplayName;
+  private final String myPackageDisplayName;
   private PsiSubstitutor mySubstitutor = PsiSubstitutor.EMPTY;
 
   public JavaPsiClassReferenceElement(PsiClass psiClass) {
@@ -98,7 +97,9 @@ public class JavaPsiClassReferenceElement extends LookupItem<Object> implements 
   @NotNull
   @Override
   public PsiClass getObject() {
-    return ObjectUtils.assertNotNull(myClass.getElement());
+    PsiClass element = myClass.getElement();
+    if (element == null) throw new IllegalStateException("Cannot restore from " + myClass);
+    return element;
   }
 
   @Override
@@ -217,7 +218,7 @@ public class JavaPsiClassReferenceElement extends LookupItem<Object> implements 
   }
 
   private static boolean showSpaceAfterComma(PsiClass element) {
-    return CodeStyleSettingsManager.getSettings(element.getProject()).getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_COMMA;
+    return CodeStyle.getLanguageSettings(element.getContainingFile(), JavaLanguage.INSTANCE).SPACE_AFTER_COMMA;
   }
 
 }

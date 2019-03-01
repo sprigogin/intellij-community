@@ -1,7 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef;
 
 import com.intellij.lang.ASTNode;
@@ -13,13 +10,17 @@ import com.intellij.psi.scope.NameHint;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyEmptyStubElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrEnumDefinitionBody;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrEnumTypeDefinition;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinitionBody;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstant;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstantList;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
@@ -39,16 +40,17 @@ public class GrEnumTypeDefinitionImpl extends GrTypeDefinitionImpl implements Gr
   }
 
   public GrEnumTypeDefinitionImpl(GrTypeDefinitionStub stub) {
-    super(stub, GroovyElementTypes.ENUM_DEFINITION);
+    super(stub, GroovyStubElementTypes.ENUM_TYPE_DEFINITION);
   }
 
+  @Override
   public String toString() {
     return "Enumeration definition";
   }
 
   @Override
   public GrEnumDefinitionBody getBody() {
-    return getStubOrPsiChild(GroovyElementTypes.ENUM_BODY);
+    return getStubOrPsiChild(GroovyEmptyStubElementTypes.ENUM_BODY);
   }
 
   @Override
@@ -143,7 +145,26 @@ public class GrEnumTypeDefinitionImpl extends GrTypeDefinitionImpl implements Gr
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitEnumDefinition(this);
+  }
+
+  @Override
+  public PsiElement add(@NotNull PsiElement psiElement) throws IncorrectOperationException {
+    if (!(psiElement instanceof GrEnumConstant)) return super.add(psiElement);
+    final GrTypeDefinitionBody body = getBody();
+    assert body != null;
+    GrEnumConstantList list = getEnumConstantList();
+    if (list != null) {
+      GrEnumConstant[] constants = list.getEnumConstants();
+      if (constants.length > 0) {
+        list.getNode().addLeaf(GroovyTokenTypes.mCOMMA, ",", null);
+        list.getNode().addLeaf(GroovyTokenTypes.mNLS, "\n", null);
+        return list.add(psiElement);
+      }
+    }
+
+    PsiElement brace = body.getLBrace();
+    return body.addAfter(psiElement, brace);
   }
 }

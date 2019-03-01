@@ -104,9 +104,7 @@ public abstract class PsiDocumentManager {
    * Before a modified document is committed, accessing its PSI may return elements
    * corresponding to original (unmodified) state of the document.<p/>
    *
-   * For documents corresponding to PSI with events enabled (see {@link FileViewProvider#isEventSystemEnabled()}, this should be called
-   * in UI thread in a write-safe context (see {@link com.intellij.openapi.application.TransactionGuard}). For non-physical files, this can be
-   * called in any thread. In the latter case, clients hold themselves all responsibility for synchronizing that PSI.
+   * Should be called in UI thread in a write-safe context (see {@link com.intellij.openapi.application.TransactionGuard}).
    *
    * @param document the document to commit.
    */
@@ -135,7 +133,6 @@ public abstract class PsiDocumentManager {
    * @return an immutable document corresponding to the current PSI state. For committed documents, the contents and timestamp are equal to
    * the ones of {@link #getDocument(PsiFile)}. For uncommitted documents, the text is {@link #getLastCommittedText(Document)} and
    * the modification stamp is {@link #getLastCommittedStamp(Document)}.
-   * @since 143.* builds
    */
   @Nullable
   public abstract Document getLastCommittedDocument(@NotNull PsiFile file);

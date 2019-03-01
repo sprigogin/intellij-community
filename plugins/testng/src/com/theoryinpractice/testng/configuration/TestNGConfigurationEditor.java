@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.theoryinpractice.testng.configuration;
 
@@ -20,13 +6,12 @@ import com.intellij.application.options.ModuleDescriptionsComboBox;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.JavaExecutionUtil;
 import com.intellij.execution.MethodBrowser;
-import com.intellij.execution.ShortenCommandLine;
 import com.intellij.execution.configuration.BrowseModuleValueActionListener;
+import com.intellij.execution.testDiscovery.TestDiscoveryExtension;
 import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.execution.ui.*;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
@@ -40,7 +25,10 @@ import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.JavaCodeFragment;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiJavaCodeReferenceElement;
+import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
@@ -48,6 +36,7 @@ import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.fields.ExpandableTextField;
 import com.intellij.ui.table.TableView;
 import com.intellij.util.IconUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.theoryinpractice.testng.MessageInfoException;
 import com.theoryinpractice.testng.configuration.browser.GroupBrowser;
 import com.theoryinpractice.testng.configuration.browser.PackageBrowser;
@@ -59,13 +48,11 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.text.Document;
 import javax.swing.text.PlainDocument;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Map;
 
@@ -132,11 +119,7 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
     moduleSelector = new ConfigurationModuleSelector(project, getModulesComponent());
     alternateJDK.setDefaultJreSelector(DefaultJreSelector.fromModuleDependencies(getModulesComponent(), false));
     commonJavaParameters.setModuleContext(moduleSelector.getModule());
-    moduleClasspath.getComponent().addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        commonJavaParameters.setModuleContext(moduleSelector.getModule());
-      }
-    });
+    moduleClasspath.getComponent().addActionListener(e -> commonJavaParameters.setModuleContext(moduleSelector.getModule()));
     commonJavaParameters.setHasModuleMacro();
 
     final JPanel panel = myPattern.getComponent();
@@ -147,17 +130,12 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
 
     final CollectionComboBoxModel<TestType> testKindModel = new CollectionComboBoxModel<>();
     for (TestType type : TestType.values()) {
-      if (type != TestType.SOURCE || Registry.is("testDiscovery.enabled")) {
+      if (type != TestType.SOURCE || Registry.is(TestDiscoveryExtension.TEST_DISCOVERY_REGISTRY_KEY)) {
         testKindModel.add(type);
       }
     }
     myTestKind.setModel(testKindModel);
-    myTestKind.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        TestNGConfigurationEditor.this.model.setType((TestType)myTestKind.getSelectedItem());
-      }
-    });
+    myTestKind.addActionListener(e -> TestNGConfigurationEditor.this.model.setType((TestType)myTestKind.getSelectedItem()));
     myTestKind.setRenderer(new ListCellRendererWrapper<TestType>() {
                              @Override
                              public void customize(JList list, TestType value, int index, boolean selected, boolean hasFocus) {
@@ -167,11 +145,7 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
                              }
                            });
     registerListener(new JRadioButton[]{packagesInProject, packagesInModule, packagesAcrossModules}, null);
-    packagesInProject.addChangeListener(new ChangeListener() {
-      public void stateChanged(ChangeEvent e) {
-        evaluateModuleClassPath();
-      }
-    });
+    packagesInProject.addChangeListener(e -> evaluateModuleClassPath());
 
     LabeledComponent[] components = new LabeledComponent[]{packageField, classField, methodField, groupField, suiteField, myPattern};
     for (int i = 0; i < components.length; i++) {
@@ -338,7 +312,7 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
     data.TEST_LISTENERS.addAll(listenerModel.getListenerList());
 
     data.USE_DEFAULT_REPORTERS = myUseDefaultReportersCheckBox.isSelected();
-    config.setShortenCommandLine((ShortenCommandLine)myShortenCommandLineCombo.getComponent().getSelectedItem());
+    config.setShortenCommandLine(myShortenCommandLineCombo.getComponent().getSelectedItem());
   }
 
   public ConfigurationModuleSelector getModuleSelector() {
@@ -385,27 +359,24 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
 
   private void createView() {
     commonParametersPanel.add(commonJavaParameters, BorderLayout.CENTER);
-    classField.setComponent(new EditorTextFieldWithBrowseButton(project, true, new JavaCodeFragment.VisibilityChecker() {
-      @Override
-      public Visibility isDeclarationVisible(PsiElement declaration, PsiElement place) {
-        if (declaration instanceof PsiClass && place.getParent() instanceof PsiJavaCodeReferenceElement) {
-          return Visibility.VISIBLE;
-        }
-        try {
-          if (declaration instanceof PsiClass &&
-              new TestClassBrowser(project, TestNGConfigurationEditor.this).getFilter().isAccepted((PsiClass)declaration)) {
-            return Visibility.VISIBLE;
-          }
-        }
-        catch (MessageInfoException e) {
-          return Visibility.NOT_VISIBLE;
-        }
-        return Visibility.NOT_VISIBLE;
+    classField.setComponent(new EditorTextFieldWithBrowseButton(project, true, (declaration, place) -> {
+      if (declaration instanceof PsiClass && place.getParent() instanceof PsiJavaCodeReferenceElement) {
+        return JavaCodeFragment.VisibilityChecker.Visibility.VISIBLE;
       }
+      try {
+        if (declaration instanceof PsiClass &&
+            new TestClassBrowser(project, TestNGConfigurationEditor.this).getFilter().isAccepted((PsiClass)declaration)) {
+          return JavaCodeFragment.VisibilityChecker.Visibility.VISIBLE;
+        }
+      }
+      catch (MessageInfoException e) {
+        return JavaCodeFragment.VisibilityChecker.Visibility.NOT_VISIBLE;
+      }
+      return JavaCodeFragment.VisibilityChecker.Visibility.NOT_VISIBLE;
     }));
 
-    final EditorTextFieldWithBrowseButton methodEditorTextField = new EditorTextFieldWithBrowseButton(project, true, 
-                                                                                                      JavaCodeFragment.VisibilityChecker.EVERYTHING_VISIBLE, 
+    final EditorTextFieldWithBrowseButton methodEditorTextField = new EditorTextFieldWithBrowseButton(project, true,
+                                                                                                      JavaCodeFragment.VisibilityChecker.EVERYTHING_VISIBLE,
                                                                                                       PlainTextLanguage.INSTANCE.getAssociatedFileType());
     methodField.setComponent(methodEditorTextField);
 
@@ -443,42 +414,28 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
 
     myPropertiesPanel.add(
       ToolbarDecorator.createDecorator(propertiesTableView)
-        .setAddAction(new AnActionButtonRunnable() {
-          @Override
-          public void run(AnActionButton button) {
-            propertiesTableModel.addParameter();
-            int index = propertiesTableModel.getRowCount() - 1;
-            propertiesTableView.setRowSelectionInterval(index, index);
-          }
-        }).setRemoveAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
+        .setAddAction(button -> {
+          propertiesTableModel.addParameter();
+          int index = propertiesTableModel.getRowCount() - 1;
+          propertiesTableView.setRowSelectionInterval(index, index);
+        }).setRemoveAction(button -> {
           int idx = propertiesTableView.getSelectedRow() - 1;
           for (int row : propertiesTableView.getSelectedRows()) {
             propertiesTableModel.removeProperty(row);
           }
           if (idx > -1) propertiesTableView.setRowSelectionInterval(idx, idx);
-        }
-      }).disableUpDownActions().createPanel(), BorderLayout.CENTER);
+        }).disableUpDownActions().createPanel(), BorderLayout.CENTER);
 
     myListenersList = new JBList(listenerModel);
     myListenersPanel.add(
       ToolbarDecorator.createDecorator(myListenersList).setAddAction(new AddActionButtonRunnable())
-        .setRemoveAction(new AnActionButtonRunnable() {
-          @Override
-          public void run(AnActionButton button) {
-            int idx = myListenersList.getSelectedIndex() - 1;
-            for (int row : myListenersList.getSelectedIndices()) {
-              listenerModel.removeListener(row);
-            }
-            if (idx > -1) myListenersList.setSelectedIndex(idx);
+        .setRemoveAction(button -> {
+          int idx = myListenersList.getSelectedIndex() - 1;
+          for (int row : myListenersList.getSelectedIndices()) {
+            listenerModel.removeListener(row);
           }
-        }).setAddActionUpdater(new AnActionButtonUpdater() {
-        @Override
-        public boolean isEnabled(AnActionEvent e) {
-          return !project.isDefault();
-        }
-      }).disableUpDownActions().createPanel(), BorderLayout.CENTER);
+          if (idx > -1) myListenersList.setSelectedIndex(idx);
+        }).setAddActionUpdater(e -> !project.isDefault()).disableUpDownActions().createPanel(), BorderLayout.CENTER);
   }
 
   public void onTypeChanged(TestType type) {
@@ -542,11 +499,9 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
     @Nullable
     protected GlobalSearchScope getSearchScope(Module[] modules) {
       if (modules == null || modules.length == 0) return null;
-      GlobalSearchScope scope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(modules[0]);
-      for (int i = 1; i < modules.length; i++) {
-        scope.uniteWith(GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(modules[i]));
-      }
-      return scope;
+      GlobalSearchScope[] scopes =
+        ContainerUtil.map2Array(modules, GlobalSearchScope.class, GlobalSearchScope::moduleWithDependenciesAndLibrariesScope);
+      return GlobalSearchScope.union(scopes);
     }
 
     @Nullable
@@ -580,12 +535,13 @@ public class TestNGConfigurationEditor<T extends TestNGConfiguration> extends Se
   }
 
   private class TestNGMethodBrowser extends MethodBrowser {
-    public TestNGMethodBrowser(Project project) {
+    TestNGMethodBrowser(Project project) {
       super(project);
     }
 
+    @Override
     protected Condition<PsiMethod> getFilter(PsiClass testClass) {
-      return method -> TestNGUtil.hasTest(method);
+      return TestNGUtil::hasTest;
     }
 
     @Override

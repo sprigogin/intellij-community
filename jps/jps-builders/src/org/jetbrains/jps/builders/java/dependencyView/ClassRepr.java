@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.util.io.DataExternalizer;
@@ -100,6 +86,7 @@ public class ClassRepr extends ClassFileRepr {
 
     public abstract boolean targetAttributeCategoryMightChange();
 
+    @Override
     public boolean no() {
       return base() == NONE &&
              interfaces().unchanged() &&
@@ -110,6 +97,7 @@ public class ClassRepr extends ClassFileRepr {
     }
   }
 
+  @Override
   public Diff difference(final Proto past) {
     final ClassRepr pastClass = (ClassRepr)past;
     final Difference diff = super.difference(past);
@@ -198,6 +186,7 @@ public class ClassRepr extends ClassFileRepr {
     return result;
   }
 
+  @Override
   protected void updateClassUsages(final DependencyContext context, final Set<UsageRepr.Usage> s) {
     mySuperClass.updateClassUsages(context, name, s);
 
@@ -365,7 +354,7 @@ public class ClassRepr extends ClassFileRepr {
     stream.println(mySuperClass == null ? "<null>" : mySuperClass.getDescr(context));
 
     stream.print("      Interfaces : ");
-    final TypeRepr.AbstractType[] is = myInterfaces.toArray(new TypeRepr.AbstractType[myInterfaces.size()]);
+    final TypeRepr.AbstractType[] is = myInterfaces.toArray(TypeRepr.AbstractType.EMPTY_TYPE_ARRAY);
     Arrays.sort(is, Comparator.comparing(o -> o.getDescr(context)));
     for (final TypeRepr.AbstractType t : is) {
       stream.print(t.getDescr(context));
@@ -374,7 +363,7 @@ public class ClassRepr extends ClassFileRepr {
     stream.println();
 
     stream.print("      Targets    : ");
-    final ElemType[] es = myAnnotationTargets.toArray(new ElemType[myAnnotationTargets.size()]);
+    final ElemType[] es = myAnnotationTargets.toArray(new ElemType[0]);
     Arrays.sort(es);
     for (final ElemType e : es) {
       stream.print(e);
@@ -394,7 +383,7 @@ public class ClassRepr extends ClassFileRepr {
     stream.println(myIsAnonymous);
 
     stream.println("      Fields:");
-    final FieldRepr[] fs = myFields.toArray(new FieldRepr[myFields.size()]);
+    final FieldRepr[] fs = myFields.toArray(new FieldRepr[0]);
     Arrays.sort(fs, (o1, o2) -> {
       if (o1.name == o2.name) {
         return o1.myType.getDescr(context).compareTo(o2.myType.getDescr(context));
@@ -408,7 +397,7 @@ public class ClassRepr extends ClassFileRepr {
     stream.println("      End Of Fields");
 
     stream.println("      Methods:");
-    final MethodRepr[] ms = myMethods.toArray(new MethodRepr[myMethods.size()]);
+    final MethodRepr[] ms = myMethods.toArray(new MethodRepr[0]);
     Arrays.sort(ms, (o1, o2) -> {
       if (o1.name == o2.name) {
         final String d1 = o1.myType.getDescr(context);

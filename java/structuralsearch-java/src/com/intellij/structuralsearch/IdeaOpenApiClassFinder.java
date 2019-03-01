@@ -1,8 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+/*
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+ */
 package com.intellij.structuralsearch;
 
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.impl.PackageDirectoryCache;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.NonClasspathClassFinder;
@@ -12,16 +15,26 @@ import com.intellij.psi.PsiPackage;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.structuralsearch.plugin.util.StructuralSearchScriptScope;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class IdeaOpenApiClassFinder extends NonClasspathClassFinder {
+  private static final PackageDirectoryCache EMPTY_PACKAGE_DIRECTORY_CACHE = PackageDirectoryCache.createCache(Collections.emptyList());
+
   public IdeaOpenApiClassFinder(@NotNull Project project) {
     super(project);
+  }
+
+  @NotNull
+  @Override
+  protected PackageDirectoryCache getCache(@Nullable GlobalSearchScope scope) {
+    return scope instanceof StructuralSearchScriptScope ? super.getCache(scope) : EMPTY_PACKAGE_DIRECTORY_CACHE;
   }
 
   @Override
@@ -31,7 +44,7 @@ public class IdeaOpenApiClassFinder extends NonClasspathClassFinder {
       .map(PathManager::getJarPathForClass)
       .filter(Objects::nonNull)
       .map(File::new)
-      .map(lfs::refreshAndFindFileByIoFile)
+      .map(lfs::findFileByIoFile)
       .collect(Collectors.toList());
   }
 

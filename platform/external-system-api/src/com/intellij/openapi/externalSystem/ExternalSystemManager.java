@@ -1,5 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem;
 
+import com.intellij.execution.Executor;
+import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
@@ -26,9 +29,8 @@ import org.jetbrains.annotations.Nullable;
  * dependencies which are configured at external system but not at the ide' etc.
  * <p/>
  * That makes it relatively easy to add a new external system integration.
- * 
+ *
  * @author Denis Zhdanov
- * @since 4/4/13 4:05 PM
  */
 public interface ExternalSystemManager<
   ProjectSettings extends ExternalProjectSettings,
@@ -38,9 +40,9 @@ public interface ExternalSystemManager<
   ExecutionSettings extends ExternalSystemExecutionSettings>
   extends ParametersEnhancer
 {
-  
-  ExtensionPointName<ExternalSystemManager> EP_NAME = ExtensionPointName.create("com.intellij.externalSystemManager");
-  
+
+  ExtensionPointName<ExternalSystemManager<?, ?, ?, ?, ?>> EP_NAME = ExtensionPointName.create("com.intellij.externalSystemManager");
+
   /**
    * @return    id of the external system represented by the current manager
    */
@@ -72,7 +74,7 @@ public interface ExternalSystemManager<
    * <b>Note:</b> we return a class instance instead of resolver object here because there is a possible case that the resolver
    * is used at external (non-ide) process, so, it needs information which is enough for instantiating it there. That implies
    * the requirement that target resolver class is expected to have a no-args constructor
-   * 
+   *
    * @return  class of the project resolver to use for the target external system
    */
   @NotNull
@@ -95,6 +97,16 @@ public interface ExternalSystemManager<
    */
   @Nullable
   default GlobalSearchScope getSearchScope(@NotNull Project project, @NotNull ExternalSystemTaskExecutionSettings taskExecutionSettings) {
+    return null;
+  }
+
+  /**
+   * @return SMTRunnerConsoleProperties to integrate external system test runner with the 'Import Tests Results' action
+   */
+  @Nullable
+  default Object createTestConsoleProperties(@NotNull Project project,
+                                             @NotNull Executor executor,
+                                             @NotNull RunConfiguration runConfiguration) {
     return null;
   }
 }

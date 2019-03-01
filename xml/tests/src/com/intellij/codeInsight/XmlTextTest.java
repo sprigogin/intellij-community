@@ -16,50 +16,47 @@
 
 package com.intellij.codeInsight;
 
-import com.intellij.openapi.application.Result;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.LiteralTextEscaper;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
-import com.intellij.psi.xml.XmlElement;
-import com.intellij.psi.xml.XmlFile;
-import com.intellij.psi.xml.XmlTag;
-import com.intellij.psi.xml.XmlText;
+import com.intellij.psi.impl.source.xml.XmlAttributeValueImpl;
+import com.intellij.psi.xml.*;
 import com.intellij.testFramework.LightCodeInsightTestCase;
-import org.jetbrains.annotations.NotNull;
+import org.intellij.lang.annotations.Language;
 
 /**
  * @author mike
  */
 public class XmlTextTest extends LightCodeInsightTestCase {
   public void testInsertAtOffset() {
-    new WriteCommandAction(getProject()) {
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      @Language("XML")
+      String xml = "<root>0123456789</root>";
+      XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject())
+                                            .createFileFromText("foo.xml", StdFileTypes.XML, xml, 1, true, false);
+      XmlTag root = file.getDocument().getRootTag();
+      final XmlText text1 = root.getValue().getTextElements()[0];
 
-      @Override
-      protected void run(@NotNull final Result result) {
-        String xml = "<root>0123456789</root>";
-        XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject())
-          .createFileFromText("foo.xml", StdFileTypes.XML, xml, (long)1, true, false);
-        //System.out.println(DebugUtil.psiToString(file, false));
-        XmlTag root = file.getDocument().getRootTag();
-        final XmlText text1 = root.getValue().getTextElements()[0];
+      assertFalse(CodeEditUtil.isNodeGenerated(root.getNode()));
+      final XmlText text = text1;
 
-        assertFalse(CodeEditUtil.isNodeGenerated(root.getNode()));
-        final XmlText text = text1;
-
-        final XmlElement element = text.insertAtOffset(XmlElementFactory.getInstance(getProject()).createTagFromText("<bar/>"), 5);
-        assertNotNull(element);
-        assertTrue(element instanceof XmlText);
-        assertEquals("01234", element.getText());
-        assertEquals("<root>01234<bar/>56789</root>", text.getContainingFile().getText());
-      }
-    }.execute();
+      final XmlElement element = text.insertAtOffset(XmlElementFactory.getInstance(getProject()).createTagFromText("<bar/>"), 5);
+      assertNotNull(element);
+      assertTrue(element instanceof XmlText);
+      assertEquals("01234", element.getText());
+      assertEquals("<root>01234<bar/>56789</root>", text.getContainingFile().getText());
+    });
   }
 
   public void testPhysicalToDisplayIfHasGaps2() {
+    @Language("XML")
     String xml = "<div>&amp;abc</div>";
-    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", xml);
+    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", XmlFileType.INSTANCE, xml);
     XmlTag root = file.getDocument().getRootTag();
     final XmlText text = root.getValue().getTextElements()[0];
 
@@ -72,8 +69,9 @@ public class XmlTextTest extends LightCodeInsightTestCase {
   }
 
   public void testDisplayToPhysical() {
+    @Language("XML")
     String xml = "<div>&amp;abc</div>";
-    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", xml);
+    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", XmlFileType.INSTANCE, xml);
     XmlTag root = file.getDocument().getRootTag();
     final XmlText text = root.getValue().getTextElements()[0];
                                                               
@@ -86,8 +84,9 @@ public class XmlTextTest extends LightCodeInsightTestCase {
   }
 
   public void testDisplayToPhysical2() {
+    @Language("XML")
     String xml = "<div><![CDATA[ ]]></div>";
-    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", xml);
+    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", XmlFileType.INSTANCE, xml);
     XmlTag root = file.getDocument().getRootTag();
     final XmlText text = root.getValue().getTextElements()[0];
 
@@ -96,4 +95,22 @@ public class XmlTextTest extends LightCodeInsightTestCase {
     assertEquals(13, text.displayToPhysical(1));
   }
 
+  public void testXmlAttributeEscaperCalculatesDisplayToPhysicalCorrectlyInPresenseOfXmlEntities() {
+    @Language("HTML")
+    String xml = "<!DOCTYPE html>\n" +
+                 "<html xmlns=\"http://www.w3.org/1999/xhtml\"\n" +
+                 "\txmlns:th=\"http://www.thymeleaf.org\">\n" +
+                 "  <td style=\"text-align: right\" th:utext=\"'&euro; ' + ${{item.netPrice}}\">XXX</td>\n" +
+                 "</html>";
+    XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText("foo.xml", XmlFileType.INSTANCE, xml);
+    XmlTag root = file.getDocument().getRootTag();
+    XmlTag tag = root.findFirstSubTag("td");
+    XmlAttribute attribute = tag.getAttribute("th:utext");
+    XmlAttributeValueImpl value = (XmlAttributeValueImpl)attribute.getValueElement();
+    assertEquals("'&#8364; ' + ${{item.netPrice}}", attribute.getDisplayValue());
+
+    LiteralTextEscaper<XmlAttributeValueImpl> escaper = value.createLiteralTextEscaper();
+    int offset = escaper.getOffsetInHost(31, new TextRange(1, 31));
+    assertEquals(31, offset);
+  }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl.watch;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -24,6 +24,7 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiExpression;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.frame.XValueModifier;
 import com.sun.jdi.*;
 import org.jetbrains.annotations.NotNull;
@@ -95,6 +96,15 @@ public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDes
         return myField.declaringType().getValue(myField);
       }
     }
+    catch (InternalException e) {
+      if (evaluationContext.getDebugProcess().getVirtualMachineProxy().canBeModified()) { // do not care in read only vms
+        LOG.debug(e);
+      }
+      else {
+        LOG.warn(e);
+      }
+      throw new EvaluateException("Internal error, see logs for more details");
+    }
     catch (ObjectCollectedException ignored) {
       throw EvaluateExceptionUtil.OBJECT_WAS_COLLECTED;
     }
@@ -152,7 +162,7 @@ public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDes
 
   @Override
   public PsiExpression getDescriptorEvaluation(DebuggerContext context) throws EvaluateException {
-    PsiElementFactory elementFactory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myProject);
     String fieldName;
     if(isStatic()) {
       String typeName = myField.declaringType().name().replace('$', '.');
@@ -175,56 +185,52 @@ public class FieldDescriptorImpl extends ValueDescriptorImpl implements FieldDes
   public XValueModifier getModifier(JavaValue value) {
     return new JavaValueModifier(value) {
       @Override
-      protected void setValueImpl(@NotNull String expression, @NotNull XModificationCallback callback) {
+      protected void setValueImpl(@NotNull XExpression expression, @NotNull XModificationCallback callback) {
         final DebuggerContextImpl debuggerContext = DebuggerManagerEx.getInstanceEx(getProject()).getContext();
-        FieldDescriptorImpl fieldDescriptor = FieldDescriptorImpl.this;
-        final Field field = fieldDescriptor.getField();
-        if (!field.isStatic()) {
-          final ObjectReference object = fieldDescriptor.getObject();
-          if (object != null) {
-            set(expression, callback, debuggerContext, new SetValueRunnable() {
-              public void setValue(EvaluationContextImpl evaluationContext, Value newValue)
-                throws ClassNotLoadedException, InvalidTypeException, EvaluateException {
-                object.setValue(field, preprocessValue(evaluationContext, newValue, field.type()));
-                update(debuggerContext);
-              }
+        Field field = getField();
+        FieldValueSetter setter = null;
 
-              public ReferenceType loadClass(EvaluationContextImpl evaluationContext, String className) throws
-                                                                                                        InvocationException,
-                                                                                                        ClassNotLoadedException,
-                                                                                                        IncompatibleThreadStateException,
-                                                                                                        InvalidTypeException,
-                                                                                                        EvaluateException {
-                return evaluationContext.getDebugProcess().loadClass(evaluationContext, className, field.declaringType().classLoader());
-              }
-            });
+        if (!field.isStatic()) {
+          ObjectReference object = getObject();
+          if (object != null) {
+            setter = v -> object.setValue(field, v);
           }
         }
         else {
-          // field is static
           ReferenceType refType = field.declaringType();
           if (refType instanceof ClassType) {
-            final ClassType classType = (ClassType)refType;
-            set(expression, callback, debuggerContext, new SetValueRunnable() {
-              public void setValue(EvaluationContextImpl evaluationContext, Value newValue)
-                throws ClassNotLoadedException, InvalidTypeException, EvaluateException {
-                classType.setValue(field, preprocessValue(evaluationContext, newValue, field.type()));
-                update(debuggerContext);
-              }
-
-              public ReferenceType loadClass(EvaluationContextImpl evaluationContext, String className) throws
-                                                                                                        InvocationException,
-                                                                                                        ClassNotLoadedException,
-                                                                                                        IncompatibleThreadStateException,
-                                                                                                        InvalidTypeException,
-                                                                                                        EvaluateException {
-                return evaluationContext.getDebugProcess().loadClass(evaluationContext, className,
-                                                                     field.declaringType().classLoader());
-              }
-            });
+            ClassType classType = (ClassType)refType;
+            setter = v -> classType.setValue(field, v);
           }
+        }
+
+        if (setter != null) {
+          FieldValueSetter finalSetter = setter;
+          set(expression, callback, debuggerContext, new SetValueRunnable() {
+            @Override
+            public void setValue(EvaluationContextImpl evaluationContext, Value newValue)
+              throws ClassNotLoadedException, InvalidTypeException, EvaluateException {
+              finalSetter.setValue(preprocessValue(evaluationContext, newValue, getLType()));
+              update(debuggerContext);
+            }
+
+            @Override
+            public ClassLoaderReference getClassLoader(EvaluationContextImpl evaluationContext) {
+              return field.declaringType().classLoader();
+            }
+
+            @NotNull
+            @Override
+            public Type getLType() throws ClassNotLoadedException {
+              return field.type();
+            }
+          });
         }
       }
     };
+  }
+
+  private interface FieldValueSetter {
+    void setValue(Value value) throws InvalidTypeException, ClassNotLoadedException;
   }
 }

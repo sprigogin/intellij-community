@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.richcopy;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
@@ -6,10 +6,14 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.editorActions.CopyPastePostProcessor;
 import com.intellij.codeInsight.editorActions.CopyPastePreProcessor;
 import com.intellij.ide.highlighter.HighlighterFactory;
+import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.Caret;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.RawText;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.FontPreferences;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
@@ -31,7 +35,6 @@ import com.intellij.openapi.editor.richcopy.view.RawTextWithMarkup;
 import com.intellij.openapi.editor.richcopy.view.RtfTransferableData;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiFile;
@@ -130,7 +133,7 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
       logSyntaxInfo(syntaxInfo);
 
       createResult(syntaxInfo, editor);
-      return ObjectUtils.notNull(myResult, Collections.<RawTextWithMarkup>emptyList());
+      return ObjectUtils.notNull(myResult, Collections.emptyList());
     }
     catch (Throwable t) {
       // catching the exception so that the rest of copy/paste functionality can still work fine
@@ -139,16 +142,6 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
                 new Attachment("highlighter.txt", String.valueOf(highlighter)));
     }
     return Collections.emptyList();
-  }
-
-  @Override
-  public void processTransferableData(Project project,
-                                      Editor editor,
-                                      RangeMarker bounds,
-                                      int caretOffset,
-                                      Ref<Boolean> indented,
-                                      List<RawTextWithMarkup> values) {
-
   }
 
   void createResult(SyntaxInfo syntaxInfo, Editor editor) {
@@ -265,14 +258,10 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
       myDefaultForeground = scheme.getDefaultForeground();
       myDefaultBackground = scheme.getDefaultBackground();
 
-      // Java assumes screen resolution of 72dpi when calculating font size in pixels. External applications are supposedly using correct
-      // resolution, so we need to adjust font size for copied text to look the same in them.
-      // (See https://docs.oracle.com/javase/7/docs/webnotes/tsg/TSG-Desktop/html/java2d.html#gdlwn)
-      // Java on Mac is not affected by this issue.
       int javaFontSize = scheme.getEditorFontSize();
       float fontSize = SystemInfo.isMac || ApplicationManager.getApplication().isHeadlessEnvironment() ? 
                        javaFontSize : 
-                       javaFontSize * 72f / Toolkit.getDefaultToolkit().getScreenResolution();
+                       javaFontSize * 0.75f / UISettings.getDefFontScale(); // matching font size in external apps
       
       builder = new SyntaxInfo.Builder(myDefaultForeground, myDefaultBackground, fontSize);
       myIndentSymbolsToStrip = indentSymbolsToStrip;
@@ -478,7 +467,7 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
     private int myCurrentEnd;
 
     // iterators have priority corresponding to their order in the parameter list - rightmost having the largest priority
-    public CompositeRangeIterator(@NotNull EditorColorsScheme colorsScheme, RangeIterator... iterators) {
+    CompositeRangeIterator(@NotNull EditorColorsScheme colorsScheme, RangeIterator... iterators) {
       myDefaultForeground = colorsScheme.getDefaultForeground();
       myDefaultBackground = colorsScheme.getDefaultBackground();
       myIterators = new IteratorWrapper[iterators.length];
@@ -691,9 +680,8 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
           continue; // overlapping ranges withing document markup model are not supported currently
         }
         TextAttributes attributes = null;
-        Object tooltip = highlighter.getErrorStripeTooltip();
-        if (tooltip instanceof HighlightInfo) {
-          HighlightInfo info = (HighlightInfo)tooltip;
+        HighlightInfo info = HighlightInfo.fromRangeHighlighter(highlighter);
+        if (info != null) {
           TextAttributesKey key = info.forcedTextAttributesKey;
           if (key == null) {
             HighlightInfoType type = info.type;
@@ -760,7 +748,7 @@ public class TextWithMarkupProcessor extends CopyPastePostProcessor<RawTextWithM
     private int myCurrentEnd;
     private TextAttributes myCurrentAttributes;
 
-    public HighlighterRangeIterator(@NotNull EditorHighlighter highlighter, int startOffset, int endOffset) {
+    HighlighterRangeIterator(@NotNull EditorHighlighter highlighter, int startOffset, int endOffset) {
       myStartOffset = startOffset;
       myEndOffset = endOffset;
       myIterator = highlighter.createIterator(startOffset);

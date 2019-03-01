@@ -22,7 +22,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.ConflictsUtil;
 import com.intellij.refactoring.util.RefactoringUIUtil;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import com.intellij.util.containers.MultiMap;
 
 import java.util.HashSet;
@@ -33,7 +33,7 @@ class PackageLocalsUsageCollector extends JavaRecursiveElementWalkingVisitor {
   private final MultiMap<PsiElement, String> myConflicts;
   private final PackageWrapper myTargetPackage;
 
-  public PackageLocalsUsageCollector(final PsiElement[] elementsToMove, final PackageWrapper targetPackage, MultiMap<PsiElement,String> conflicts) {
+  PackageLocalsUsageCollector(final PsiElement[] elementsToMove, final PackageWrapper targetPackage, MultiMap<PsiElement,String> conflicts) {
     myElementsToMove = elementsToMove;
     myConflicts = conflicts;
     myTargetPackage = targetPackage;

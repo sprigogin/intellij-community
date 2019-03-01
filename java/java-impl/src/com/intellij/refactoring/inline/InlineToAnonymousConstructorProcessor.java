@@ -24,13 +24,13 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
 import com.intellij.psi.search.ProjectScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.refactoring.util.InlineUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ProcessingContext;
@@ -68,13 +68,13 @@ class InlineToAnonymousConstructorProcessor {
   private PsiExpression[] myConstructorArguments;
   private PsiParameterList myConstructorParameters;
 
-  public InlineToAnonymousConstructorProcessor(final PsiClass aClass, final PsiNewExpression psiNewExpression,
+  InlineToAnonymousConstructorProcessor(final PsiClass aClass, final PsiNewExpression psiNewExpression,
                                                final PsiType superType) {
     myClass = aClass;
     myNewExpression = psiNewExpression;
     mySuperType = superType;
     myNewStatement = PsiTreeUtil.getParentOfType(myNewExpression, PsiStatement.class, PsiLambdaExpression.class);
-    myElementFactory = JavaPsiFacade.getInstance(myClass.getProject()).getElementFactory();
+    myElementFactory = JavaPsiFacade.getElementFactory(myClass.getProject());
   }
 
   public void run() throws IncorrectOperationException {
@@ -127,7 +127,7 @@ class InlineToAnonymousConstructorProcessor {
     int fieldCount = myClass.getFields().length;
     int processedFields = 0;
     PsiElement token = anonymousClass.getRBrace();
-    if (initializerBlock.getBody().getStatements().length > 0 && fieldCount == 0) {
+    if (!initializerBlock.getBody().isEmpty() && fieldCount == 0) {
       insertInitializerBefore(initializerBlock, anonymousClass, token);
     }
 
@@ -148,7 +148,7 @@ class InlineToAnonymousConstructorProcessor {
           field.setInitializer(initializer);
         }
         processedFields++;
-        if (processedFields == fieldCount && initializerBlock.getBody().getStatements().length > 0) {
+        if (processedFields == fieldCount && !initializerBlock.getBody().isEmpty()) {
           insertInitializerBefore(initializerBlock, anonymousClass, token);
         }
       }
@@ -160,7 +160,7 @@ class InlineToAnonymousConstructorProcessor {
     superNewExpression = (PsiNewExpression)ChangeContextUtil.decodeContextInfo(superNewExpression, superNewExpression.getAnonymousClass(), null);
     PsiAnonymousClass newExpressionAnonymousClass = superNewExpression.getAnonymousClass();
     if (newExpressionAnonymousClass != null && 
-        AnonymousCanBeLambdaInspection.canBeConvertedToLambda(newExpressionAnonymousClass, false, Collections.emptySet())) {
+        AnonymousCanBeLambdaInspection.isLambdaForm(newExpressionAnonymousClass, false, Collections.emptySet())) {
       PsiExpression lambda = AnonymousCanBeLambdaInspection.replaceAnonymousWithLambda(superNewExpression, newExpressionAnonymousClass.getBaseClassType());
       JavaCodeStyleManager.getInstance(newExpressionAnonymousClass.getProject()).shortenClassReferences(superNewExpression.replace(lambda));
     }
@@ -179,7 +179,7 @@ class InlineToAnonymousConstructorProcessor {
   private void checkInlineChainingConstructor() {
     while(true) {
       PsiMethod constructor = myNewExpression.resolveConstructor();
-      if (constructor == null || !InlineMethodHandler.isChainingConstructor(constructor)) break;
+      if (constructor == null || !InlineUtil.isChainingConstructor(constructor)) break;
       InlineMethodProcessor.inlineConstructorCall(myNewExpression);
     }
   }
@@ -251,7 +251,7 @@ class InlineToAnonymousConstructorProcessor {
   private PsiVariable generateOuterClassLocal() {
     PsiClass outerClass = myClass.getContainingClass();
     assert outerClass != null;
-    return generateLocal(StringUtil.decapitalize(outerClass.getName()),
+    return generateLocal(StringUtil.decapitalize(StringUtil.notNullize(outerClass.getName())),
                          myElementFactory.createType(outerClass), myNewExpression.getQualifier());
   }
 
@@ -274,7 +274,7 @@ class InlineToAnonymousConstructorProcessor {
       final PsiDeclarationStatement declaration = myElementFactory.createVariableDeclarationStatement(localName, type, initializer);
       PsiVariable variable = (PsiVariable)declaration.getDeclaredElements()[0];
       if (!PsiUtil.isLanguageLevel8OrHigher(myNewExpression) ||
-          CodeStyleSettingsManager.getSettings(project).getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_LOCALS) {
+          JavaCodeStyleSettings.getInstance(initializer.getContainingFile()).GENERATE_FINAL_LOCALS) {
         PsiUtil.setModifierProperty(variable, PsiModifier.FINAL, true);
       }
       final PsiElement parent = myNewStatement.getParent();

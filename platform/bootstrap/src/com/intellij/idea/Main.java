@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
 import com.intellij.ide.Bootstrap;
@@ -45,16 +31,16 @@ public class Main {
   private static final String AWT_HEADLESS = "java.awt.headless";
   private static final String PLATFORM_PREFIX_PROPERTY = "idea.platform.prefix";
   private static final String[] NO_ARGS = {};
+  private static final List<String> HEADLESS_COMMANDS = Arrays.asList(
+    "ant", "duplocate", "traverseUI", "buildAppcodeCache", "format", "keymap", "update", "inspections", "intentions");
+  private static final List<String> GUI_COMMANDS = Arrays.asList("diff", "merge");
 
   private static boolean isHeadless;
   private static boolean isCommandLine;
   private static boolean hasGraphics = true;
-  private static final List<String> HEADLESS_COMMANDS = Arrays.asList("ant", "duplocate", "traverseUI", "buildAppcodeCache", "format",
-                                                                     "keymap", "update", "inspections", "intentions");
 
   private Main() { }
 
-  @SuppressWarnings("MethodNamesDifferingOnlyByCase")
   public static void main(String[] args) {
     if (args.length == 1 && "%f".equals(args[0])) {
       args = NO_ARGS;
@@ -96,7 +82,7 @@ public class Main {
     }
   }
 
-  private static boolean isHeadless(String[] args) {
+  public static boolean isHeadless(String[] args) {
     if (Boolean.valueOf(System.getProperty(AWT_HEADLESS))) {
       return true;
     }
@@ -106,13 +92,11 @@ public class Main {
     }
 
     String firstArg = args[0];
-    return HEADLESS_COMMANDS.contains(firstArg)
-           || firstArg.length() < 20 && firstArg.endsWith("inspect");
+    return HEADLESS_COMMANDS.contains(firstArg) || firstArg.length() < 20 && firstArg.endsWith("inspect");
   }
 
   private static boolean isCommandLine(String[] args) {
-    if (isHeadless()) return true;
-    return args.length > 0 && Comparing.strEqual(args[0], "diff");
+    return isHeadless(args) || args.length > 0 && GUI_COMMANDS.contains(args[0]);
   }
 
   private static boolean checkGraphics() {
@@ -160,7 +144,7 @@ public class Main {
     return null;
   }
 
-  @SuppressWarnings({"UseJBColor", "UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
+  @SuppressWarnings({"UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
   public static void showMessage(String title, String message, boolean error) {
     PrintStream stream = error ? System.err : System.out;
     stream.println("\n" + title + ": " + message);

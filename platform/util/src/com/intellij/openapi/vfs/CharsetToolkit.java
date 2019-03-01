@@ -16,6 +16,7 @@
 package com.intellij.openapi.vfs;
 
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ObjectUtils;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -100,7 +101,7 @@ public class CharsetToolkit {
   public static final byte[] UTF32LE_BOM = {-1, -2, 0, 0 };
   @NonNls public static final String FILE_ENCODING_PROPERTY = "file.encoding";
 
-  @NonNls private static final Map<Charset, byte[]> CHARSET_TO_MANDATORY_BOM = new THashMap<Charset, byte[]>(4);
+  @NonNls private static final Map<Charset, byte[]> CHARSET_TO_MANDATORY_BOM = new THashMap<>(4);
   static {
     CHARSET_TO_MANDATORY_BOM.put(UTF_16LE_CHARSET, UTF16LE_BOM);
     CHARSET_TO_MANDATORY_BOM.put(UTF_16BE_CHARSET, UTF16BE_BOM);
@@ -471,12 +472,8 @@ public class CharsetToolkit {
   public static Charset guessEncoding(@NotNull File f, int bufferLength, @NotNull Charset defaultCharset) throws IOException {
     byte[] buffer = new byte[bufferLength];
     int read;
-    FileInputStream fis = new FileInputStream(f);
-    try {
+    try (FileInputStream fis = new FileInputStream(f)) {
       read = fis.read(buffer);
-    }
-    finally {
-      fis.close();
     }
     CharsetToolkit toolkit = new CharsetToolkit(buffer, defaultCharset);
     return toolkit.guessEncoding(read);
@@ -553,6 +550,15 @@ public class CharsetToolkit {
   }
 
   /**
+   * Retrieve the platform charset of the system (determined by "sun.jnu.encoding" property)
+   */
+  @NotNull
+  public static Charset getPlatformCharset() {
+    String name = System.getProperty("sun.jnu.encoding");
+    return ObjectUtils.notNull(forName(name), getDefaultSystemCharset());
+  }
+
+  /**
    * Has a Byte Order Marker for UTF-8 (Used by Microsoft's Notepad and other editors).
    *
    * @param bom a buffer.
@@ -599,7 +605,7 @@ public class CharsetToolkit {
   @NotNull
   public static Charset[] getAvailableCharsets() {
     Collection<Charset> collection = Charset.availableCharsets().values();
-    return collection.toArray(new Charset[collection.size()]);
+    return collection.toArray(new Charset[0]);
   }
 
   @NotNull
@@ -664,10 +670,7 @@ public class CharsetToolkit {
       try {
         charset = Charset.forName(name);
       }
-      catch (IllegalCharsetNameException ignored) {
-        //ignore
-      }
-      catch(UnsupportedCharsetException ignored){
+      catch (IllegalCharsetNameException | UnsupportedCharsetException ignored) {
         //ignore
       }
     }

@@ -8,7 +8,7 @@ ZDOTDIR=$_OLD_ZDOTDIR
 
 if [ -n "$JEDITERM_USER_RCFILE" ]
 then
-  source $JEDITERM_USER_RCFILE
+  source "$JEDITERM_USER_RCFILE"
   unset JEDITERM_USER_RCFILE
 fi
 
@@ -41,6 +41,36 @@ fi
 
 if [ -n "$JEDITERM_SOURCE" ]
 then
-  source $(echo $JEDITERM_SOURCE)
+  source $(echo $JEDITERM_SOURCE) $JEDITERM_SOURCE_ARGS
   unset JEDITERM_SOURCE
+  unset JEDITERM_SOURCE_ARGS
 fi
+
+function override_jb_variables {
+  env | while IFS="=" read NAME VALUE
+  do
+    if [[ $NAME = '_INTELLIJ_FORCE_SET_'* ]]
+    then
+      NEW_NAME=${NAME:20}
+      if [ -n "$NEW_NAME" ]
+      then
+        export "$NEW_NAME"="$VALUE"
+      fi
+    fi
+  done
+}
+
+override_jb_variables
+
+function configureCommandHistory {
+  local commandHistoryFile="$__INTELLIJ_COMMAND_HISTFILE__"
+  if [ -n "$commandHistoryFile" ]
+  then
+    if [ ! -s "$commandHistoryFile" ] && [ -f "$HISTFILE" ]
+    then
+      command cp "$HISTFILE" "$commandHistoryFile"
+    fi
+    export HISTFILE="$commandHistoryFile"
+  fi
+}
+configureCommandHistory

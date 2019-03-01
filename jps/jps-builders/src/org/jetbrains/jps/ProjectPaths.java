@@ -25,7 +25,10 @@ import org.jetbrains.jps.model.java.*;
 import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 import org.jetbrains.jps.model.library.JpsOrderRootType;
 import org.jetbrains.jps.model.library.sdk.JpsSdk;
-import org.jetbrains.jps.model.module.*;
+import org.jetbrains.jps.model.module.JpsDependencyElement;
+import org.jetbrains.jps.model.module.JpsModule;
+import org.jetbrains.jps.model.module.JpsModuleSourceRoot;
+import org.jetbrains.jps.model.module.JpsSdkDependency;
 import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.File;
@@ -33,7 +36,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- * @since 30.09.2011
  */
 public class ProjectPaths {
   private ProjectPaths() { }
@@ -97,7 +99,7 @@ public class ProjectPaths {
     return files;
   }
 
-  private static void addFile(Set<File> classpath, @Nullable String url) {
+  private static void addFile(Set<? super File> classpath, @Nullable String url) {
     if (url != null) {
       classpath.add(JpsPathUtil.urlToFile(url));
     }
@@ -174,7 +176,7 @@ public class ProjectPaths {
   private enum ClasspathPart {WHOLE, BEFORE_JDK, BEFORE_PLUS_JDK, AFTER_JDK}
 
   private static class BeforeJavaSdkItemFilter implements Condition<JpsDependencyElement> {
-    private JpsModule myModule;
+    private final JpsModule myModule;
     private boolean mySdkFound;
 
     private BeforeJavaSdkItemFilter(JpsModule module) {
@@ -192,7 +194,7 @@ public class ProjectPaths {
   }
 
   private static class AfterJavaSdkItemFilter implements Condition<JpsDependencyElement> {
-    private JpsModule myModule;
+    private final JpsModule myModule;
     private boolean mySdkFound;
 
     private AfterJavaSdkItemFilter(JpsModule module) {

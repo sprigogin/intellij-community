@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io.fastCgi
 
 import com.intellij.openapi.diagnostic.logger
@@ -27,7 +13,6 @@ import io.netty.channel.Channel
 import io.netty.handler.codec.http.*
 import org.jetbrains.builtInWebServer.SingleConnectionNetService
 import org.jetbrains.concurrency.Promise
-import org.jetbrains.concurrency.doneRun
 import org.jetbrains.concurrency.errorIfNotMessage
 import org.jetbrains.io.*
 import java.util.concurrent.atomic.AtomicInteger
@@ -70,7 +55,11 @@ abstract class FastCgiService(project: Project) : SingleConnectionNetService(pro
 
     try {
       val promise: Promise<*>
-      if (processHandler.has()) {
+      val handler = processHandler.resultIfFullFilled
+      if (handler == null) {
+        promise = processHandler.get()
+      }
+      else {
         val channel = processChannel.get()
         if (channel == null || !channel.isOpen) {
           // channel disconnected for some reason
@@ -81,13 +70,10 @@ abstract class FastCgiService(project: Project) : SingleConnectionNetService(pro
           return
         }
       }
-      else {
-        promise = processHandler.get()
-      }
 
       promise
-        .doneRun { fastCgiRequest.writeToServerChannel(notEmptyContent, processChannel.get()!!) }
-        .rejected {
+        .onSuccess { fastCgiRequest.writeToServerChannel(notEmptyContent, processChannel.get()!!) }
+        .onError {
           LOG.errorIfNotMessage(it)
           handleError(fastCgiRequest, notEmptyContent)
         }
@@ -202,6 +188,7 @@ private fun parseHeaders(response: HttpResponse, buffer: ByteBuf) {
     }
 
     // skip standard headers
+    @Suppress("SpellCheckingInspection")
     if (key.isNullOrEmpty() || key!!.startsWith("http", ignoreCase = true) || key.startsWith("X-Accel-", ignoreCase = true)) {
       continue
     }
@@ -210,7 +197,7 @@ private fun parseHeaders(response: HttpResponse, buffer: ByteBuf) {
     if (key.equals("status", ignoreCase = true)) {
       val index = value.indexOf(' ')
       if (index == -1) {
-        LOG.warn("Cannot parse status: " + value)
+        LOG.warn("Cannot parse status: $value")
         response.status = HttpResponseStatus.OK
       }
       else {

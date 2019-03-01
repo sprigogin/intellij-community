@@ -32,9 +32,7 @@ import com.maddyhome.idea.copyright.CopyrightProfile;
 import com.maddyhome.idea.copyright.pattern.EntityUtil;
 import com.maddyhome.idea.copyright.pattern.VelocityHelper;
 import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -53,7 +51,7 @@ public class CopyrightConfigurable extends NamedConfigurable<CopyrightProfile> {
   private boolean myModified;
 
   private String myDisplayName;
-  private EditorTextField myEditor;
+  private final EditorTextField myEditor;
   private JButton myValidateButton;
   private JTextField myKeywordTf;
   private JTextField myAllowReplaceTextField;
@@ -111,13 +109,6 @@ public class CopyrightConfigurable extends NamedConfigurable<CopyrightProfile> {
   }
 
   @Override
-  @Nullable
-  @NonNls
-  public String getHelpTopic() {
-    return null;
-  }
-
-  @Override
   public boolean isModified() {
     return myModified ||
            !Comparing.strEqual(EntityUtil.encode(myEditor.getDocument().getText()), myCopyrightProfile.getNotice()) ||
@@ -140,7 +131,6 @@ public class CopyrightConfigurable extends NamedConfigurable<CopyrightProfile> {
   private static String validateRegexpAndGet(final String regexp, final String message) throws ConfigurationException {
     try {
       if (!StringUtil.isEmptyOrSpaces(regexp)) {
-        //noinspection ResultOfMethodCallIgnored
         Pattern.compile(regexp);
       }
     }

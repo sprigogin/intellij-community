@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.unresolvedReference;
 
 import com.google.common.collect.FluentIterable;
@@ -12,7 +12,6 @@ import com.intellij.codeInspection.ui.ListEditForm;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.injection.InjectedLanguageManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -31,6 +30,7 @@ import com.jetbrains.python.codeInsight.PyCodeInsightSettings;
 import com.jetbrains.python.codeInsight.PyCustomMember;
 import com.jetbrains.python.codeInsight.PySubstitutionChunkReference;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
+import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.codeInsight.imports.AutoImportHintAction;
@@ -46,11 +46,13 @@ import com.jetbrains.python.inspections.quickfix.*;
 import com.jetbrains.python.packaging.PyPIPackageUtil;
 import com.jetbrains.python.packaging.PyPackageUtil;
 import com.jetbrains.python.packaging.PyRequirement;
+import com.jetbrains.python.packaging.PyRequirementsKt;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.impl.PyImportStatementNavigator;
 import com.jetbrains.python.psi.impl.PyImportedModule;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
+import com.jetbrains.python.psi.impl.references.PyFromImportNameReference;
 import com.jetbrains.python.psi.impl.references.PyImportReference;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.ImportedResolveResult;
@@ -126,9 +128,9 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
 
   public static class Visitor extends PyInspectionVisitor {
 
-    private Set<PyImportedNameDefiner> myImportsInsideGuard = Collections.synchronizedSet(new HashSet<PyImportedNameDefiner>());
-    private Set<PyImportedNameDefiner> myUsedImports = Collections.synchronizedSet(new HashSet<PyImportedNameDefiner>());
-    private Set<PyImportedNameDefiner> myAllImports = Collections.synchronizedSet(new HashSet<PyImportedNameDefiner>());
+    private final Set<PyImportedNameDefiner> myImportsInsideGuard = Collections.synchronizedSet(new HashSet<>());
+    private final Set<PyImportedNameDefiner> myUsedImports = Collections.synchronizedSet(new HashSet<>());
+    private final Set<PyImportedNameDefiner> myAllImports = Collections.synchronizedSet(new HashSet<>());
     private final ImmutableSet<String> myIgnoredIdentifiers;
     private volatile Boolean myIsEnabled = null;
 
@@ -160,49 +162,15 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
 
     private void checkSlotsAndProperties(PyQualifiedExpression node) {
       final PyExpression qualifier = node.getQualifier();
-      if (qualifier != null) {
+      final String attrName = node.getReferencedName();
+      if (qualifier != null && attrName != null) {
         final PyType type = myTypeEvalContext.getType(qualifier);
-        if (type instanceof PyClassType) {
-          final PyClass pyClass = ((PyClassType)type).getPyClass();
-          if (pyClass.isNewStyleClass(myTypeEvalContext)) {
-            if (pyClass.getOwnSlots() == null) {
-              return;
-            }
-            final String attrName = node.getReferencedName();
-            if (!canHaveAttribute(pyClass, attrName)) {
-              for (PyClass ancestor : pyClass.getAncestorClasses(myTypeEvalContext)) {
-                if (ancestor == null) {
-                  return;
-                }
-                if (PyNames.OBJECT.equals(ancestor.getName())) {
-                  break;
-                }
-                if (canHaveAttribute(ancestor, attrName)) {
-                  return;
-                }
-              }
-              final ASTNode nameNode = node.getNameElement();
-              final PsiElement e = nameNode != null ? nameNode.getPsi() : node;
-              registerProblem(e, "'" + pyClass.getName() + "' object has no attribute '" + attrName + "'");
-            }
-          }
+        if (type instanceof PyClassType && !((PyClassType)type).isAttributeWritable(attrName, myTypeEvalContext)) {
+          final ASTNode nameNode = node.getNameElement();
+          final PsiElement e = nameNode != null ? nameNode.getPsi() : node;
+          registerProblem(e, "'" + type.getName() + "' object has no attribute '" + attrName + "'");
         }
       }
-    }
-
-    private boolean canHaveAttribute(@NotNull PyClass cls, @Nullable String attrName) {
-      final List<String> slots = cls.getOwnSlots();
-
-      // Class instance can contain attributes with arbitrary names
-      if (slots == null || slots.contains(PyNames.DICT)) {
-        return true;
-      }
-
-      if (attrName != null && cls.findClassAttribute(attrName, true, myTypeEvalContext) != null) {
-        return true;
-      }
-
-      return slots.contains(attrName) || cls.getProperties().containsKey(attrName);
     }
 
     @Override
@@ -385,7 +353,7 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
       }
       if (unresolved) {
         boolean ignoreUnresolved = false;
-        for (PyInspectionExtension extension : Extensions.getExtensions(PyInspectionExtension.EP_NAME)) {
+        for (PyInspectionExtension extension : PyInspectionExtension.EP_NAME.getExtensionList()) {
           if (extension.ignoreUnresolvedReference(node, reference, myTypeEvalContext)) {
             ignoreUnresolved = true;
             break;
@@ -420,7 +388,7 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
         final String visibleName = importElement.getVisibleName();
         final ScopeOwner owner = ScopeUtil.getScopeOwner(importElement);
         if (visibleName != null && owner != null) {
-          final Collection<PsiElement> allWrites = ScopeUtil.getReadWriteElements(visibleName, owner, false, true);
+          final Collection<PsiElement> allWrites = ScopeUtil.getElementsOfAccessType(visibleName, owner, ReadWriteInstruction.ACCESS.WRITE);
           final boolean hasWriteInsideGuard = allWrites.stream().anyMatch(e -> PsiTreeUtil.isAncestor(guard, e, false));
           if (!hasWriteInsideGuard && !shouldSkipMissingWriteInsideGuard(guard, visibleName)) {
             myImportsInsideGuard.add(importElement);
@@ -550,50 +518,44 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
         if (element instanceof PyQualifiedExpression) {
           // TODO: Add __qualname__ for Python 3.3 to the skeleton of <class 'object'>, introduce a pseudo-class skeleton for
           // <class 'function'>
-          if ("__qualname__".equals(refText) && LanguageLevel.forElement(element).isAtLeast(LanguageLevel.PYTHON33)) {
+          if ("__qualname__".equals(refText) && !LanguageLevel.forElement(element).isPython2()) {
             return;
           }
           final PyQualifiedExpression expr = (PyQualifiedExpression)element;
           if (PyNames.COMPARISON_OPERATORS.contains(expr.getReferencedName())) {
             return;
           }
-          final PyExpression qualifier = expr.getQualifier();
-          if (qualifier != null) {
-            PyType type = myTypeEvalContext.getType(qualifier);
-            if (type != null) {
-              if (ignoreUnresolvedMemberForType(type, reference, refName)) {
-                return;
-              }
-              addCreateMemberFromUsageFixes(type, reference, refText, actions);
-              if (type instanceof PyClassType) {
-                final PyClassType classType = (PyClassType)type;
-                if (reference instanceof PyOperatorReference) {
-                  String className = type.getName();
-                  if (classType.isDefinition()) {
-                    final PyClassLikeType metaClassType = classType.getMetaClassType(myTypeEvalContext, true);
-                    if (metaClassType != null) {
-                      className = metaClassType.getName();
-                    }
+        }
+        final PyExpression qualifier = getReferenceQualifier(reference);
+        if (qualifier != null) {
+          final PyType type = myTypeEvalContext.getType(qualifier);
+          if (type != null) {
+            if (ignoreUnresolvedMemberForType(type, reference, refName) || isDeclaredInSlots(type, refName)) {
+              return;
+            }
+            addCreateMemberFromUsageFixes(type, reference, refText, actions);
+            if (type instanceof PyClassType) {
+              final PyClassType classType = (PyClassType)type;
+              if (reference instanceof PyOperatorReference) {
+                String className = type.getName();
+                if (classType.isDefinition()) {
+                  final PyClassLikeType metaClassType = classType.getMetaClassType(myTypeEvalContext, true);
+                  if (metaClassType != null) {
+                    className = metaClassType.getName();
                   }
-                  description = PyBundle.message("INSP.unresolved.operator.ref",
-                                                 className, refName,
-                                                 ((PyOperatorReference)reference).getReadableOperatorName());
                 }
-                else {
-                  final List<String> slots = classType.getPyClass().getOwnSlots();
-
-                  if (slots != null && slots.contains(refName)) {
-                    return;
-                  }
-
-                  description = PyBundle.message("INSP.unresolved.ref.$0.for.class.$1", refText, type.getName());
-                }
-                markedQualified = true;
+                description = PyBundle.message("INSP.unresolved.operator.ref",
+                                               className, refName,
+                                               ((PyOperatorReference)reference).getReadableOperatorName());
               }
               else {
-                description = PyBundle.message("INSP.cannot.find.$0.in.$1", refText, type.getName());
-                markedQualified = true;
+                description = PyBundle.message("INSP.unresolved.ref.$0.for.class.$1", refText, type.getName());
               }
+              markedQualified = true;
+            }
+            else {
+              description = PyBundle.message("INSP.cannot.find.$0.in.$1", refText, type.getName());
+              markedQualified = true;
             }
           }
         }
@@ -654,11 +616,46 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
         return;
       }
 
-      registerProblem(node, description, hl_type, null, rangeInElement, actions.toArray(new LocalQuickFix[actions.size()]));
+      registerProblem(node, description, hl_type, null, rangeInElement, actions.toArray(LocalQuickFix.EMPTY_ARRAY));
+    }
+
+    @Nullable
+    private static PyExpression getReferenceQualifier(@NotNull PsiReference reference) {
+      final PsiElement element = reference.getElement();
+
+      if (element instanceof PyQualifiedExpression) {
+        final PyExpression qualifier = ((PyQualifiedExpression)element).getQualifier();
+        if (qualifier != null) {
+          return qualifier;
+        }
+      }
+
+      if (reference instanceof PyFromImportNameReference) {
+        final PyFromImportStatement statement = PsiTreeUtil.getParentOfType(element, PyFromImportStatement.class);
+        if (statement != null) {
+          final PyReferenceExpression source = statement.getImportSource();
+          if (source != null) {
+            return source;
+          }
+        }
+      }
+
+      return null;
+    }
+
+    private boolean isDeclaredInSlots(@NotNull PyType type, @NotNull String attrName) {
+      return PyTypeUtil.toStream(type)
+                       .select(PyClassType.class)
+                       .map(PyClassType::getPyClass)
+                       .flatMap(cls -> StreamEx.of(cls).append(cls.getAncestorClasses(myTypeEvalContext)))
+                       .nonNull()
+                       .filter(c -> c.isNewStyleClass(myTypeEvalContext))
+                       .flatCollection(PyClass::getOwnSlots)
+                       .anyMatch(attrName::equals);
     }
 
     private static void addInstallPackageAction(List<LocalQuickFix> actions, String packageName, Module module, Sdk sdk) {
-      final List<PyRequirement> requirements = Collections.singletonList(new PyRequirement(packageName));
+      final List<PyRequirement> requirements = Collections.singletonList(PyRequirementsKt.pyRequirement(packageName));
       final String name = "Install package " + packageName;
       actions.add(new PyPackageRequirementsInspection.PyInstallRequirementsFix(name, module, sdk, requirements));
     }
@@ -705,6 +702,16 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
                 final QualifiedName path = QualifiedNameFinder.findCanonicalImportPath(resolved, element);
                 if (path != null) {
                   ContainerUtil.addIfNotNull(result, path.append(exprName));
+                }
+              }
+            }
+            else if (type instanceof PyFunctionType) {
+              final PyCallable callable = ((PyFunctionType)type).getCallable();
+              final String callableName = callable.getName();
+              if (callableName != null) {
+                final QualifiedName path = QualifiedNameFinder.findCanonicalImportPath(callable, element);
+                if (path != null) {
+                  result.add(path.append(QualifiedName.fromComponents(callableName, exprName)));
                 }
               }
             }
@@ -801,14 +808,21 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
       }
       if (type instanceof PyFunctionTypeImpl) {
         final PyCallable callable = ((PyFunctionTypeImpl)type).getCallable();
-        if (callable instanceof PyFunction && PyKnownDecoratorUtil.hasUnknownDecorator((PyFunction)callable, myTypeEvalContext)) {
+        if (callable instanceof PyFunction &&
+            PyKnownDecoratorUtil.hasUnknownOrUpdatingAttributesDecorator((PyFunction)callable, myTypeEvalContext)) {
           return true;
         }
       }
       if (type instanceof PyUnionType) {
         return ContainerUtil.exists(((PyUnionType)type).getMembers(), member -> ignoreUnresolvedMemberForType(member, reference, name));
       }
-      for (PyInspectionExtension extension : Extensions.getExtensions(PyInspectionExtension.EP_NAME)) {
+      if (type instanceof PyModuleType) {
+        final PyFile module = ((PyModuleType)type).getModule();
+        if (module.getLanguageLevel().isAtLeast(LanguageLevel.PYTHON37)) {
+          return PyTypeChecker.definesGetAttr(module, myTypeEvalContext);
+        }
+      }
+      for (PyInspectionExtension extension : PyInspectionExtension.EP_NAME.getExtensionList()) {
         if (extension.ignoreUnresolvedMember(type, name, myTypeEvalContext)) {
           return true;
         }
@@ -825,7 +839,7 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
 
 
       for (final PyClassType typeToCheck : types) {
-        for (PyClassMembersProvider provider : Extensions.getExtensions(PyClassMembersProvider.EP_NAME)) {
+        for (PyClassMembersProvider provider : PyClassMembersProvider.EP_NAME.getExtensionList()) {
           final Collection<PyCustomMember> resolveResult = provider.getMembers(typeToCheck, reference.getElement(), typeEvalContext);
           for (PyCustomMember member : resolveResult) {
             if (member.getName().equals(name)) return true;
@@ -866,12 +880,7 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
         final PyExpression receiver = ((PyOperatorReference)reference).getReceiver();
 
         if (receiver instanceof PyCallExpression) {
-          final boolean resolvedToGeneratorBasedCoroutine = StreamEx
-            .of(((PyCallExpression)receiver).multiResolveCalleeFunction(getResolveContext()))
-            .select(PyFunction.class)
-            .anyMatch(function -> PyKnownDecoratorUtil.hasGeneratorBasedCoroutineDecorator(function, myTypeEvalContext));
-
-          if (resolvedToGeneratorBasedCoroutine) return true;
+          return PyKnownDecoratorUtil.isResolvedToGeneratorBasedCoroutine((PyCallExpression)receiver, getResolveContext(), myTypeEvalContext);
         }
       }
 
@@ -927,7 +936,7 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
               PyExpression assignedValue = ((PyAssignmentStatement)statement).getAssignedValue();
               if (assignedValue instanceof PyCallExpression) {
                 PyType type = myTypeEvalContext.getType(assignedValue);
-                if (type != null && type instanceof PyClassTypeImpl) {
+                if (type instanceof PyClassTypeImpl) {
                   if (((PyCallExpression)assignedValue).isCalleeText(PyNames.PROPERTY)) {
                     actions.add(new UnresolvedReferenceAddSelfQuickFix(expr, qualifier));
                   }
@@ -1025,16 +1034,16 @@ public class PyUnresolvedReferencesInspection extends PyInspection {
     }
 
     private static void addPluginQuickFixes(PsiReference reference, final List<LocalQuickFix> actions) {
-      for (PyUnresolvedReferenceQuickFixProvider provider : Extensions.getExtensions(PyUnresolvedReferenceQuickFixProvider.EP_NAME)) {
+      for (PyUnresolvedReferenceQuickFixProvider provider : PyUnresolvedReferenceQuickFixProvider.EP_NAME.getExtensionList()) {
         provider.registerQuickFixes(reference, localQuickFix -> actions.add(localQuickFix));
       }
     }
 
     public void highlightUnusedImports() {
-      final PyInspectionExtension[] extensions = Extensions.getExtensions(PyInspectionExtension.EP_NAME);
+      final List<PyInspectionExtension> extensions = PyInspectionExtension.EP_NAME.getExtensionList();
       final List<PsiElement> unused = collectUnusedImportElements();
       for (PsiElement element : unused) {
-        if (Arrays.stream(extensions).anyMatch(extension -> extension.ignoreUnused(element))) {
+        if (extensions.stream().anyMatch(extension -> extension.ignoreUnused(element, myTypeEvalContext))) {
           continue;
         }
         if (element.getTextLength() > 0) {

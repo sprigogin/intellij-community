@@ -10,16 +10,15 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
-import com.intellij.psi.impl.source.tree.CompositeElement;
-import com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor;
-import com.intellij.psi.impl.source.tree.SharedImplUtil;
-import com.intellij.psi.impl.source.tree.TreeElement;
+import com.intellij.psi.impl.source.tree.*;
 import com.intellij.psi.stubs.ObjectStubSerializer;
 import com.intellij.psi.stubs.Stub;
+import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.*;
@@ -89,7 +88,7 @@ public class DebugUtil {
                                   final boolean showRanges,
                                   final boolean showChildrenRanges,
                                   final boolean usePsi,
-                                  @Nullable PairConsumer<PsiElement, Consumer<PsiElement>> extra) {
+                                  @Nullable PairConsumer<? super PsiElement, Consumer<PsiElement>> extra) {
     ((TreeElement) root).acceptTree(
       new TreeToBuffer(buffer, indent, skipWhiteSpaces, showRanges, showChildrenRanges, usePsi, extra));
   }
@@ -100,12 +99,12 @@ public class DebugUtil {
     final boolean showRanges;
     final boolean showChildrenRanges;
     final boolean usePsi;
-    final PairConsumer<PsiElement, Consumer<PsiElement>> extra;
+    final PairConsumer<? super PsiElement, Consumer<PsiElement>> extra;
     int indent;
 
     TreeToBuffer(Appendable buffer, int indent, boolean skipWhiteSpaces,
                  boolean showRanges, boolean showChildrenRanges, boolean usePsi,
-                 PairConsumer<PsiElement, Consumer<PsiElement>> extra) {
+                 PairConsumer<? super PsiElement, Consumer<PsiElement>> extra) {
       this.buffer = buffer;
       this.skipWhiteSpaces = skipWhiteSpaces;
       this.showRanges = showRanges;
@@ -145,7 +144,7 @@ public class DebugUtil {
         if (showRanges) buffer.append(root.getTextRange().toString());
         buffer.append("\n");
         indent += 2;
-        if (root instanceof CompositeElement && root.getFirstChildNode() == null) {
+        if (root instanceof CompositeElement && root.getFirstChildNode() == null && showEmptyChildren()) {
           StringUtil.repeatSymbol(buffer, ' ', indent);
           buffer.append("<empty list>\n");
         }
@@ -155,6 +154,10 @@ public class DebugUtil {
       }
 
       super.visitNode(root);
+    }
+
+    protected boolean showEmptyChildren() {
+      return true;
     }
 
     protected boolean shouldSkipNode(TreeElement node) {
@@ -241,7 +244,6 @@ public class DebugUtil {
       }
       buffer.append(node.toString()).append('\n');
 
-      @SuppressWarnings({"unchecked"})
       final List<? extends Stub> children = node.getChildrenStubs();
       for (final Stub child : children) {
         stubTreeToBuffer(child, buffer, indent + 2);
@@ -388,7 +390,7 @@ public class DebugUtil {
     return psiToString(root, skipWhiteSpaces, showRanges, null);
   }
 
-  public static String psiToString(@NotNull final PsiElement root, final boolean skipWhiteSpaces, final boolean showRanges, PairConsumer<PsiElement, Consumer<PsiElement>> extra) {
+  public static String psiToString(@NotNull final PsiElement root, final boolean skipWhiteSpaces, final boolean showRanges, PairConsumer<? super PsiElement, Consumer<PsiElement>> extra) {
     StringBuilder buffer = new StringBuilder();
     psiToBuffer(buffer, root, skipWhiteSpaces, showRanges, extra);
     return buffer.toString();
@@ -398,10 +400,17 @@ public class DebugUtil {
   public static String psiToStringIgnoringNonCode(@NotNull PsiElement element) {
     StringBuilder buffer = new StringBuilder();
     ((TreeElement)element.getNode()).acceptTree(
-      new TreeToBuffer(buffer, 0, true, false, false, true, null) {
+      new TreeToBuffer(buffer, 0, true, false, false, false, null) {
         @Override
         protected boolean shouldSkipNode(TreeElement node) {
-          return super.shouldSkipNode(node) || node instanceof PsiErrorElement || node instanceof PsiComment;
+          return super.shouldSkipNode(node) || node instanceof PsiErrorElement || node instanceof PsiComment || 
+                 node instanceof LeafPsiElement && StringUtil.isEmptyOrSpaces(node.getText()) || 
+                 node instanceof OuterLanguageElement;
+        }
+
+        @Override
+        protected boolean showEmptyChildren() {
+          return false;
         }
       });
     return buffer.toString();
@@ -411,7 +420,7 @@ public class DebugUtil {
                                   final PsiElement root,
                                   final boolean skipWhiteSpaces,
                                   final boolean showRanges,
-                                  PairConsumer<PsiElement, Consumer<PsiElement>> extra) {
+                                  PairConsumer<? super PsiElement, Consumer<PsiElement>> extra) {
     final ASTNode node = root.getNode();
     if (node == null) {
       psiToBuffer(buffer, root, 0, skipWhiteSpaces, showRanges, showRanges, extra);
@@ -436,7 +445,7 @@ public class DebugUtil {
                                  final boolean skipWhiteSpaces,
                                  boolean showRanges,
                                  final boolean showChildrenRanges,
-                                 PairConsumer<PsiElement, Consumer<PsiElement>> extra) {
+                                 PairConsumer<? super PsiElement, Consumer<PsiElement>> extra) {
     if (skipWhiteSpaces && root instanceof PsiWhiteSpace) return;
 
     StringUtil.repeatSymbol(buffer, ' ', indent);
@@ -499,13 +508,14 @@ public class DebugUtil {
    * elements. This should help finding out why a specific PSI element has become invalid.
    *
    * @param trace The debug trace that the invalidated elements should be identified by. May be null, then current stack trace is used.
+   * @deprecated use {@link #performPsiModification(String, ThrowableRunnable)} instead
    */
+  @Deprecated
   public static void startPsiModification(@Nullable String trace) {
     if (!PsiInvalidElementAccessException.isTrackingInvalidation()) {
       return;
     }
 
-    //noinspection ThrowableResultOfMethodCallIgnored
     if (ourPsiModificationTrace.get() == null) {
       ourPsiModificationTrace.set(trace != null ? trace : new Throwable());
     }
@@ -517,7 +527,9 @@ public class DebugUtil {
   /**
    * Finished PSI modification action.
    * @see #startPsiModification(String)
+   * @deprecated use {@link #performPsiModification(String, ThrowableRunnable)} instead
    */
+  @Deprecated
   public static void finishPsiModification() {
     if (!PsiInvalidElementAccessException.isTrackingInvalidation()) {
       return;
@@ -532,6 +544,25 @@ public class DebugUtil {
     }
     if (depth == 0) {
       ourPsiModificationTrace.set(null);
+    }
+  }
+
+  public static <T extends Throwable> void performPsiModification(String trace, @NotNull ThrowableRunnable<T> runnable) throws T {
+    startPsiModification(trace);
+    try {
+      runnable.run();
+    }
+    finally {
+      finishPsiModification();
+    }
+  }
+  public static <T, E extends Throwable> T performPsiModification(String trace, @NotNull ThrowableComputable<T, E> runnable) throws E {
+    startPsiModification(trace);
+    try {
+      return runnable.compute();
+    }
+    finally {
+      finishPsiModification();
     }
   }
 
@@ -640,7 +671,7 @@ public class DebugUtil {
     return buffer.toString();
   }
 
-  private static <T> void printNodes(Iterator<T> nodes, Function<T, Iterator<T>> getter, int indent, Set<T> visited, StringBuilder buffer) {
+  private static <T> void printNodes(Iterator<? extends T> nodes, Function<? super T, ? extends Iterator<T>> getter, int indent, Set<? super T> visited, StringBuilder buffer) {
     while (nodes.hasNext()) {
       T node = nodes.next();
       StringUtil.repeatSymbol(buffer, ' ', indent);

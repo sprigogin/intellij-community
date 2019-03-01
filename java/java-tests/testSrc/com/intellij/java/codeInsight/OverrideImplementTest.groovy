@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight
 
 import com.intellij.JavaTestUtil
+import com.intellij.codeInsight.generation.OverrideImplementExploreUtil
 import com.intellij.codeInsight.generation.OverrideImplementUtil
 import com.intellij.codeInsight.generation.OverrideImplementsAnnotationsHandler
 import com.intellij.idea.ActionsBundle
@@ -40,6 +27,7 @@ class OverrideImplementTest extends LightCodeInsightFixtureTestCase {
   void testImplementExtensionMethods() { doTest(true) }
 
   void testOverrideExtensionMethods() { doTest(false) }
+  void testMultipleSuperMethodsThroughGenerics() { doTest(true) }
 
   void testDoNotImplementExtensionMethods() { doTest(true) }
 
@@ -50,6 +38,12 @@ class OverrideImplementTest extends LightCodeInsightFixtureTestCase {
   void testOverrideInInterface() { doTest(false) }
 
   void testMultipleInheritanceWithThrowables() { doTest(true) }
+
+  void testBrokenMethodDeclaration() {
+    myFixture.addClass("interface A { m();}")
+    def psiClass = myFixture.addClass("class B implements A {<caret>}")
+    assertEmpty(OverrideImplementExploreUtil.getMethodSignaturesToImplement(psiClass))
+  }
 
   void testImplementInInterface() {
     myFixture.addClass """\
@@ -208,7 +202,7 @@ class Test implements A {
 
   void testTypeAnnotationsInImplementedMethod() {
     def handler = new OverrideImplementsAnnotationsHandler() { @Override String[] getAnnotations(Project project) { return ["TA"] } }
-    PlatformTestUtil.registerExtension(OverrideImplementsAnnotationsHandler.EP_NAME, handler, testRootDisposable)
+    OverrideImplementsAnnotationsHandler.EP_NAME.getPoint(null).registerExtension(handler, testRootDisposable)
 
     myFixture.addClass """\
       import java.lang.annotation.*;
@@ -277,7 +271,7 @@ class Test implements A {
   }
 
   void testCustomOverrideImplementsHandler() throws Exception {
-    myFixture.addClass """package a; public @interface A { }"""
+    myFixture.addClass """package a; public @interface A { String value();}"""
 
     PlatformTestUtil.registerExtension(Extensions.getRootArea(), OverrideImplementsAnnotationsHandler.EP_NAME, new OverrideImplementsAnnotationsHandler() {
       @Override
@@ -290,7 +284,7 @@ class Test implements A {
       import a.*;
 
       interface I {
-          @A List<String> i(@A String p);
+          @A("") List<String> i(@A("a") String p);
       }
 
       class C implements I {
@@ -304,13 +298,13 @@ class Test implements A {
       import a.*;
 
       interface I {
-          @A List<String> i(@A String p);
+          @A("") List<String> i(@A("a") String p);
       }
 
       class C implements I {
-          @A
+          @A("")
           @Override
-          public List<String> i(@A String p) {
+          public List<String> i(@A("a") String p) {
               return null;
           }
       }""".stripIndent()

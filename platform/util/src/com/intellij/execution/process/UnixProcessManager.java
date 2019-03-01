@@ -22,6 +22,7 @@ import com.intellij.util.ReflectionUtil;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import org.jetbrains.annotations.NotNull;
+import sun.misc.Signal;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -39,9 +40,9 @@ import static com.intellij.util.ObjectUtils.assertNotNull;
 public class UnixProcessManager {
   private static final Logger LOG = Logger.getInstance(UnixProcessManager.class);
 
-  public static final int SIGINT = 2;
-  public static final int SIGKILL = 9;
-  public static final int SIGTERM = 15;
+  public static final int SIGINT = getSignalNumber("INT");
+  public static final int SIGKILL = getSignalNumber("KILL");
+  public static final int SIGTERM = getSignalNumber("TERM");
 
   @SuppressWarnings("SpellCheckingInspection")
   private interface CLib extends Library {
@@ -83,6 +84,26 @@ public class UnixProcessManager {
     return C_LIB != null ? C_LIB.getpid() : 0;
   }
 
+  /**
+   * @param signalName without the 'SIG' prefix ('INT', not 'SIGINT')
+   * @return -1 for unknown signal
+   */
+  public static int getSignalNumber(@NotNull String signalName) {
+    final Signal signal;
+    try {
+      signal = new Signal(signalName);
+    }
+    catch (IllegalArgumentException e) {
+      return -1;
+    }
+    return signal.getNumber();
+  }
+
+  public static int sendSignal(int pid, @NotNull String signalName) {
+    final int signalNumber = getSignalNumber(signalName);
+    return (signalNumber == -1) ? -1 : sendSignal(pid, signalNumber);
+  }
+
   public static int sendSignal(int pid, int signal) {
     checkCLib();
     return C_LIB.kill(pid, signal);
@@ -115,16 +136,20 @@ public class UnixProcessManager {
   public static boolean sendSignalToProcessTree(int processId, int signal) {
     checkCLib();
 
-    final int our_pid = C_LIB.getpid();
+    final int ourPid = C_LIB.getpid();
+    return sendSignalToProcessTree(processId, signal, ourPid);
+  }
+
+  public static boolean sendSignalToProcessTree(int processId, int signal, int ourPid) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Sending signal " + signal + " to process tree with root PID " + processId);
     }
 
-    final Ref<Integer> foundPid = new Ref<Integer>();
+    final Ref<Integer> foundPid = new Ref<>();
     final ProcessInfo processInfo = new ProcessInfo();
-    final List<Integer> childrenPids = new ArrayList<Integer>();
+    final List<Integer> childrenPids = new ArrayList<>();
 
-    findChildProcesses(our_pid, processId, foundPid, processInfo, childrenPids);
+    findChildProcesses(ourPid, processId, foundPid, processInfo, childrenPids);
 
     // result is true if signal was sent to at least one process
     final boolean result;
@@ -147,48 +172,45 @@ public class UnixProcessManager {
 
   private static void findChildProcesses(final int our_pid,
                                          final int process_pid,
-                                         final Ref<Integer> foundPid,
+                                         final Ref<? super Integer> foundPid,
                                          final ProcessInfo processInfo,
-                                         final List<Integer> childrenPids) {
+                                         final List<? super Integer> childrenPids) {
     final Ref<Boolean> ourPidFound = Ref.create(false);
-    processPSOutput(getPSCmd(false), new Processor<String>() {
-      @Override
-      public boolean process(String s) {
-        StringTokenizer st = new StringTokenizer(s, " ");
+    processPSOutput(getPSCmd(false), s -> {
+      StringTokenizer st = new StringTokenizer(s, " ");
 
-        int parent_pid = Integer.parseInt(st.nextToken());
-        int pid = Integer.parseInt(st.nextToken());
+      int parent_pid = Integer.parseInt(st.nextToken());
+      int pid = Integer.parseInt(st.nextToken());
 
-        processInfo.register(pid, parent_pid);
+      processInfo.register(pid, parent_pid);
 
-        if (parent_pid == process_pid) {
-          childrenPids.add(pid);
-        }
-
-        if (pid == our_pid) {
-          ourPidFound.set(true);
-        }
-        else if (pid == process_pid) {
-          if (parent_pid == our_pid || our_pid == -1) {
-            foundPid.set(pid);
-          }
-          else {
-            throw new IllegalStateException("Process (pid=" + process_pid + ") is not our child(our pid = " + our_pid + ")");
-          }
-        }
-        return false;
+      if (parent_pid == process_pid) {
+        childrenPids.add(pid);
       }
+
+      if (pid == our_pid) {
+        ourPidFound.set(true);
+      }
+      else if (pid == process_pid) {
+        if (parent_pid == our_pid || our_pid == -1) {
+          foundPid.set(pid);
+        }
+        else {
+          throw new IllegalStateException("Process (pid=" + process_pid + ") is not our child(our pid = " + our_pid + ")");
+        }
+      }
+      return false;
     });
     if (our_pid != -1 && !ourPidFound.get()) {
       throw new IllegalStateException("IDE pid is not found in ps list(" + our_pid + ")");
     }
   }
 
-  public static void processPSOutput(String[] cmd, Processor<String> processor) {
+  public static void processPSOutput(String[] cmd, Processor<? super String> processor) {
     processCommandOutput(cmd, processor, true, true);
   }
 
-  public static void processCommandOutput(String[] cmd, Processor<String> processor, boolean skipFirstLine, boolean throwOnError) {
+  public static void processCommandOutput(String[] cmd, Processor<? super String> processor, boolean skipFirstLine, boolean throwOnError) {
     try {
       Process p = Runtime.getRuntime().exec(cmd);
       processCommandOutput(p, processor, skipFirstLine, throwOnError);
@@ -198,11 +220,9 @@ public class UnixProcessManager {
     }
   }
 
-  private static void processCommandOutput(Process process, Processor<String> processor, boolean skipFirstLine, boolean throwOnError) throws IOException {
-    BufferedReader stdOutput = new BufferedReader(new InputStreamReader(process.getInputStream()));
-    try {
-      BufferedReader stdError = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-      try {
+  private static void processCommandOutput(Process process, Processor<? super String> processor, boolean skipFirstLine, boolean throwOnError) throws IOException {
+    try (BufferedReader stdOutput = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+      try (BufferedReader stdError = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
         if (skipFirstLine) {
           stdOutput.readLine(); //ps output header
         }
@@ -222,12 +242,6 @@ public class UnixProcessManager {
           throw new IOException("Error reading ps output:" + errorStr.toString());
         }
       }
-      finally {
-        stdError.close();
-      }
-    }
-    finally {
-      stdOutput.close();
     }
   }
 
@@ -253,11 +267,11 @@ public class UnixProcessManager {
   }
 
   private static class ProcessInfo {
-    private Map<Integer, List<Integer>> BY_PARENT = new TreeMap<Integer, List<Integer>>(); // pid -> list of children pids
+    private final Map<Integer, List<Integer>> BY_PARENT = new TreeMap<>(); // pid -> list of children pids
 
     public void register(Integer pid, Integer parentPid) {
       List<Integer> children = BY_PARENT.get(parentPid);
-      if (children == null) BY_PARENT.put(parentPid, children = new LinkedList<Integer>());
+      if (children == null) BY_PARENT.put(parentPid, children = new LinkedList<>());
       children.add(pid);
     }
 
@@ -273,10 +287,5 @@ public class UnixProcessManager {
       }
       sendSignal(pid, signal);
     }
-  }
-
-  /** @deprecated to be removed in IDEA 2018 */
-  public static int getProcessPid(@NotNull Process process) {
-    return getProcessId(process);
   }
 }

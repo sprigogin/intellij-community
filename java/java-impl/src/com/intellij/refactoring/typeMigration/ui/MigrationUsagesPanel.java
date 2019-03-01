@@ -35,10 +35,12 @@ public class MigrationUsagesPanel extends UsagesPanel {
     super(project);
   }
 
+  @Override
   public String getInitialPositionText() {
     return "Select root to find reasons to migrate";
   }
 
+  @Override
   public String getCodeUsagesString() {
     return "Found reasons to migrate";
   }
@@ -54,7 +56,7 @@ public class MigrationUsagesPanel extends UsagesPanel {
           infos.add(new UsageInfo(usage));
         }
       }
-      showUsages(new PsiElement[]{rootElement}, infos.toArray(new UsageInfo[infos.size()]));
+      showUsages(new PsiElement[]{rootElement}, infos.toArray(UsageInfo.EMPTY_ARRAY));
     }
     else {
       showUsages(new PsiElement[]{rootElement}, new UsageInfo[] {migration});

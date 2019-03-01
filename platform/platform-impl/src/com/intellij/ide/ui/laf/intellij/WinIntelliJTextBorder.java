@@ -16,30 +16,28 @@
 package com.intellij.ide.ui.laf.intellij;
 
 import com.intellij.ide.ui.laf.darcula.ui.DarculaTextBorder;
-import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI;
-import com.intellij.ui.ColorPanel;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JBValue;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Path2D;
 
-import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.Outline;
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.*;
 import static com.intellij.ide.ui.laf.intellij.WinIntelliJTextFieldUI.HOVER_PROPERTY;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class WinIntelliJTextBorder extends DarculaTextBorder {
+  static final JBValue MINIMUM_HEIGHT = new JBValue.Float(22);
+
   @Override
   public Insets getBorderInsets(Component c) {
-    if (c instanceof JTextField && c.getParent() instanceof ColorPanel) {
-      return JBUI.insets(3, 3, 2, 2).asUIResource();
-    }
-    Insets insets = JBUI.insets(4, 5).asUIResource();
-    TextFieldWithPopupHandlerUI.updateBorderInsets(c, insets);
-    return insets;
+    return isTableCellEditor(c) || isCompact(c) ?
+           JBUI.insets(1, 1, 1, 4).asUIResource() :
+           JBUI.insets(1).asUIResource();
   }
 
   @Override
@@ -50,16 +48,15 @@ public class WinIntelliJTextBorder extends DarculaTextBorder {
     Graphics2D g2 = (Graphics2D)g.create();
     try {
       Rectangle r = new Rectangle(x, y, width, height);
-
       WinIntelliJTextFieldUI.adjustInWrapperRect(r, c);
 
+      boolean isCellRenderer = isTableCellEditor(c);
       int bw = 1;
       Object op = jc.getClientProperty("JComponent.outline");
-      if (op != null) {
+      if (c.isEnabled() && op != null) {
         Outline.valueOf(op.toString()).setGraphicsColor(g2, c.hasFocus());
-        bw = 2;
+        bw = isCellRenderer ? 1 : 2;
       } else {
-        //boolean editable = !(c instanceof JTextComponent) || ((JTextComponent)c).isEditable();
         if (c.hasFocus()) {
           g2.setColor(UIManager.getColor("TextField.focusedBorderColor"));
         }
@@ -67,20 +64,22 @@ public class WinIntelliJTextBorder extends DarculaTextBorder {
           g2.setColor(UIManager.getColor("TextField.hoverBorderColor"));
         }
         else {
-          g2.setColor(UIManager.getColor(jc.isEnabled() ? "TextField.borderColor" : "Button.intellij.native.borderColor"));
+          g2.setColor(UIManager.getColor(c.isEnabled() ? "TextField.borderColor" : "Button.intellij.native.borderColor"));
         }
 
-        if (!jc.isEnabled()) {
+        if (!c.isEnabled()) {
           g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.47f));
         }
 
-        JBInsets.removeFrom(r, JBUI.insets(1));
+        if (!isCellRenderer) {
+          JBInsets.removeFrom(r, JBUI.insets(1));
+        }
       }
 
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_NORMALIZE);
 
-      Path2D border = new Path2D.Double(Path2D.WIND_EVEN_ODD);
+      Path2D border = new Path2D.Float(Path2D.WIND_EVEN_ODD);
       border.append(r, false);
 
       Rectangle innerRect = new Rectangle(r);
@@ -88,7 +87,8 @@ public class WinIntelliJTextBorder extends DarculaTextBorder {
       border.append(innerRect, false);
 
       g2.fill(border);
-    } finally {
+    }
+    finally {
       g2.dispose();
     }
   }

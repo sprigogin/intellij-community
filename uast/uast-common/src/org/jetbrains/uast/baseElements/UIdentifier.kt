@@ -29,9 +29,17 @@ open class UIdentifier(
   open val name: String
     get() = psi?.text ?: "<error>"
 
-  override fun asLogString() = log("Identifier ($name)")
+  override fun asLogString(): String = log("Identifier ($name)")
 
-  override val sourcePsi: PsiElement? = psi
+  override val sourcePsi: PsiElement?
+    get() = psi
 
-  override val javaPsi: PsiElement? = null
+  override val javaPsi: PsiElement?
+    get() = null
+}
+
+open class LazyParentUIdentifier(psi: PsiElement?, private val givenParent: UElement?) : UIdentifier(psi, givenParent) {
+
+  override val uastParent: UElement? by lazy { givenParent ?: sourcePsi?.parent?.toUElement() }
+
 }

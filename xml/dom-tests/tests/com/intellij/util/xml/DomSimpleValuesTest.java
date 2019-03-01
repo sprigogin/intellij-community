@@ -15,7 +15,6 @@
  */
 package com.intellij.util.xml;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -221,13 +220,10 @@ public class DomSimpleValuesTest extends DomTestCase {
     assertResultsAndClear();
 
     final XmlTag tag = element.getXmlTag();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) {
-        tag.add(createTag("<indicator/>"));
-        tag.add(createTag("<indicator/>"));
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      tag.add(createTag("<indicator/>"));
+      tag.add(createTag("<indicator/>"));
+    });
 
     assertTrue(element.isValid());
     assertTrue(element.getIndicator().getValue());
@@ -535,7 +531,7 @@ public class DomSimpleValuesTest extends DomTestCase {
 
   public interface CmpField extends JavaeeDomModelElement {
     @NameValue
-    public GenericDomValue<String> getName();
+    GenericDomValue<String> getName();
   }
 
   public static class MyConverter extends Converter<String> {

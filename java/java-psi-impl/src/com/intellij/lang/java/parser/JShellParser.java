@@ -54,6 +54,7 @@ public class JShellParser extends JavaParser {
         ElementType.JAVA_COMMENT_BIT_SET,
         ElementType.EXPRESSION_BIT_SET,
         ElementType.JAVA_STATEMENT_BIT_SET,
+        ElementType.PRIMITIVE_TYPE_BIT_SET,
         TokenSet.create(JShellElementType.ROOT_CLASS, JavaTokenType.IDENTIFIER)
       )
     );
@@ -126,7 +127,7 @@ public class JShellParser extends JavaParser {
     }
   };
 
-  private static boolean isParsed(@Nullable PsiBuilder.Marker parsedMarker, PsiBuilder builder, final Condition<IElementType> cond) {
+  private static boolean isParsed(@Nullable PsiBuilder.Marker parsedMarker, PsiBuilder builder, final Condition<? super IElementType> cond) {
     if (parsedMarker == null) {
       return false;
     }

@@ -26,6 +26,7 @@ import com.intellij.ide.util.projectWizard.ModuleBuilder;
 import com.intellij.ide.util.projectWizard.ProjectBuilder;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
@@ -54,7 +55,6 @@ import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ModifiableArtifactModel;
 import com.intellij.projectImport.ProjectImportBuilder;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -126,7 +126,7 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
 
   @Override
   @Nullable
-  public Module getModule(String name) {
+  public Module getModule(@NotNull String name) {
     final Module moduleByName = myModuleModel.findModuleByName(name);
     if (moduleByName != null) {
       return moduleByName;
@@ -144,7 +144,8 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     return getOrCreateModuleEditor(module).getRootModel();
   }
 
-  public ModuleEditor getOrCreateModuleEditor(Module module) {
+  @NotNull
+  public ModuleEditor getOrCreateModuleEditor(@NotNull Module module) {
     LOG.assertTrue(getModule(module.getName()) != null, "Module has been deleted");
     ModuleEditor editor = getModuleEditor(module);
     if (editor == null) {
@@ -153,7 +154,8 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     return editor;
   }
 
-  private ModuleEditor doCreateModuleEditor(final Module module) {
+  @NotNull
+  private ModuleEditor doCreateModuleEditor(@NotNull Module module) {
     final ModuleEditor moduleEditor = new HeaderHidingTabbedModuleEditor(myProject, this, module) {
       @Override
       public ProjectFacetsConfigurator getFacetsConfigurator() {
@@ -173,6 +175,7 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     return moduleEditor;
   }
 
+  @NotNull
   @Override
   public FacetModel getFacetModel(@NotNull Module module) {
     return myFacetsConfigurator.getOrCreateModifiableModel(module);
@@ -351,7 +354,7 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     return myModuleModelCommitted;
   }
 
-  public List<Module> deleteModules(final Collection<Module> modules) {
+  public List<Module> deleteModules(final Collection<? extends Module> modules) {
     List<Module> deleted = new ArrayList<>();
     List<ModuleEditor> moduleEditors = new ArrayList<>();
     for (Module module : modules) {
@@ -446,7 +449,7 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
   }
 
 
-  private boolean doRemoveModules(@NotNull List<ModuleEditor> selectedEditors) {
+  private boolean doRemoveModules(@NotNull List<? extends ModuleEditor> selectedEditors) {
     if (selectedEditors.isEmpty()) return true;
 
     String question;
@@ -461,20 +464,22 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     if (result != Messages.YES) {
       return false;
     }
-    for (ModuleEditor editor : selectedEditors) {
-      myModuleEditors.remove(editor.getModule());
+    WriteAction.run(() -> {
+      for (ModuleEditor editor : selectedEditors) {
+        myModuleEditors.remove(editor.getModule());
 
-      final Module moduleToRemove = editor.getModule();
-      // remove all dependencies on the module which is about to be removed
-      List<ModifiableRootModel> modifiableRootModels = new ArrayList<>();
-      for (final ModuleEditor moduleEditor : myModuleEditors.values()) {
-        final ModifiableRootModel modifiableRootModel = moduleEditor.getModifiableRootModelProxy();
-        ContainerUtil.addIfNotNull(modifiableRootModels, modifiableRootModel);
+        final Module moduleToRemove = editor.getModule();
+        // remove all dependencies on the module which is about to be removed
+        List<ModifiableRootModel> modifiableRootModels = new ArrayList<>();
+        for (final ModuleEditor moduleEditor : myModuleEditors.values()) {
+          final ModifiableRootModel modifiableRootModel = moduleEditor.getModifiableRootModelProxy();
+          ContainerUtil.addIfNotNull(modifiableRootModels, modifiableRootModel);
+        }
+
+        ModuleDeleteProvider.removeModule(moduleToRemove, modifiableRootModels, myModuleModel);
+        Disposer.dispose(editor);
       }
-
-      ModuleDeleteProvider.removeModule(moduleToRemove, modifiableRootModels, myModuleModel);
-      Disposer.dispose(editor);
-    }
+    });
     processModuleCountChanged();
 
     return true;
@@ -525,12 +530,12 @@ public class ModulesConfigurator implements ModulesProvider, ModuleEditor.Change
     });
   }
 
-  public static boolean showDialog(Project project, @Nullable final String moduleToSelect, @Nullable final String editorNameToSelect) {
+  public static boolean showDialog(@NotNull Project project, @Nullable final String moduleToSelect, @Nullable final String editorNameToSelect) {
     final ProjectStructureConfigurable config = ProjectStructureConfigurable.getInstance(project);
     return ShowSettingsUtil.getInstance().editConfigurable(project, config, () -> config.select(moduleToSelect, editorNameToSelect, true));
   }
 
-  public void moduleRenamed(Module module, final String oldName, final String name) {
+  public void moduleRenamed(@NotNull Module module, final String oldName, @NotNull String name) {
     ModuleEditor moduleEditor = myModuleEditors.get(module);
     if (moduleEditor != null) {
       moduleEditor.setModuleName(name);

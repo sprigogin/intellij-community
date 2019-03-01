@@ -18,7 +18,7 @@
 
   <application-components>
     <component>
-      <implementation-class>com.intellij.internal.statistic.updater.SendStatisticsComponent</implementation-class>
+      <implementation-class>com.intellij.internal.statistic.updater.StatisticsJobsScheduler</implementation-class>
     </component>
   </application-components>
 
@@ -58,7 +58,8 @@
     <directoryProjectConfigurator implementation="com.intellij.platform.PlatformInspectionProfileConfigurator"/>
 
     <applicationService serviceInterface="com.intellij.openapi.module.ModuleTypeManager"
-                        serviceImplementation="com.jetbrains.python.PythonModuleTypeManager"/>
+                        serviceImplementation="com.jetbrains.python.PythonModuleTypeManager"
+                        overrides="true"/>
 
     <fileStructureGroupRuleProvider implementation="com.intellij.usages.impl.rules.FileGroupingRuleProvider" order="first"/>
     <fileStructureGroupRuleProvider implementation="com.jetbrains.python.findUsages.PyClassGroupingRuleProvider"
@@ -85,10 +86,8 @@
 
     <!-- Console -->
 
-    <toolWindow id="Python Console" anchor="bottom" icon="PythonIcons.Python.PythonConsoleToolWindow"
+    <toolWindow id="Python Console" anchor="bottom" icon="PythonIcons.Python.PythonConsoleToolWindow" canCloseContents="true"
                 factoryClass="com.jetbrains.python.console.PythonConsoleToolWindowFactory" secondary="false"/>
-
-
 
     <directoryIndexExcludePolicy implementation="com.jetbrains.python.PyDirectoryIndexExcludePolicy"/>
 
@@ -102,7 +101,7 @@
       <add-to-group group-id="FileOpenGroup" anchor="first"/>
     </group>
 
-    <action id="SaveAs" class="com.intellij.ide.actions.SaveAsAction" text="Save As..">
+    <action id="SaveAs" class="com.intellij.ide.actions.SaveAsAction" text="Save As...">
       <add-to-group group-id="FileOpenGroup" anchor="after" relative-to-action="OpenFile"/>
     </action>
 
@@ -112,7 +111,7 @@
     <group id="WelcomeScreen.Platform.NewProject">
       <action id="WelcomeScreen.CreateDirectoryProject" class="com.jetbrains.python.newProject.steps.PyCharmNewProjectStep"
               icon="AllIcons.Welcome.CreateNewProject"/>
-      <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction" icon="AllIcons.General.OpenProject"/>
+      <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction" icon="AllIcons.Actions.Menu_open"/>
 
       <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
     </group>
@@ -126,13 +125,6 @@
     </group>
 
     <action overrides="true" id="ForceStepInto" class="com.intellij.openapi.actionSystem.EmptyAction"/>
-
-    <group id="TypeHierarchyPopupMenu">
-    </group>
-
-    <action id="ReportProblem" class="com.jetbrains.python.ReportProblemAction" text="Report Problem...">
-      <add-to-group group-id="HelpMenu" anchor="before" relative-to-action="TechnicalSupport"/>
-    </action>
 
     <action id="RenameProject" class="com.intellij.platform.renameProject.RenameProjectAction">
       <add-to-group group-id="FileOpenGroup" anchor="after" relative-to-action="RenameFile"/>

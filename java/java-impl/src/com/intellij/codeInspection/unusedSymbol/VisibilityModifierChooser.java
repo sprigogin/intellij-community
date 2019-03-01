@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.unusedSymbol;
 
 import com.intellij.icons.AllIcons;
@@ -21,13 +7,11 @@ import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiModifier;
 import com.intellij.ui.ClickListener;
-import com.intellij.ui.UI;
 import com.intellij.ui.UserActivityProviderComponent;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.VisibilityUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -37,6 +21,7 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.MouseEvent;
+import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -52,23 +37,18 @@ public class VisibilityModifierChooser extends JLabel implements UserActivityPro
 
   public VisibilityModifierChooser(@NotNull Supplier<Boolean> canBeEnabled,
                                    @NotNull String modifier,
-                                   @NotNull Consumer<String> modifierChangedConsumer) {
+                                   @NotNull Consumer<? super String> modifierChangedConsumer) {
     this(canBeEnabled, modifier, modifierChangedConsumer, MODIFIERS);
   }
 
 
-  @Override
-  public void setText(String text) {
-    super.setText(text);
-  }
-
   public VisibilityModifierChooser(@NotNull Supplier<Boolean> canBeEnabled,
                                    @NotNull String modifier,
-                                   @NotNull Consumer<String> modifierChangedConsumer,
+                                   @NotNull Consumer<? super String> modifierChangedConsumer,
                                    @NotNull String[] modifiers) {
     myCanBeEnabled = canBeEnabled;
-    setIcon(AllIcons.General.Combo2);
-    setDisabledIcon(AllIcons.General.Combo2);
+    setIcon(AllIcons.General.ArrowDown);
+    setDisabledIcon(AllIcons.General.ArrowDown);
     setIconTextGap(0);
     setHorizontalTextPosition(SwingConstants.LEFT);
     myCurrentModifier = modifier;
@@ -123,7 +103,7 @@ public class VisibilityModifierChooser extends JLabel implements UserActivityPro
 
   @Override
   public void setForeground(Color fg) {
-    super.setForeground(isEnabled() ? UI.getColor("link.foreground") : fg);
+    super.setForeground(isEnabled() ? JBUI.CurrentTheme.Link.linkColor() : fg);
   }
 
   @Override
@@ -132,12 +112,12 @@ public class VisibilityModifierChooser extends JLabel implements UserActivityPro
   }
 
   @Override
-  public void addChangeListener(ChangeListener changeListener) {
+  public void addChangeListener(@NotNull ChangeListener changeListener) {
     myListeners.add(changeListener);
   }
 
   @Override
-  public void removeChangeListener(ChangeListener changeListener) {
+  public void removeChangeListener(@NotNull ChangeListener changeListener) {
     myListeners.remove(changeListener);
   }
 }

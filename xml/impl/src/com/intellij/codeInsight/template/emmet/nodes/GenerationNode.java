@@ -16,6 +16,7 @@
 package com.intellij.codeInsight.template.emmet.nodes;
 
 import com.google.common.base.Strings;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.application.options.emmet.EmmetOptions;
 import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.LiveTemplateBuilder;
@@ -41,14 +42,11 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
-import com.intellij.util.containers.HashSet;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
@@ -114,7 +112,7 @@ public class GenerationNode extends UserDataHolderBase {
     myChildren.add(child);
   }
 
-  public void addChildren(Collection<GenerationNode> children) {
+  public void addChildren(Collection<? extends GenerationNode> children) {
     for (GenerationNode child : children) {
       addChild(child);
     }
@@ -156,7 +154,7 @@ public class GenerationNode extends UserDataHolderBase {
       }
     }
 
-    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(callback.getProject());
+    CodeStyleSettings settings = CodeStyle.getSettings(callback.getFile());
     String indentStr;
     if (callback.isInInjectedFragment()) {
       Editor editor = callback.getEditor();
@@ -532,7 +530,7 @@ public class GenerationNode extends UserDataHolderBase {
   }
 
   @Nullable
-  private static XmlAttribute findImpliedAttribute(@NotNull List<XmlAttribute> attributes) {
+  private static XmlAttribute findImpliedAttribute(@NotNull List<? extends XmlAttribute> attributes) {
     for (XmlAttribute attribute : attributes) {
       if (attribute.getValueElement() != null && isImpliedAttribute(attribute.getLocalName())) {
         return attribute;
@@ -542,7 +540,7 @@ public class GenerationNode extends UserDataHolderBase {
   }
 
   @Nullable
-  private static XmlAttribute findEmptyAttribute(@NotNull List<XmlAttribute> attributes) {
+  private static XmlAttribute findEmptyAttribute(@NotNull List<? extends XmlAttribute> attributes) {
     for (XmlAttribute attribute : attributes) {
       final String attributeValue = attribute.getValue();
       if (isEmptyValue(attributeValue)) {

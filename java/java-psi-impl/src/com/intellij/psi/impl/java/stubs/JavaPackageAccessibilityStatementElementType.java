@@ -31,7 +31,6 @@ import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -58,8 +57,9 @@ public class JavaPackageAccessibilityStatementElementType extends JavaStubElemen
     return new PackageAccessibilityStatementElement(this);
   }
 
+  @NotNull
   @Override
-  public PsiPackageAccessibilityStatementStub createStub(LighterAST tree, LighterASTNode node, StubElement parentStub) {
+  public PsiPackageAccessibilityStatementStub createStub(@NotNull LighterAST tree, @NotNull LighterASTNode node, @NotNull StubElement parentStub) {
     String refText = null;
     List<String> to = ContainerUtil.newSmartList();
 
@@ -81,7 +81,7 @@ public class JavaPackageAccessibilityStatementElementType extends JavaStubElemen
   @NotNull
   @Override
   public PsiPackageAccessibilityStatementStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    String packageName = StringRef.toString(dataStream.readName());
+    String packageName = dataStream.readNameString();
     List<String> targets = StringUtil.split(dataStream.readUTFFast(), "/");
     return new PsiPackageAccessibilityStatementStubImpl(parentStub, this, packageName, targets);
   }

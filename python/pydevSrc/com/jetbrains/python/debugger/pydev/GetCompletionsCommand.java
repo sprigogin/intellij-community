@@ -13,7 +13,7 @@ import java.util.List;
  */
 public class GetCompletionsCommand extends AbstractFrameCommand {
 
-  private String myActionToken;
+  private final String myActionToken;
   private List<PydevCompletionVariant> myCompletions = null;
 
   public GetCompletionsCommand(final RemoteDebugger debugger,
@@ -28,6 +28,11 @@ public class GetCompletionsCommand extends AbstractFrameCommand {
   @Override
   public boolean isResponseExpected() {
     return true;
+  }
+
+  @Override
+  protected long getResponseTimeout() {
+    return RemoteDebugger.SHORT_TIMEOUT;
   }
 
   @Override

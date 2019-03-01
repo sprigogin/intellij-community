@@ -54,7 +54,6 @@ public class BreakpointsCheckboxTree extends CheckboxTree {
 
   public BreakpointsCheckboxTree(Project project, BreakpointItemsTreeController model) {
     super(new BreakpointsTreeCellRenderer.BreakpointsCheckboxTreeCellRenderer(project), model.getRoot());
-    setHorizontalAutoScrollingEnabled(false);
   }
 
   @Override
@@ -71,6 +70,7 @@ public class BreakpointsCheckboxTree extends CheckboxTree {
     });
   }
 
+  @Override
   public String convertValueToText(Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
     if (value instanceof BreakpointItemNode) {
       final BreakpointItem breakpointItem = ((BreakpointItemNode)value).getBreakpointItem();

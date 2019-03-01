@@ -15,17 +15,20 @@ import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.CommonProcessors;
+import com.siyeh.ig.junit.JUnitCommonClassNames;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
 public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
   public boolean ADD_JUNIT_TO_ENTRIES = true;
 
+  @Override
   @NotNull
   public String getDisplayName() {
     return "JUnit test cases";
   }
 
+  @Override
   public boolean isEntryPoint(@NotNull RefElement refElement, @NotNull PsiElement psiElement) {
     return isEntryPoint(psiElement);
   }
@@ -54,7 +57,7 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     }
     else if (psiElement instanceof PsiMethod) {
       final PsiMethod method = (PsiMethod)psiElement;
-      if (method.isConstructor() && method.getParameterList().getParametersCount() == 0) {
+      if (method.isConstructor() && method.getParameterList().isEmpty()) {
         return JUnitUtil.isTestClass(method.getContainingClass());
       }
       if (JUnitUtil.isTestMethodOrConfig(method)) return true;
@@ -74,11 +77,19 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     else if (member instanceof PsiMethod) {
       container = member.getContainingClass();
     }
-    if (container != null && JUnitUtil.isJUnit5TestClass(container, false)) {
+    if (container != null && 
+        JUnitUtil.isJUnit5TestClass(container, false) && 
+        !JUnitUtil.isJUnit4TestClass(container, false) && 
+        !JUnitUtil.isJUnit3TestClass(container)) {
       return PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL;
     }
 
-    return -1;
+    if (member instanceof PsiField &&
+        AnnotationUtil.isAnnotated(member, JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_EXTENSION_REGISTER_EXTENSION, 0)) {
+      return PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL;
+    }
+
+    return ACCESS_LEVEL_INVALID;
   }
 
   @Override
@@ -91,18 +102,22 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     return "junit";
   }
 
+  @Override
   public boolean isSelected() {
     return ADD_JUNIT_TO_ENTRIES;
   }
 
+  @Override
   public void setSelected(boolean selected) {
     ADD_JUNIT_TO_ENTRIES = selected;
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     if (!ADD_JUNIT_TO_ENTRIES) {
       DefaultJDOMExternalizer.writeExternal(this, element);

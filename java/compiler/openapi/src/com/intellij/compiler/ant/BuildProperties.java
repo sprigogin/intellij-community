@@ -66,7 +66,7 @@ public abstract class BuildProperties extends CompositeGenerator {
         jdks.add(jdk);
       }
     }
-    return jdks.toArray(new Sdk[jdks.size()]);
+    return jdks.toArray(new Sdk[0]);
   }
 
   @NonNls
@@ -223,7 +223,6 @@ public abstract class BuildProperties extends CompositeGenerator {
    */
   @NonNls
   public static String convertName(@NonNls final String name) {
-    //noinspection HardCodedStringLiteral
     return name.replaceAll("\"", "").replaceAll("\\s+", "_").toLowerCase();
   }
 

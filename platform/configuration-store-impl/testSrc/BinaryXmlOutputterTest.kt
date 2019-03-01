@@ -1,14 +1,21 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
-import com.intellij.util.loadElement
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 
 class BinaryXmlOutputterTest {
   @Test fun noAttributes() {
     test("""<foo />""")
+  }
+
+  @Test fun textWithSpaces() {
+    test("""
+      <foo>
+        <bar>Hello world</bar>
+      </foo>""".trimMargin())
   }
 
   @Test fun attributes() {
@@ -70,7 +77,7 @@ class BinaryXmlOutputterTest {
   private fun test(xml: String) {
     val byteOut = BufferExposingByteArrayOutputStream()
     byteOut.use {
-      serializeElementToBinary(loadElement(xml), it)
+      serializeElementToBinary(JDOMUtil.load(xml), it)
     }
 
     val xmlAfter = JDOMUtil.writeElement(byteOut.toByteArray().inputStream().use { deserializeElementFromBinary(it) })

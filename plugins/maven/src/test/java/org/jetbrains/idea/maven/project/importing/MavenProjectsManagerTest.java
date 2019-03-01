@@ -27,13 +27,16 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.FileContentUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.project.*;
+import org.jetbrains.idea.maven.server.MavenServerManager;
 import org.jetbrains.idea.maven.server.NativeMavenProjectHolder;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -57,10 +60,11 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertNull(myProjectsManager.findProject(myProjectPom));
   }
 
-  public void testUpdatingProjectsWhenAbsentManagedProjectFileAppears() {
+  public void testUpdatingProjectsWhenAbsentManagedProjectFileAppears() throws IOException {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>parent</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m</module>" +
@@ -68,12 +72,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
 
     assertEquals(1, myProjectsTree.getRootProjects().size());
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        myProjectPom.delete(this);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> myProjectPom.delete(this));
 
     waitForReadingCompletion();
 
@@ -91,7 +90,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertEquals(1, myProjectsTree.getRootProjects().size());
   }
 
-  public void testUpdatingProjectsWhenRenaming() {
+  public void testUpdatingProjectsWhenRenaming() throws IOException {
     VirtualFile p1 = createModulePom("project1",
                                      "<groupId>test</groupId>" +
                                      "<artifactId>project1</artifactId>" +
@@ -105,24 +104,21 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
 
     assertEquals(2, myProjectsTree.getRootProjects().size());
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        p2.rename(this, "foo.bar");
-        waitForReadingCompletion();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      p2.rename(this, "foo.bar");
+      waitForReadingCompletion();
 
-        assertEquals(1, myProjectsTree.getRootProjects().size());
+      assertEquals(1, myProjectsTree.getRootProjects().size());
 
-        p2.rename(this, "pom.xml");
-      }
-    }.execute().throwException();
+      p2.rename(this, "pom.xml");
+    });
 
     waitForReadingCompletion();
 
     assertEquals(2, myProjectsTree.getRootProjects().size());
   }
 
-  public void testUpdatingProjectsWhenMoving() {
+  public void testUpdatingProjectsWhenMoving() throws IOException {
     VirtualFile p1 = createModulePom("project1",
                                      "<groupId>test</groupId>" +
                                      "<artifactId>project1</artifactId>" +
@@ -135,31 +131,29 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     importProjects(p1, p2);
 
     final VirtualFile oldDir = p2.getParent();
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        VirtualFile newDir = myProjectRoot.createChildDirectory(this, "foo");
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      VirtualFile newDir = myProjectRoot.createChildDirectory(this, "foo");
 
-        assertEquals(2, myProjectsTree.getRootProjects().size());
+      assertEquals(2, myProjectsTree.getRootProjects().size());
 
-        p2.move(this, newDir);
-        waitForReadingCompletion();
+      p2.move(this, newDir);
+      waitForReadingCompletion();
 
-        assertEquals(1, myProjectsTree.getRootProjects().size());
+      assertEquals(1, myProjectsTree.getRootProjects().size());
 
-        p2.move(this, oldDir);
-      }
-    }.execute().throwException();
+      p2.move(this, oldDir);
+    });
 
     waitForReadingCompletion();
 
     assertEquals(2, myProjectsTree.getRootProjects().size());
   }
 
-  public void testUpdatingProjectsWhenMovingModuleFile() {
+  public void testUpdatingProjectsWhenMovingModuleFile() throws IOException {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>parent</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<modules>" +
                      "  <module>m1</module>" +
@@ -173,27 +167,24 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     importProject();
 
     final VirtualFile oldDir = m.getParent();
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        VirtualFile newDir = myProjectRoot.createChildDirectory(this, "m2");
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      VirtualFile newDir = myProjectRoot.createChildDirectory(this, "m2");
 
-        assertEquals(1, myProjectsTree.getRootProjects().size());
-        assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
+      assertEquals(1, myProjectsTree.getRootProjects().size());
+      assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
 
-        m.move(this, newDir);
-        waitForReadingCompletion();
+      m.move(this, newDir);
+      waitForReadingCompletion();
 
-        assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
+      assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
 
-        m.move(this, oldDir);
-        waitForReadingCompletion();
+      m.move(this, oldDir);
+      waitForReadingCompletion();
 
-        assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
+      assertEquals(1, myProjectsTree.getModules(myProjectsTree.getRootProjects().get(0)).size());
 
-        m.move(this, myProjectRoot.createChildDirectory(this, "xxx"));
-      }
-    }.execute().throwException();
+      m.move(this, myProjectRoot.createChildDirectory(this, "xxx"));
+    });
 
     waitForReadingCompletion();
 
@@ -204,6 +195,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>parent</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m</module>" +
@@ -294,6 +286,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>parent</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m</module>" +
@@ -316,7 +309,9 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
 
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>parent</artifactId>" +
-                     "<version>1</version>");
+                     "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
+                     "");
     waitForReadingCompletion();
 
     assertEquals(2, myProjectsTree.getRootProjects().size());
@@ -541,7 +536,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
                        "jar://" + FileUtil.toSystemIndependentName(repo.getPath()) + "/junit/junit/4.0/junit-4.0.jar!/");
   }
 
-  public void testUpdatingProjectsOnProfilesXmlChange() {
+  public void testUpdatingProjectsOnProfilesXmlChange() throws IOException {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -580,7 +575,8 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
                               "  </properties>" +
                               "</profile>");
 
-    importProject();
+    MavenServerManager.getInstance().setUseMaven2();
+    importProjectWithErrors(); // structure warning, new style of profiles.xml expected
 
     List<MavenProject> roots = myProjectsTree.getRootProjects();
 
@@ -625,7 +621,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertUnorderedPathsAreEqual(childNode.getSources(), Arrays.asList(FileUtil.toSystemDependentName(getProjectPath() + "/m/value2")));
   }
 
-  public void testHandlingDirectoryWithPomFileDeletion() {
+  public void testHandlingDirectoryWithPomFileDeletion() throws IOException {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<packaging>pom</packaging>" +
@@ -647,12 +643,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertEquals(2, MavenProjectsManager.getInstance(myProject).getProjects().size());
 
     final VirtualFile dir = myProjectRoot.findChild("dir");
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        dir.delete(null);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> dir.delete(null));
 
     waitForReadingCompletion();
 
@@ -717,7 +708,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
                                     p1, p3);
   }
 
-  public void testSchedulingReimportWhenPomFileIsDeleted() {
+  public void testSchedulingReimportWhenPomFileIsDeleted() throws IOException {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -736,12 +727,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertModules("project", "m");
 
     configConfirmationForYesAnswer();
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        m.delete(this);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> m.delete(this));
 
     waitForReadingCompletion();
 
@@ -800,7 +786,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertModuleLibDeps("m1", "Maven: junit:junit:4.0");
   }
 
-  public void testSchedulingResolveOfDependentProjectWhenDependencyIsDeleted() {
+  public void testSchedulingResolveOfDependentProjectWhenDependencyIsDeleted() throws IOException {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<packaging>pom</packaging>" +
@@ -842,12 +828,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     assertModuleModuleDeps("m1", "m2");
     assertModuleLibDeps("m1", "Maven: junit:junit:4.0");
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        m2.delete(this);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> m2.delete(this));
 
 
     configConfirmationForYesAnswer();// should update deps even if module is not removed
@@ -865,7 +846,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     final boolean[] called = new boolean[1];
     myProjectsManager.addProjectsTreeListener(new MavenProjectsTree.Listener() {
       @Override
-      public void projectResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges,
+      public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges,
                                   NativeMavenProjectHolder nativeMavenProject) {
         called[0] = true;
       }
@@ -874,7 +855,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1");
-    importProject();
+    importProjectWithErrors();
     assertModules("project");
     assertFalse(called[0]); // on import
 
@@ -890,7 +871,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
 
   public void testUpdatingFoldersAfterFoldersResolving() {
     createStdProjectFolders();
-    createProjectSubDirs("src1", "src2");
+    createProjectSubDirs("src1", "src2", "test1", "test2", "res1", "res2", "testres1", "testres2");
 
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
@@ -904,7 +885,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
                   "      <version>1.3</version>" +
                   "      <executions>" +
                   "        <execution>" +
-                  "          <id>someId</id>" +
+                  "          <id>someId1</id>" +
                   "          <phase>generate-sources</phase>" +
                   "          <goals>" +
                   "            <goal>add-source</goal>" +
@@ -916,13 +897,63 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
                   "            </sources>" +
                   "          </configuration>" +
                   "        </execution>" +
+                  "        <execution>" +
+                  "          <id>someId2</id>" +
+                  "          <phase>generate-resources</phase>" +
+                  "          <goals>" +
+                  "            <goal>add-resource</goal>" +
+                  "          </goals>" +
+                  "          <configuration>" +
+                  "            <resources>" +
+                  "              <resource>" +
+                  "                 <directory>${basedir}/res1</directory>" +
+                  "              </resource>" +
+                  "              <resource>" +
+                  "                 <directory>${basedir}/res2</directory>" +
+                  "              </resource>" +
+                  "            </resources>" +
+                  "          </configuration>" +
+                  "        </execution>" +
+                  "        <execution>" +
+                  "          <id>someId3</id>" +
+                  "          <phase>generate-test-sources</phase>" +
+                  "          <goals>" +
+                  "            <goal>add-test-source</goal>" +
+                  "          </goals>" +
+                  "          <configuration>" +
+                  "            <sources>" +
+                  "              <source>${basedir}/test1</source>" +
+                  "              <source>${basedir}/test2</source>" +
+                  "            </sources>" +
+                  "          </configuration>" +
+                  "        </execution>" +
+                  "        <execution>" +
+                  "          <id>someId4</id>" +
+                  "          <phase>generate-test-resources</phase>" +
+                  "          <goals>" +
+                  "            <goal>add-test-resource</goal>" +
+                  "          </goals>" +
+                  "          <configuration>" +
+                  "            <resources>" +
+                  "              <resource>" +
+                  "                 <directory>${basedir}/testres1</directory>" +
+                  "              </resource>" +
+                  "              <resource>" +
+                  "                 <directory>${basedir}/testres2</directory>" +
+                  "              </resource>" +
+                  "            </resources>" +
+                  "          </configuration>" +
+                  "        </execution>" +
                   "      </executions>" +
                   "    </plugin>" +
                   "  </plugins>" +
                   "</build>");
 
     assertSources("project", "src/main/java", "src1", "src2");
-    assertResources("project", "src/main/resources");
+    assertResources("project", "res1", "res2", "src/main/resources");
+
+    assertTestSources("project", "src/test/java", "test1", "test2");
+    assertTestResources("project", "src/test/resources", "testres1", "testres2");
   }
 
   public void testForceReimport() {
@@ -1087,7 +1118,7 @@ public class MavenProjectsManagerTest extends MavenImportingTestCase {
     myProjectsManager.performScheduledImportInTests();
     myProjectsManager.addProjectsTreeListener(new MavenProjectsTree.Listener() {
       @Override
-      public void projectsUpdated(List<Pair<MavenProject, MavenProjectChanges>> updated, List<MavenProject> deleted) {
+      public void projectsUpdated(@NotNull List<Pair<MavenProject, MavenProjectChanges>> updated, @NotNull List<MavenProject> deleted) {
         for (Pair<MavenProject, MavenProjectChanges> each : updated) {
           log.append("updated: ").append(each.first.getDisplayName()).append(" ");
         }

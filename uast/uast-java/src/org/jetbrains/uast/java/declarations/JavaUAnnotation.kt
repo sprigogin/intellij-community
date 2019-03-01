@@ -17,13 +17,17 @@ package org.jetbrains.uast.java
 
 import com.intellij.psi.PsiAnnotation
 import com.intellij.psi.PsiClass
+import com.intellij.psi.ResolveResult
 import org.jetbrains.uast.*
 import org.jetbrains.uast.java.expressions.JavaUNamedExpression
 
 class JavaUAnnotation(
   override val psi: PsiAnnotation,
   givenParent: UElement?
-) : JavaAbstractUElement(givenParent), UAnnotation {
+) : JavaAbstractUElement(givenParent), UAnnotationEx, UAnchorOwner, UMultiResolvable {
+
+  override val javaPsi: PsiAnnotation = psi
+
   override val qualifiedName: String?
     get() = psi.qualifiedName
 
@@ -33,7 +37,13 @@ class JavaUAnnotation(
     attributes.map { attribute -> JavaUNamedExpression(attribute, this) }
   }
 
+  override val uastAnchor: UIdentifier?
+    get() = psi.nameReferenceElement?.referenceNameElement?.let { UIdentifier(it, this) }
+
   override fun resolve(): PsiClass? = psi.nameReferenceElement?.resolve() as? PsiClass
+
+  override fun multiResolve(): Iterable<ResolveResult> =
+    psi.nameReferenceElement?.multiResolve(false)?.asIterable() ?: emptyList()
 
   override fun findAttributeValue(name: String?): UExpression? {
     val context = getUastContext()

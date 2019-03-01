@@ -1,10 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl
 
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ModificationTracker
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.impl.WindowManagerImpl.FrameBoundsConverter.convertToDeviceSpace
 import com.intellij.util.xmlb.annotations.Attribute
@@ -13,7 +12,7 @@ import org.jdom.Element
 import java.awt.Frame
 import java.awt.Rectangle
 
-@State(name = "ProjectFrameBounds", storages = arrayOf(Storage(StoragePathMacros.WORKSPACE_FILE)))
+@State(name = "ProjectFrameBounds", storages = [(Storage(StoragePathMacros.WORKSPACE_FILE))])
 class ProjectFrameBounds(private val project: Project) : PersistentStateComponent<FrameInfo>, ModificationTracker {
   companion object {
     @JvmStatic
@@ -35,8 +34,7 @@ class ProjectFrameBounds(private val project: Project) : PersistentStateComponen
   }
 
   override fun getModificationCount(): Long {
-    val windowManager = WindowManager.getInstance() as WindowManagerImpl
-    val frameInfoInDeviceSpace = windowManager.getFrameInfoInDeviceSpace(project)
+    val frameInfoInDeviceSpace = (WindowManager.getInstance() as? WindowManagerImpl)?.getFrameInfoInDeviceSpace(project)
     if (frameInfoInDeviceSpace != null) {
       if (rawFrameInfo == null) {
         rawFrameInfo = frameInfoInDeviceSpace
@@ -51,10 +49,10 @@ class ProjectFrameBounds(private val project: Project) : PersistentStateComponen
 
 class FrameInfo : BaseState() {
   // flat is used due to backward compatibility
-  @get:Property(flat = true) var bounds by storedProperty<Rectangle>()
-  @get:Attribute var extendedState by storedProperty(Frame.NORMAL)
+  @get:Property(flat = true) var bounds by property<Rectangle?>(null) { it == null || (it.width == 0 && it.height == 0 && it.x == 0 && it.y == 0) }
+  @get:Attribute var extendedState by property(Frame.NORMAL)
 
-  @get:Attribute var fullScreen by storedProperty(false)
+  @get:Attribute var fullScreen by property(false)
 }
 
 fun WindowManagerImpl.getFrameInfoInDeviceSpace(project: Project): FrameInfo? {
@@ -66,9 +64,7 @@ fun WindowManagerImpl.getFrameInfoInDeviceSpace(project: Project): FrameInfo? {
   val frameInfo = FrameInfo()
   // save bounds even if maximized because on unmaximize we must restore previous frame bounds
   frameInfo.bounds = convertToDeviceSpace(frame.graphicsConfiguration, myDefaultFrameInfo.bounds!!)
-  if (!(frame.isInFullScreen && SystemInfo.isAppleJvm)) {
-    frameInfo.extendedState = extendedState
-  }
+  frameInfo.extendedState = extendedState
 
   if (isFullScreenSupportedInCurrentOS) {
     frameInfo.fullScreen = frame.isInFullScreen
@@ -76,10 +72,10 @@ fun WindowManagerImpl.getFrameInfoInDeviceSpace(project: Project): FrameInfo? {
   return frameInfo
 }
 
-private val X_ATTR = "x"
-private val Y_ATTR = "y"
-private val WIDTH_ATTR = "width"
-private val HEIGHT_ATTR = "height"
+private const val X_ATTR = "x"
+private const val Y_ATTR = "y"
+private const val WIDTH_ATTR = "width"
+private const val HEIGHT_ATTR = "height"
 
 fun serializeBounds(bounds: Rectangle, element: Element) {
   element.setAttribute(X_ATTR, Integer.toString(bounds.x))

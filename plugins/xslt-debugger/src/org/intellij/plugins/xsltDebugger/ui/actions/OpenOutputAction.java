@@ -30,17 +30,17 @@ import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.Charset;
 
-@SuppressWarnings({ "ComponentNotRegistered" })
 public class OpenOutputAction extends AnAction {
   private final AdditionalTabComponent myConsole;
 
   public OpenOutputAction(AdditionalTabComponent console) {
     super("Open in Editor");
     myConsole = console;
-    getTemplatePresentation().setIcon(AllIcons.Actions.Export);
+    getTemplatePresentation().setIcon(AllIcons.ToolbarDecorator.Export);
   }
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Editor editor = CommonDataKeys.EDITOR.getData(DataManager.getInstance().getDataContext(myConsole.getComponent()));
     if (editor != null) {
       final String extension = "xml"; // TODO: get from output type
@@ -55,7 +55,8 @@ public class OpenOutputAction extends AnAction {
     }
   }
 
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     final Editor editor = CommonDataKeys.EDITOR.getData(DataManager.getInstance().getDataContext(myConsole.getComponent()));
     e.getPresentation().setEnabled(editor != null && editor.getDocument().getTextLength() > 0);
   }

@@ -15,14 +15,12 @@
  */
 package com.intellij.util.xml;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.xml.impl.DomFileElementImpl;
 import com.intellij.util.xml.impl.DomTestCase;
 import com.intellij.util.xml.reflect.DomGenericInfo;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -127,24 +125,18 @@ public class DomNamespacesTest extends DomTestCase {
     final XmlFile xmlFile = createXmlFile("<a xmlns:sys=\"\"/>");
     final MyElement element = getDomManager().getFileElement(xmlFile, MyElement.class, "a").getRootElement();
     final MyElement hardcodedElement = element.getHardcodedElement();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) {
-        hardcodedElement.ensureTagExists();
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      hardcodedElement.ensureTagExists();
+    });
     assertTrue(element.isValid());
     assertTrue(hardcodedElement.isValid());
     assertNotNull(hardcodedElement.getXmlElement());
     assertEquals("<sys:aaa/>", hardcodedElement.getXmlElement().getText());
     assertEquals("sys:aaa", hardcodedElement.getXmlTag().getName());
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) {
-        hardcodedElement.getHardcodedElement().getHardcodedElement().ensureTagExists();
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      hardcodedElement.getHardcodedElement().getHardcodedElement().ensureTagExists();
+    });
 
     assertTrue(element.isValid());
     assertTrue(hardcodedElement.isValid());
@@ -270,12 +262,7 @@ public class DomNamespacesTest extends DomTestCase {
                                              "<sys:aaa/>" +
                                              "</f:a>", MyElement.class);
     registerNamespacePolicies(element2, "foo1", "bar1");
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) {
-        element.copyFrom(element2);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> element.copyFrom(element2));
 
     assertEquals("<a xmlns=\"foo\" xmlns:bar=\"bar\">" +
                  "<bar:bar-child/>" +

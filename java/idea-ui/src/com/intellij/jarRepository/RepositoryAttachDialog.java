@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.jarRepository;
 
 import com.intellij.icons.AllIcons;
@@ -75,6 +61,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
   @NonNls private static final String PROPERTY_DOWNLOAD_TO_PATH_ENABLED = "Downloaded.Files.Path.Enabled";
   @NonNls private static final String PROPERTY_ATTACH_JAVADOC = "Repository.Attach.JavaDocs";
   @NonNls private static final String PROPERTY_ATTACH_SOURCES = "Repository.Attach.Sources";
+  @NonNls private static final String PROPERTY_ATTACH_ANNOTATIONS = "Repository.Attach.Annotations";
   @NotNull private final Mode myMode;
 
   public enum Mode { SEARCH, DOWNLOAD }
@@ -93,6 +80,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
   private JBCheckBox myIncludeTransitiveDepsCheckBox;
   private JPanel mySearchOptionsPanel;
   private JBCheckBox myIncludeTransitiveDependenciesForSearchCheckBox;
+  private JBCheckBox myAnnotationsCheckBox;
 
   private final JComboBox myCombobox;
 
@@ -110,13 +98,13 @@ public class RepositoryAttachDialog extends DialogWrapper {
     myProject = project;
     myProgressIcon.suspend();
     myCaptionLabel.setText(
-      XmlStringUtil.wrapInHtml(StringUtil.escapeXml("keyword or class name to search by or exact Maven coordinates, " +
-                                                    "i.e. 'spring', 'Logger' or 'ant:ant-junit:1.6.5'")
+      XmlStringUtil.wrapInHtml(StringUtil.escapeXmlEntities("keyword or class name to search by or exact Maven coordinates, " +
+                                                            "i.e. 'spring', 'Logger' or 'ant:ant-junit:1.6.5'")
       ));
     myInfoLabel.setPreferredSize(
       new Dimension(myInfoLabel.getFontMetrics(myInfoLabel.getFont()).stringWidth("Showing: 1000"), myInfoLabel.getPreferredSize().height));
 
-    myComboComponent.setButtonIcon(AllIcons.Actions.Menu_find);
+    myComboComponent.setButtonIcon(AllIcons.Actions.Find);
     myComboComponent.getButton().addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -133,7 +121,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     }
     textField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (myProgressIcon.isDisposed()) return;
           ApplicationManager.getApplication().invokeLater(() -> {
@@ -176,6 +164,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     });
     myJavaDocCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_JAVADOC));
     mySourcesCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_SOURCES));
+    mySourcesCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_ANNOTATIONS));
 
     final FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
     descriptor.putUserData(FileChooserDialog.PREFER_LAST_OVER_TO_SELECT, Boolean.TRUE);
@@ -218,6 +207,10 @@ public class RepositoryAttachDialog extends DialogWrapper {
 
   public boolean getAttachSources() {
     return mySourcesCheckBox.isSelected();
+  }
+
+  public boolean getAttachExternalAnnotations() {
+    return myAnnotationsCheckBox.isSelected();
   }
 
   public boolean getIncludeTransitiveDependencies() {
@@ -300,7 +293,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     final Version ver;
     final String coord;
 
-    public LibItem(String coord) {
+    LibItem(String coord) {
       this.coord = coord;
       final JpsMavenRepositoryLibraryDescriptor desc = new JpsMavenRepositoryLibraryDescriptor(coord);
       prefix = desc.getGroupId() + ":" + desc.getArtifactId();
@@ -369,6 +362,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     return null;
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     return myPanel;
   }
@@ -384,6 +378,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     storage.setValue(PROPERTY_DOWNLOAD_TO_PATH, downloadPath, myDefaultDownloadFolder);
     storage.setValue(PROPERTY_ATTACH_JAVADOC, String.valueOf(myJavaDocCheckBox.isSelected()));
     storage.setValue(PROPERTY_ATTACH_SOURCES, String.valueOf(mySourcesCheckBox.isSelected()));
+    storage.setValue(PROPERTY_ATTACH_ANNOTATIONS, String.valueOf(myAnnotationsCheckBox.isSelected()));
     super.dispose();
   }
 

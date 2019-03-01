@@ -33,7 +33,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** @noinspection SynchronizationOnLocalVariableOrMethodParameter*/
+/** */
 public final class FilesDelta {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.incremental.fs.FilesDelta");
   private final ReentrantLock myDataLock = new ReentrantLock();
@@ -188,8 +188,20 @@ public final class FilesDelta {
   public boolean markRecompileIfNotDeleted(BuildRootDescriptor root, File file) {
     lockData();
     try {
-      final boolean isMarkedDeleted = !myDeletedPaths.isEmpty() && myDeletedPaths.contains(FileUtil.toCanonicalPath(file.getPath()));
+      String path = null;
+      final boolean isMarkedDeleted = !myDeletedPaths.isEmpty() && myDeletedPaths.contains(path = FileUtil.toCanonicalPath(file.getPath()));
       if (!isMarkedDeleted) {
+        if (!file.exists()) {
+          // incorrect paths data recovery, so that the next make should not contain non-existing sources in 'recompile' list
+          if (path == null) {
+            path = FileUtil.toCanonicalPath(file.getPath());
+          }
+          if (Utils.IS_TEST_MODE) {
+            LOG.info("Marking deleted: " + path);
+          }
+          myDeletedPaths.add(path);
+          return false;
+        }
         _addToRecompiled(root, file);
         return true;
       }

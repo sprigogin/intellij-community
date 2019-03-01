@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.command.impl;
 
 import com.intellij.CommonBundle;
@@ -31,8 +17,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.fileEditor.impl.CurrentEditorProvider;
+import com.intellij.openapi.fileEditor.impl.FocusBasedCurrentEditorProvider;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
@@ -47,30 +34,29 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.psi.ExternalChangeAction;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.HashSet;
+import com.intellij.util.messages.MessageBus;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class UndoManagerImpl extends UndoManager implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.command.impl.UndoManagerImpl");
+  private static final Logger LOG = Logger.getInstance(UndoManagerImpl.class);
 
   @TestOnly
-  public static boolean ourNeverAskUser = false;
+  public static boolean ourNeverAskUser;
 
   private static final int COMMANDS_TO_KEEP_LIVE_QUEUES = 100;
   private static final int COMMAND_TO_RUN_COMPACT = 20;
   private static final int FREE_QUEUES_LIMIT = 30;
 
   @Nullable private final ProjectEx myProject;
-  private final CommandProcessor myCommandProcessor;
 
-  private UndoProvider[] myUndoProviders;
+  private List<UndoProvider> myUndoProviders;
   private CurrentEditorProvider myEditorProvider;
 
   private final UndoRedoStacksHolder myUndoStacksHolder = new UndoRedoStacksHolder(true);
@@ -101,16 +87,15 @@ public class UndoManagerImpl extends UndoManager implements Disposable {
     return Registry.intValue("undo.documentUndoLimit");
   }
 
-  public UndoManagerImpl(CommandProcessor commandProcessor) {
-    this(null, commandProcessor);
+  public UndoManagerImpl() {
+    this(null);
   }
 
-  public UndoManagerImpl(@Nullable ProjectEx project, CommandProcessor commandProcessor) {
+  public UndoManagerImpl(@Nullable ProjectEx project) {
     myProject = project;
-    myCommandProcessor = commandProcessor;
 
     if (myProject == null || !myProject.isDefault()) {
-      runStartupActivity();
+      runStartupActivity(myProject);
     }
 
     myMerger = new CommandMerger(this);
@@ -125,56 +110,59 @@ public class UndoManagerImpl extends UndoManager implements Disposable {
   public void dispose() {
   }
 
-  private void runStartupActivity() {
-    myEditorProvider = new FocusBasedCurrentEditorProvider();
-    myCommandProcessor.addCommandListener(new CommandListener() {
-      private boolean myStarted;
-
-      @Override
-      public void commandStarted(CommandEvent event) {
-        if (myProject != null && myProject.isDisposed()) return;
-        onCommandStarted(event.getProject(), event.getUndoConfirmationPolicy(), event.shouldRecordActionForOriginalDocument());
-      }
-
-      @Override
-      public void commandFinished(CommandEvent event) {
-        if (myProject != null && myProject.isDisposed()) return;
-        onCommandFinished(event.getProject(), event.getCommandName(), event.getCommandGroupId());
-      }
-
-      @Override
-      public void undoTransparentActionStarted() {
-        if (myProject != null && myProject.isDisposed()) return;
-        if (!isInsideCommand()) {
-          myStarted = true;
-          onCommandStarted(myProject, UndoConfirmationPolicy.DEFAULT, true);
-        }
-      }
-
-      @Override
-      public void undoTransparentActionFinished() {
-        if (myProject != null && myProject.isDisposed()) return;
-        if (myStarted) {
-          myStarted = false;
-          onCommandFinished(myProject, "", null);
-        }
-      }
-    }, this);
-
-    Disposer.register(this, new DocumentUndoProvider(myProject));
-
-    myUndoProviders = myProject == null
-                      ? Extensions.getExtensions(UndoProvider.EP_NAME)
-                      : Extensions.getExtensions(UndoProvider.PROJECT_EP_NAME, myProject);
+  private void runStartupActivity(@Nullable Project project) {
+    myUndoProviders = project == null
+                      ? UndoProvider.EP_NAME.getExtensionList()
+                      : UndoProvider.PROJECT_EP_NAME.getExtensionList(project);
     for (UndoProvider undoProvider : myUndoProviders) {
       if (undoProvider instanceof Disposable) {
         Disposer.register(this, (Disposable)undoProvider);
       }
     }
+
+    myEditorProvider = new FocusBasedCurrentEditorProvider();
+
+    MessageBus messageBus = project == null ? ApplicationManager.getApplication().getMessageBus() : project.getMessageBus();
+
+    messageBus.connect(this).subscribe(CommandListener.TOPIC, new CommandListener() {
+      private boolean myStarted;
+
+      @Override
+      public void commandStarted(@NotNull CommandEvent event) {
+        if (project != null && project.isDisposed() || myStarted) return;
+        onCommandStarted(event.getProject(), event.getUndoConfirmationPolicy(), event.shouldRecordActionForOriginalDocument());
+      }
+
+      @Override
+      public void commandFinished(@NotNull CommandEvent event) {
+        if (project != null && project.isDisposed() || myStarted) return;
+        onCommandFinished(event.getProject(), event.getCommandName(), event.getCommandGroupId());
+      }
+
+      @Override
+      public void undoTransparentActionStarted() {
+        if (project != null && project.isDisposed()) return;
+        if (!isInsideCommand()) {
+          myStarted = true;
+          onCommandStarted(project, UndoConfirmationPolicy.DEFAULT, true);
+        }
+      }
+
+      @Override
+      public void undoTransparentActionFinished() {
+        if (project != null && project.isDisposed()) return;
+        if (myStarted) {
+          myStarted = false;
+          onCommandFinished(project, "", null);
+        }
+      }
+    });
+
+    Disposer.register(this, new DocumentUndoProvider(myProject));
   }
 
   public boolean isActive() {
-    return Comparing.equal(myProject, myCurrentActionProject);
+    return Comparing.equal(myProject, myCurrentActionProject) || myProject == null && myCurrentActionProject.isDefault();
   }
 
   private boolean isInsideCommand() {
@@ -550,7 +538,7 @@ public class UndoManagerImpl extends UndoManager implements Disposable {
 
     if (refs.size() <= FREE_QUEUES_LIMIT) return;
 
-    DocumentReference[] backSorted = refs.toArray(new DocumentReference[refs.size()]);
+    DocumentReference[] backSorted = refs.toArray(DocumentReference.EMPTY_ARRAY);
     Arrays.sort(backSorted, Comparator.comparingInt(this::getLastCommandTimestamp));
 
     for (int i = 0; i < backSorted.length - FREE_QUEUES_LIMIT; i++) {

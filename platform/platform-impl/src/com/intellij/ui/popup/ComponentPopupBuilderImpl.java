@@ -38,7 +38,6 @@ import java.util.List;
 
 /**
  * @author anna
- * @since 15-Mar-2006
  */
 public class ComponentPopupBuilderImpl implements ComponentPopupBuilder {
   private String myTitle = "";
@@ -77,12 +76,13 @@ public class ComponentPopupBuilderImpl implements ComponentPopupBuilder {
   private boolean myShowBorder = true;
   private boolean myFocusable = true;
   private ActiveComponent myCommandButton;
-  private List<Pair<ActionListener, KeyStroke>> myKeyboardActions = Collections.emptyList();
+  private List<? extends Pair<ActionListener, KeyStroke>> myKeyboardActions = Collections.emptyList();
   private Component mySettingsButtons;
   private boolean myMayBeParent;
   private int myAdAlignment = SwingConstants.LEFT;
   private BooleanFunction<KeyEvent> myKeyEventHandler;
   private Color myBorderColor;
+  private boolean myNormalWindowLevel;
 
   public ComponentPopupBuilderImpl(@NotNull JComponent component, JComponent preferredFocusedComponent) {
     myComponent = component;
@@ -190,7 +190,7 @@ public class ComponentPopupBuilderImpl implements ComponentPopupBuilder {
 
   @Override
   @NotNull
-  public ComponentPopupBuilder setKeyboardActions(@NotNull List<Pair<ActionListener, KeyStroke>> keyboardActions) {
+  public ComponentPopupBuilder setKeyboardActions(@NotNull List<? extends Pair<ActionListener, KeyStroke>> keyboardActions) {
     myKeyboardActions = keyboardActions;
     return this;
   }
@@ -240,6 +240,9 @@ public class ComponentPopupBuilderImpl implements ComponentPopupBuilder {
       false, myKeyboardActions, mySettingsButtons, myPinCallback, myMayBeParent,
       myShowShadow, myShowBorder, myBorderColor, myCancelOnWindowDeactivation, myKeyEventHandler
     );
+
+    popup.setNormalWindowLevel(myNormalWindowLevel);
+
     if (myUserData != null) {
       popup.setUserData(myUserData);
     }
@@ -359,6 +362,13 @@ public class ComponentPopupBuilderImpl implements ComponentPopupBuilder {
   @Override
   public ComponentPopupBuilder setShowBorder(boolean show) {
     myShowBorder = show;
+    return this;
+  }
+
+  @NotNull
+  @Override
+  public ComponentPopupBuilder setNormalWindowLevel(boolean b) {
+    myNormalWindowLevel = b;
     return this;
   }
 

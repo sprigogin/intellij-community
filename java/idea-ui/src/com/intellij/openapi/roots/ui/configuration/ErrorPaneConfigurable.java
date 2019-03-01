@@ -56,7 +56,7 @@ public class ErrorPaneConfigurable extends JPanel implements Configurable, Dispo
   private final Object myLock = new Object();
   private final MergingUpdateQueue myContentUpdateQueue;
   private final JTextPane myContent = new JTextPane();
-  private Runnable myOnErrorsChanged;
+  private final Runnable myOnErrorsChanged;
 
   public ErrorPaneConfigurable(final Project project, StructureConfigurableContext context, Runnable onErrorsChanged) {
     super(new BorderLayout());
@@ -99,7 +99,7 @@ public class ErrorPaneConfigurable extends JPanel implements Configurable, Dispo
           final String host = url.getHost();
           String path = url.getPath();
           if (path != null && path.startsWith("/")) {
-            path = StringUtil.unescapeXml(path.substring(1));
+            path = StringUtil.unescapeXmlEntities(path.substring(1));
           }
           if (path != null) {
             if ("fix".equals(host)) {
@@ -215,11 +215,6 @@ public class ErrorPaneConfigurable extends JPanel implements Configurable, Dispo
   }
 
   @Override
-  public void reset() {
-
-  }
-
-  @Override
   public void disposeUIResources() {
     Disposer.dispose(this);
   }
@@ -256,7 +251,7 @@ public class ErrorPaneConfigurable extends JPanel implements Configurable, Dispo
     private final int myCurrentStamp;
     private final String myText;
 
-    public ShowErrorsUpdate(int currentStamp, String text) {
+    ShowErrorsUpdate(int currentStamp, String text) {
       super(currentStamp);
       myCurrentStamp = currentStamp;
       myText = text;

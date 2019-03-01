@@ -1,10 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.libraries;
 
 import com.intellij.configurationStore.ComponentSerializationUtil;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.StateSplitterEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -27,7 +26,6 @@ import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
 import gnu.trove.THashSet;
@@ -35,6 +33,7 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.serialization.SerializationConstants;
 
 import java.util.*;
 
@@ -52,7 +51,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   private static final String EXCLUDED_ROOTS_TAG = "excluded";
   private String myName;
   private final LibraryTable myLibraryTable;
-  private final Map<OrderRootType, VirtualFilePointerContainer> myRoots;
+  private final Map<OrderRootType, VirtualFilePointerContainer> myRoots = new HashMap<>(2);
   @Nullable private VirtualFilePointerContainer myExcludedRoots;
   private final LibraryImpl mySource;
   private PersistentLibraryKind<?> myKind;
@@ -88,9 +87,10 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
       myProperties.loadState(from.myProperties.getState());
     }
     for (OrderRootType rootType : getAllRootTypes()) {
-      final VirtualFilePointerContainer thisContainer = myRoots.get(rootType);
       final VirtualFilePointerContainer thatContainer = from.myRoots.get(rootType);
-      thisContainer.addAll(thatContainer);
+      if (thatContainer != null) {
+        getOrCreateContainer(rootType).addAll(thatContainer);
+      }
     }
     if (from.myExcludedRoots != null) {
       myExcludedRoots = from.myExcludedRoots.clone(myPointersDisposable);
@@ -107,13 +107,12 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     myKind = kind;
     myName = name;
     myExternalSource = externalSource;
-    //init roots depends on my myKind
-    myRoots = initRoots();
+    Disposer.register(this, myPointersDisposable);
   }
 
   @Nullable
-  private static ProjectModelExternalSource findExternalSource(Element element) {
-    @Nullable String externalSourceId = element.getAttributeValue(StateSplitterEx.EXTERNAL_SYSTEM_ID_ATTRIBUTE);
+  private static ProjectModelExternalSource findExternalSource(@NotNull Element element) {
+    @Nullable String externalSourceId = element.getAttributeValue(SerializationConstants.EXTERNAL_SYSTEM_ID_ATTRIBUTE);
     return externalSourceId != null ? ExternalProjectSystemRegistry.getInstance().getSourceById(externalSourceId) : null;
   }
 
@@ -204,7 +203,8 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   public List<String> getInvalidRootUrls(@NotNull OrderRootType type) {
     if (myDisposed) return Collections.emptyList();
 
-    final List<VirtualFilePointer> pointers = myRoots.get(type).getList();
+    VirtualFilePointerContainer container = myRoots.get(type);
+    final List<VirtualFilePointer> pointers = container == null ? Collections.emptyList() : container.getList();
     List<String> invalidPaths = null;
     for (VirtualFilePointer pointer : pointers) {
       if (!pointer.isValid()) {
@@ -269,23 +269,34 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   @NonNls private static final String ROOT_TYPE_ATTR = "type";
   private static final OrderRootType DEFAULT_JAR_DIRECTORY_TYPE = OrderRootType.CLASSES;
 
+  @NotNull
+  private VirtualFilePointerContainer getOrCreateContainer(@NotNull OrderRootType rootType) {
+    VirtualFilePointerContainer roots = myRoots.get(rootType);
+    if (roots == null) {
+      roots = VirtualFilePointerManager.getInstance().createContainer(myPointersDisposable, getListener());
+      myRoots.put(rootType, roots);
+    }
+    return roots;
+  }
+
   // just to maintain .xml compatibility
   // VirtualFilePointerContainerImpl does the same but stores its jar dirs attributes inside <root> element
   @Deprecated // todo to remove sometime later
-  private void readJarDirectories(Element element) {
+  private void readJarDirectories(@NotNull Element element) {
     final List<Element> jarDirs = element.getChildren(VirtualFilePointerContainerImpl.JAR_DIRECTORY_ELEMENT);
     for (Element jarDir : jarDirs) {
       final String url = jarDir.getAttributeValue(VirtualFilePointerContainerImpl.URL_ATTR);
       if (url != null) {
         final String recursive = jarDir.getAttributeValue(VirtualFilePointerContainerImpl.RECURSIVE_ATTR);
         final OrderRootType rootType = getJarDirectoryRootType(jarDir.getAttributeValue(ROOT_TYPE_ATTR));
-        VirtualFilePointerContainer roots = myRoots.get(rootType);
+        VirtualFilePointerContainer roots = getOrCreateContainer(rootType);
         boolean recursively = Boolean.parseBoolean(recursive);
         roots.addJarDirectory(url, recursively);
       }
     }
   }
 
+  @NotNull
   private static OrderRootType getJarDirectoryRootType(@Nullable String type) {
     for (PersistentOrderRootType rootType : OrderRootType.getAllPersistentTypes()) {
       if (rootType.name().equals(type)) {
@@ -295,7 +306,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     return DEFAULT_JAR_DIRECTORY_TYPE;
   }
 
-  private void readProperties(Element element) {
+  private void readProperties(@NotNull Element element) {
     final String typeId = element.getAttributeValue(LIBRARY_TYPE_ATTR);
     if (typeId == null) return;
 
@@ -319,11 +330,13 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
       if (rootChild == null) {
         continue;
       }
-      VirtualFilePointerContainer roots = myRoots.get(rootType);
-      roots.readExternal(rootChild, ROOT_PATH_ELEMENT, false);
+      if (!rootChild.getChildren(ROOT_PATH_ELEMENT).isEmpty()) {
+        VirtualFilePointerContainer roots = getOrCreateContainer(rootType);
+        roots.readExternal(rootChild, ROOT_PATH_ELEMENT, false);
+      }
     }
     Element excludedRoot = element.getChild(EXCLUDED_ROOTS_TAG);
-    if (excludedRoot != null) {
+    if (excludedRoot != null && !excludedRoot.getChildren(ROOT_PATH_ELEMENT).isEmpty()) {
       getOrCreateExcludedRoots().readExternal(excludedRoot, ROOT_PATH_ELEMENT, false);
     }
   }
@@ -376,7 +389,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
       }
       if (ProjectUtilCore.isExternalStorageEnabled(project)) {
         //we can add this attribute only if the library configuration will be stored separately, otherwise we will get modified files in .idea/libraries.
-        element.setAttribute(StateSplitterEx.EXTERNAL_SYSTEM_ID_ATTRIBUTE, myExternalSource.getId());
+        element.setAttribute(SerializationConstants.EXTERNAL_SYSTEM_ID_ATTRIBUTE, myExternalSource.getId());
       }
     }
 
@@ -385,14 +398,16 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
       storableRootTypes.addAll(Arrays.asList(myKind.getAdditionalRootTypes()));
     }
     for (OrderRootType rootType : sortRootTypes(storableRootTypes)) {
-      final VirtualFilePointerContainer roots = myRoots.get(rootType);
-      if (roots.size() == 0 && rootType.skipWriteIfEmpty()) {
+      VirtualFilePointerContainer roots = myRoots.get(rootType);
+      if ((roots == null || roots.size() == 0) && rootType.skipWriteIfEmpty()) {
         //compatibility iml/ipr
         continue;
       }
 
       final Element rootTypeElement = new Element(rootType.name());
-      roots.writeExternal(rootTypeElement, ROOT_PATH_ELEMENT, false);
+      if (roots != null) {
+        roots.writeExternal(rootTypeElement, ROOT_PATH_ELEMENT, false);
+      }
       element.addContent(rootTypeElement);
     }
     if (myExcludedRoots != null && myExcludedRoots.size() > 0) {
@@ -407,7 +422,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   // just to maintain .xml compatibility
   // VirtualFilePointerContainerImpl does the same but stores its jar dirs attributes inside <root> element
   @Deprecated // todo to remove sometime later
-  private void writeJarDirectories(Element element) {
+  private void writeJarDirectories(@NotNull Element element) {
     final List<OrderRootType> rootTypes = sortRootTypes(myRoots.keySet());
     for (OrderRootType rootType : rootTypes) {
       VirtualFilePointerContainer container = myRoots.get(rootType);
@@ -487,7 +502,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     checkDisposed();
     LOG.assertTrue(isWritable());
 
-    final VirtualFilePointerContainer container = myRoots.get(rootType);
+    final VirtualFilePointerContainer container = getOrCreateContainer(rootType);
     container.add(url);
   }
 
@@ -496,7 +511,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     checkDisposed();
     LOG.assertTrue(isWritable());
 
-    final VirtualFilePointerContainer container = myRoots.get(rootType);
+    final VirtualFilePointerContainer container = getOrCreateContainer(rootType);
     container.add(file);
   }
 
@@ -515,7 +530,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     checkDisposed();
     LOG.assertTrue(isWritable());
 
-    final VirtualFilePointerContainer container = myRoots.get(rootType);
+    final VirtualFilePointerContainer container = getOrCreateContainer(rootType);
     container.addJarDirectory(url, recursive);
   }
 
@@ -524,7 +539,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     checkDisposed();
     LOG.assertTrue(isWritable());
 
-    final VirtualFilePointerContainer container = myRoots.get(rootType);
+    final VirtualFilePointerContainer container = getOrCreateContainer(rootType);
     container.addJarDirectory(file.getUrl(), recursive);
   }
 
@@ -536,6 +551,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   @Override
   public boolean isJarDirectory(@NotNull final String url, @NotNull final OrderRootType rootType) {
     VirtualFilePointerContainer container = myRoots.get(rootType);
+    if (container == null) return false;
     List<Pair<String, Boolean>> jarDirectories = container.getJarDirectories();
     return jarDirectories.contains(Pair.create(url, false)) || jarDirectories.contains(Pair.create(url, true));
   }
@@ -543,7 +559,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
   @Override
   public boolean isValid(@NotNull final String url, @NotNull final OrderRootType rootType) {
     final VirtualFilePointerContainer container = myRoots.get(rootType);
-    final VirtualFilePointer fp = container.findByUrl(url);
+    final VirtualFilePointer fp = container == null ? null : container.findByUrl(url);
     return fp != null && fp.isValid();
   }
 
@@ -553,7 +569,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     LOG.assertTrue(isWritable());
 
     final VirtualFilePointerContainer container = myRoots.get(rootType);
-    final VirtualFilePointer byUrl = container.findByUrl(url);
+    final VirtualFilePointer byUrl = container == null ? null : container.findByUrl(url);
     if (byUrl != null) {
       container.remove(byUrl);
       if (myExcludedRoots != null) {
@@ -587,7 +603,9 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     LOG.assertTrue(isWritable());
 
     final VirtualFilePointerContainer container = myRoots.get(rootType);
-    container.moveUp(url);
+    if (container != null) {
+      container.moveUp(url);
+    }
   }
 
   @Override
@@ -596,7 +614,9 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     LOG.assertTrue(isWritable());
 
     final VirtualFilePointerContainer container = myRoots.get(rootType);
-    container.moveDown(url);
+    if (container != null) {
+      container.moveDown(url);
+    }
   }
 
   @Override
@@ -672,6 +692,7 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     return myLibraryTable;
   }
 
+  @Override
   public boolean equals(final Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
@@ -679,17 +700,16 @@ public class LibraryImpl extends TraceableDisposable implements LibraryEx.Modifi
     final LibraryImpl library = (LibraryImpl)o;
 
     if (myName != null ? !myName.equals(library.myName) : library.myName != null) return false;
-    if (myRoots != null ? !myRoots.equals(library.myRoots) : library.myRoots != null) return false;
+    if (!myRoots.equals(library.myRoots)) return false;
     if (myKind != null ? !myKind.equals(library.myKind) : library.myKind != null) return false;
     if (myProperties != null ? !myProperties.equals(library.myProperties) : library.myProperties != null) return false;
-    if (!Comparing.equal(myExcludedRoots, library.myExcludedRoots)) return false;
-
-    return true;
+    return Comparing.equal(myExcludedRoots, library.myExcludedRoots);
   }
 
+  @Override
   public int hashCode() {
     int result = myName != null ? myName.hashCode() : 0;
-    result = 31 * result + (myRoots != null ? myRoots.hashCode() : 0);
+    result = 31 * result + myRoots.hashCode();
     return result;
   }
 

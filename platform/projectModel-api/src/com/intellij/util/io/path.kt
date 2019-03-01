@@ -1,8 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.vfs.CharsetToolkit
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -12,12 +13,17 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
 import java.util.*
 
-fun Path.exists() = Files.exists(this)
+fun Path.exists(): Boolean = Files.exists(this)
 
 fun Path.createDirectories(): Path {
   // symlink or existing regular file - Java SDK do this check, but with as `isDirectory(dir, LinkOption.NOFOLLOW_LINKS)`, i.e. links are not checked
   if (!Files.isDirectory(this)) {
-    doCreateDirectories(toAbsolutePath())
+    try {
+      doCreateDirectories(toAbsolutePath())
+    }
+    catch (ignored: FileAlreadyExistsException) {
+      // toAbsolutePath can return resolved path or file exists now
+    }
   }
   return this
 }
@@ -39,7 +45,11 @@ fun Path.outputStream(): OutputStream {
   return Files.newOutputStream(this)
 }
 
+@Throws(IOException::class)
 fun Path.inputStream(): InputStream = Files.newInputStream(this)
+
+@Throws(IOException::class)
+fun Path.inputStreamSkippingBom() = CharsetToolkit.inputStreamSkippingBOM(inputStream().buffered())
 
 fun Path.inputStreamIfExists(): InputStream? {
   try {
@@ -70,7 +80,7 @@ fun Path.delete() {
     }
   }
   catch (e: Exception) {
-    FileUtil.delete(toFile())
+    deleteAsIOFile()
   }
 }
 
@@ -111,7 +121,7 @@ private fun Path.deleteRecursively() = Files.walkFileTree(this, object : SimpleF
       Files.delete(file)
     }
     catch (e: Exception) {
-      FileUtil.delete(file.toFile())
+      deleteAsIOFile()
     }
     return FileVisitResult.CONTINUE
   }
@@ -121,11 +131,19 @@ private fun Path.deleteRecursively() = Files.walkFileTree(this, object : SimpleF
       Files.delete(dir)
     }
     catch (e: Exception) {
-      FileUtil.delete(dir.toFile())
+      deleteAsIOFile()
     }
     return FileVisitResult.CONTINUE
   }
 })
+
+private fun Path.deleteAsIOFile() {
+  try {
+    FileUtil.delete(toFile())
+  }
+  // according to specification #toFile() method may throw UnsupportedOperationException
+  catch (ignored: UnsupportedOperationException) {}
+}
 
 fun Path.lastModified(): FileTime = Files.getLastModifiedTime(this)
 
@@ -135,47 +153,52 @@ val Path.systemIndependentPath: String
 val Path.parentSystemIndependentPath: String
   get() = parent!!.toString().replace(File.separatorChar, '/')
 
+@Throws(IOException::class)
 fun Path.readBytes(): ByteArray = Files.readAllBytes(this)
 
+@Throws(IOException::class)
 fun Path.readText(): String = readBytes().toString(Charsets.UTF_8)
 
+@Throws(IOException::class)
 fun Path.readChars() = inputStream().reader().readCharSequence(size().toInt())
 
+@Throws(IOException::class)
 fun Path.writeChild(relativePath: String, data: ByteArray) = resolve(relativePath).write(data)
 
+@Throws(IOException::class)
 fun Path.writeChild(relativePath: String, data: String) = writeChild(relativePath, data.toByteArray())
 
+@Throws(IOException::class)
+@JvmOverloads
 fun Path.write(data: ByteArray, offset: Int = 0, size: Int = data.size): Path {
   outputStream().use { it.write(data, offset, size) }
   return this
 }
 
 fun Path.writeSafe(data: ByteArray, offset: Int = 0, size: Int = data.size): Path {
-  val tempFile = parent.resolve("${fileName}.${UUID.randomUUID()}.tmp")
-  tempFile.write(data, offset, size)
-  try {
-    Files.move(tempFile, this, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-  }
-  catch (e: IOException) {
-    LOG.warn(e)
-    FileUtil.rename(tempFile.toFile(), this.toFile())
+  writeSafe {
+    it.write(data, offset, size)
   }
   return this
 }
 
+/**
+ * Consider using [SafeWriteRequestor.shallUseSafeStream] along with [SafeFileOutputStream]
+ */
 fun Path.writeSafe(outConsumer: (OutputStream) -> Unit): Path {
   val tempFile = parent.resolve("${fileName}.${UUID.randomUUID()}.tmp")
   tempFile.outputStream().use(outConsumer)
   try {
     Files.move(tempFile, this, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
   }
-  catch (e: IOException) {
+  catch (e: AtomicMoveNotSupportedException) {
     LOG.warn(e)
-    FileUtil.rename(tempFile.toFile(), this.toFile())
+    Files.move(tempFile, this, StandardCopyOption.REPLACE_EXISTING)
   }
   return this
 }
 
+@Throws(IOException::class)
 fun Path.write(data: String): Path {
   parent?.createDirectories()
 
@@ -183,26 +206,31 @@ fun Path.write(data: String): Path {
   return this
 }
 
-fun Path.size() = Files.size(this)
+fun Path.size(): Long = Files.size(this)
 
 fun Path.basicAttributesIfExists(): BasicFileAttributes? {
   try {
     return Files.readAttributes(this, BasicFileAttributes::class.java)
   }
-  catch (ignored: NoSuchFileException) {
+  catch (ignored: FileSystemException) {
     return null
   }
 }
 
-fun Path.sizeOrNull() = basicAttributesIfExists()?.size() ?: -1
+fun Path.sizeOrNull(): Long = basicAttributesIfExists()?.size() ?: -1
 
-fun Path.isHidden() = Files.isHidden(this)
+fun Path.isHidden(): Boolean = Files.isHidden(this)
 
-fun Path.isDirectory() = Files.isDirectory(this)
+fun Path.isDirectory(): Boolean = Files.isDirectory(this)
 
-fun Path.isFile() = Files.isRegularFile(this)
+fun Path.isFile(): Boolean = Files.isRegularFile(this)
 
 fun Path.move(target: Path): Path = Files.move(this, target, StandardCopyOption.REPLACE_EXISTING)
+
+fun Path.copy(target: Path): Path {
+  target.parent?.createDirectories()
+  return Files.copy(this, target, StandardCopyOption.REPLACE_EXISTING)
+}
 
 /**
  * Opposite to Java, parent directories will be created
@@ -270,3 +298,6 @@ fun sanitizeFileName(name: String, replacement: String? = "_", isTruncate: Boole
 
   return result.toString().truncateFileName()
 }
+
+val Path.isWritable: Boolean
+  get() = Files.isWritable(this)

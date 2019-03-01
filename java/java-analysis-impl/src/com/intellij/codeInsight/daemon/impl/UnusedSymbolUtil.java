@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
@@ -23,7 +9,6 @@ import com.intellij.codeInspection.ex.EntryPointsManager;
 import com.intellij.codeInspection.ex.EntryPointsManagerBase;
 import com.intellij.codeInspection.reference.UnusedDeclarationFixProvider;
 import com.intellij.find.findUsages.*;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -33,7 +18,6 @@ import com.intellij.psi.impl.source.PsiClassImpl;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.Processor;
@@ -50,7 +34,7 @@ public class UnusedSymbolUtil {
                                         @NotNull PsiModifierListOwner element,
                                         @Nullable ProgressIndicator progress) {
     if (isInjected(project, element)) return true;
-    for (ImplicitUsageProvider provider : Extensions.getExtensions(ImplicitUsageProvider.EP_NAME)) {
+    for (ImplicitUsageProvider provider : ImplicitUsageProvider.EP_NAME.getExtensionList()) {
       ProgressManager.checkCanceled();
       if (provider.isImplicitUsage(element)) {
         return true;
@@ -65,7 +49,7 @@ public class UnusedSymbolUtil {
   }
 
   public static boolean isImplicitRead(@NotNull Project project, @NotNull PsiVariable element, @Nullable ProgressIndicator progress) {
-    for(ImplicitUsageProvider provider: Extensions.getExtensions(ImplicitUsageProvider.EP_NAME)) {
+    for(ImplicitUsageProvider provider: ImplicitUsageProvider.EP_NAME.getExtensionList()) {
       ProgressManager.checkCanceled();
       if (provider.isImplicitRead(element)) {
         return true;
@@ -81,7 +65,7 @@ public class UnusedSymbolUtil {
   public static boolean isImplicitWrite(@NotNull Project project,
                                         @NotNull PsiVariable element,
                                         @Nullable ProgressIndicator progress) {
-    for(ImplicitUsageProvider provider: Extensions.getExtensions(ImplicitUsageProvider.EP_NAME)) {
+    for(ImplicitUsageProvider provider: ImplicitUsageProvider.EP_NAME.getExtensionList()) {
       ProgressManager.checkCanceled();
       if (provider.isImplicitWrite(element)) {
         return true;
@@ -99,8 +83,7 @@ public class UnusedSymbolUtil {
       return null; //filtered out
     }
 
-    UnusedDeclarationFixProvider[] fixProviders = Extensions.getExtensions(UnusedDeclarationFixProvider.EP_NAME);
-    for (UnusedDeclarationFixProvider provider : fixProviders) {
+    for (UnusedDeclarationFixProvider provider : UnusedDeclarationFixProvider.EP_NAME.getExtensionList()) {
       IntentionAction[] fixes = provider.getQuickFixes(element);
       for (IntentionAction fix : fixes) {
         QuickFixAction.registerQuickFixAction(info, fix);
@@ -203,14 +186,14 @@ public class UnusedSymbolUtil {
                                       @NotNull PsiMember member,
                                       @NotNull ProgressIndicator progress,
                                       @Nullable PsiFile ignoreFile,
-                                      @NotNull Processor<UsageInfo> usageInfoProcessor) {
+                                      @NotNull Processor<? super UsageInfo> usageInfoProcessor) {
     String name = member.getName();
     if (name == null) {
       log("* "+member.getName()+" no name; false");
       return false;
     }
     SearchScope useScope = member.getUseScope();
-    PsiSearchHelper searchHelper = PsiSearchHelper.SERVICE.getInstance(project);
+    PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(project);
     if (useScope instanceof GlobalSearchScope) {
       // some classes may have references from within XML outside dependent modules, e.g. our actions
       if (member instanceof PsiClass) {

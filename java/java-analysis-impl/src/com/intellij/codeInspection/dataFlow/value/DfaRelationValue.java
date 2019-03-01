@@ -16,14 +16,17 @@
 
 package com.intellij.codeInspection.dataFlow.value;
 
+import com.intellij.codeInspection.dataFlow.DfaFactType;
+import com.intellij.codeInspection.dataFlow.DfaNullability;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.psi.JavaTokenType;
+import com.intellij.psi.PsiType;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class DfaRelationValue extends DfaValue {
@@ -32,9 +35,9 @@ public class DfaRelationValue extends DfaValue {
     return myFactory.getRelationFactory().createCanonicalRelation(myLeftOperand, myRelation.getNegated(), myRightOperand);
   }
 
-  private @NotNull DfaValue myLeftOperand;
-  private @NotNull DfaValue myRightOperand;
-  private @NotNull RelationType myRelation;
+  private @NotNull final DfaValue myLeftOperand;
+  private @NotNull final DfaValue myRightOperand;
+  private @NotNull final RelationType myRelation;
 
   public enum RelationType {
     LE("<="), LT("<"), GE(">="), GT(">"), EQ("=="), NE("!="),
@@ -112,6 +115,13 @@ public class DfaRelationValue extends DfaValue {
       }
     }
 
+    /**
+     * @return true if this relation is >, >=, <, != or <=
+     */
+    public boolean isInequality() {
+      return this == LE || this == GE || this == LT || this == GT || this == NE;
+    }
+
     @Override
     public String toString() {
       return myName;
@@ -180,21 +190,30 @@ public class DfaRelationValue extends DfaValue {
           dfaRight instanceof DfaFactMapValue && !(dfaLeft instanceof DfaFactMapValue)) {
         return createCanonicalRelation(dfaLeft, relationType, dfaRight);
       }
-      if (dfaLeft instanceof DfaVariableValue || dfaLeft instanceof DfaBoxedValue || dfaLeft instanceof DfaUnboxedValue
-          || dfaRight instanceof DfaVariableValue || dfaRight instanceof DfaBoxedValue || dfaRight instanceof DfaUnboxedValue) {
-        if (!(dfaLeft instanceof DfaVariableValue || dfaLeft instanceof DfaBoxedValue || dfaLeft instanceof DfaUnboxedValue)) {
+      if (dfaLeft instanceof DfaVariableValue || dfaLeft instanceof DfaBoxedValue || dfaLeft instanceof DfaBinOpValue
+          || dfaRight instanceof DfaVariableValue || dfaRight instanceof DfaBoxedValue || dfaRight instanceof DfaBinOpValue) {
+        if (!(dfaLeft instanceof DfaVariableValue || dfaLeft instanceof DfaBoxedValue || dfaLeft instanceof DfaBinOpValue) ||
+            (dfaRight instanceof DfaBinOpValue && !(dfaLeft instanceof DfaBinOpValue))) {
           RelationType flipped = relationType.getFlipped();
           return flipped == null ? null : createCanonicalRelation(dfaRight, flipped, dfaLeft);
         }
         return createCanonicalRelation(dfaLeft, relationType, dfaRight);
       }
       if (dfaLeft instanceof DfaFactMapValue && dfaRight instanceof DfaConstValue) {
-        return createCanonicalRelation(DfaUnknownValue.getInstance(), relationType, dfaRight);
+        return createConstBasedRelation((DfaFactMapValue)dfaLeft, relationType, (DfaConstValue)dfaRight);
       }
       else if (dfaRight instanceof DfaFactMapValue && dfaLeft instanceof DfaConstValue) {
-        return createCanonicalRelation(DfaUnknownValue.getInstance(), relationType, dfaLeft);
+        return createConstBasedRelation((DfaFactMapValue)dfaRight, relationType, (DfaConstValue)dfaLeft);
       }
       return null;
+    }
+
+    @NotNull
+    private DfaRelationValue createConstBasedRelation(DfaFactMapValue dfaLeft, RelationType relationType, DfaConstValue dfaRight) {
+      if (dfaRight.getValue() == null && DfaNullability.isNullable(dfaLeft.getFacts())) {
+        return createCanonicalRelation(myFactory.getFactValue(DfaFactType.NULLABILITY, DfaNullability.NULLABLE), relationType, dfaRight);
+      }
+      return createCanonicalRelation(DfaUnknownValue.getInstance(), relationType, dfaRight);
     }
 
     @NotNull
@@ -217,6 +236,12 @@ public class DfaRelationValue extends DfaValue {
   @NotNull
   public RelationType getRelation() {
     return myRelation;
+  }
+
+  @Nullable
+  @Override
+  public PsiType getType() {
+    return PsiType.BOOLEAN;
   }
 
   @NonNls public String toString() {

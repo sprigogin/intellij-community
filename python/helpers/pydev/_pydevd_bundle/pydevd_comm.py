@@ -58,27 +58,32 @@ each command has a format:
     * PYDB - pydevd, the python end
 '''
 
-import os
+from socket import socket, AF_INET, SOCK_STREAM, SHUT_RD, SHUT_WR, SOL_SOCKET, SO_REUSEADDR, SHUT_RDWR
 
 from _pydev_bundle.pydev_imports import _queue
-from _pydev_imps._pydev_saved_modules import time
 from _pydev_imps._pydev_saved_modules import thread
 from _pydev_imps._pydev_saved_modules import threading
-from _pydev_imps._pydev_saved_modules import socket
-from socket import socket, AF_INET, SOCK_STREAM, SHUT_RD, SHUT_WR, SOL_SOCKET, SO_REUSEADDR, SHUT_RDWR, timeout
+from _pydev_imps._pydev_saved_modules import time
 from _pydevd_bundle.pydevd_constants import DebugInfoHolder, get_thread_id, IS_JYTHON, IS_PY2, IS_PY3K, \
-    IS_PY36_OR_GREATER, STATE_RUN, dict_keys, ASYNC_EVAL_TIMEOUT_SEC
+    IS_PY36_OR_GREATER, STATE_RUN, dict_keys, ASYNC_EVAL_TIMEOUT_SEC, IS_IRONPYTHON
 
 try:
     from urllib import quote_plus, unquote, unquote_plus
 except:
     from urllib.parse import quote_plus, unquote, unquote_plus  #@Reimport @UnresolvedImport
-import pydevconsole
+    
+if IS_IRONPYTHON:
+    # redefine `unquote` for IronPython, since we use it only for logging messages, but it leads to SOF with IronPython
+    def unquote(s):
+        return s
+
+from _pydevd_bundle import pydevd_console_integration
 from _pydevd_bundle import pydevd_vars
 from _pydevd_bundle import pydevd_xml
 from _pydevd_bundle import pydevd_tracing
 from _pydevd_bundle import pydevd_vm_type
-from pydevd_file_utils import get_abs_path_real_path_and_base_from_frame, NORM_PATHS_AND_BASE_CONTAINER, norm_file_to_client
+from pydevd_file_utils import get_abs_path_real_path_and_base_from_frame, norm_file_to_client, is_real_file
+import os
 import sys
 import traceback
 from _pydevd_bundle.pydevd_utils import quote_smart as quote, compare_object_attrs_key, to_string
@@ -157,6 +162,8 @@ CMD_PROCESS_CREATED = 149
 CMD_SHOW_CYTHON_WARNING = 150
 CMD_LOAD_FULL_VALUE = 151
 
+CMD_PROCESS_CREATED_MSG_RECEIVED = 159
+
 CMD_VERSION = 501
 CMD_RETURN = 502
 CMD_ERROR = 901
@@ -217,6 +224,8 @@ ID_TO_MEANING = {
     '150': 'CMD_SHOW_CYTHON_WARNING',
     '151': 'CMD_LOAD_FULL_VALUE',
 
+    '159': 'CMD_PROCESS_CREATED_MSG_RECEIVED',
+
     '501': 'CMD_VERSION',
     '502': 'CMD_RETURN',
     '901': 'CMD_ERROR',
@@ -229,6 +238,15 @@ VERSION_STRING = "@@BUILD_NUMBER@@"
 
 from _pydev_bundle._pydev_filesystem_encoding import getfilesystemencoding
 file_system_encoding = getfilesystemencoding()
+
+
+class CommunicationRole(object):
+    """The class that contains the constants of roles that `PyDB` can play in
+    the communication with the IDE.
+    """
+    CLIENT = 0
+    SERVER = 1
+
 
 #--------------------------------------------------------------------------------------------------- UTILITIES
 
@@ -701,14 +719,19 @@ class NetCommandFactory:
 
                 abs_path_real_path_and_base = get_abs_path_real_path_and_base_from_frame(curr_frame)
 
-                myFile = norm_file_to_client(abs_path_real_path_and_base[0])
-                if file_system_encoding.lower() != "utf-8" and hasattr(myFile, "decode"):
-                    # myFile is a byte string encoded using the file system encoding
-                    # convert it to utf8
-                    myFile = myFile.decode(file_system_encoding).encode("utf-8")
+                my_file = abs_path_real_path_and_base[0]
 
-                #print "file is ", myFile
-                #myFile = inspect.getsourcefile(curr_frame) or inspect.getfile(frame)
+                if is_real_file(my_file):
+                    # if filename is Jupyter cell id
+                    my_file = norm_file_to_client(abs_path_real_path_and_base[0])
+
+                if file_system_encoding.lower() != "utf-8" and hasattr(my_file, "decode"):
+                    # my_file is a byte string encoded using the file system encoding
+                    # convert it to utf8
+                    my_file = my_file.decode(file_system_encoding).encode("utf-8")
+
+                #print "file is ", my_file
+                #my_file = inspect.getsourcefile(curr_frame) or inspect.getfile(frame)
 
                 myLine = str(curr_frame.f_lineno)
                 #print "line is ", myLine
@@ -718,7 +741,7 @@ class NetCommandFactory:
 
                 variables = ''
                 append('<frame id="%s" name="%s" ' % (my_id , make_valid_xml_value(my_name)))
-                append('file="%s" line="%s">' % (quote(myFile, '/>_= \t'), myLine))
+                append('file="%s" line="%s">' % (quote(my_file, '/>_= \t'), myLine))
                 append(variables)
                 append("</frame>")
                 curr_frame = curr_frame.f_back
@@ -1026,12 +1049,14 @@ class InternalGetVariable(InternalThreadCommand):
         try:
             xml = StringIO.StringIO()
             xml.write("<xml>")
-            _typeName, val_dict = pydevd_vars.resolve_compound_variable(self.thread_id, self.frame_id, self.scope, self.attributes)
+            _typeName, val_dict = pydevd_vars.resolve_compound_variable_fields(self.thread_id, self.frame_id, self.scope, self.attributes)
             if val_dict is None:
                 val_dict = {}
 
             keys = dict_keys(val_dict)
-            if _typeName != "OrderedDict" and not IS_PY36_OR_GREATER:
+            # assume properly ordered if resolver returns 'OrderedDict'
+            # check type as string to support OrderedDict backport for older Python
+            if not (_typeName == "OrderedDict" or val_dict.__class__.__name__ == "OrderedDict" or IS_PY36_OR_GREATER):
                 keys.sort(key=compare_object_attrs_key)
 
             for k in keys:
@@ -1119,7 +1144,7 @@ class InternalGetFrame(InternalThreadCommand):
         try:
             frame = pydevd_vars.find_frame(self.thread_id, self.frame_id)
             if frame is not None:
-                hidden_ns = pydevconsole.get_ipython_hidden_vars()
+                hidden_ns = pydevd_console_integration.get_ipython_hidden_vars()
                 xml = "<xml>"
                 xml += pydevd_xml.frame_vars_to_xml(frame.f_locals, hidden_ns)
                 del frame
@@ -1164,7 +1189,6 @@ class InternalEvaluateExpression(InternalThreadCommand):
             dbg.writer.add_command(cmd)
         except:
             exc = get_exception_traceback_str()
-            sys.stderr.write('%s\n' % (exc,))
             cmd = dbg.cmd_factory.make_error_message(self.sequence, "Error evaluating expression " + exc)
             dbg.writer.add_command(cmd)
 
@@ -1438,7 +1462,7 @@ class InternalConsoleExec(InternalThreadCommand):
                 #don't trace new threads created by console command
                 disable_trace_thread_modules()
 
-                result = pydevconsole.console_exec(self.thread_id, self.frame_id, self.expression, dbg)
+                result = pydevd_console_integration.console_exec(self.thread_id, self.frame_id, self.expression, dbg)
                 xml = "<xml>"
                 xml += pydevd_xml.var_to_xml(result, "")
                 xml += "</xml>"
@@ -1480,11 +1504,10 @@ class InternalLoadFullValue(InternalThreadCommand):
                     else:
                         scope, attrs = (variable, None)
                         name = scope
-
                     var_obj = pydevd_vars.getVariable(self.thread_id, self.frame_id, scope, attrs)
                     var_objects.append((var_obj, name))
 
-            t = GetValueAsyncThread(dbg, self.thread_id, self.frame_id, self.sequence, var_objects)
+            t = GetValueAsyncThreadDebug(dbg, self.sequence, var_objects)
             t.start()
         except:
             exc = get_exception_traceback_str()
@@ -1493,15 +1516,19 @@ class InternalLoadFullValue(InternalThreadCommand):
             dbg.writer.add_command(cmd)
 
 
-class GetValueAsyncThread(PyDBDaemonThread):
-    def __init__(self, py_db, thread_id, frame_id, seq, var_objects):
+class AbstractGetValueAsyncThread(PyDBDaemonThread):
+    """
+    Abstract class for a thread, which evaluates values for async variables
+    """
+    def __init__(self, frame_accessor, seq, var_objects):
         PyDBDaemonThread.__init__(self)
-        self.py_db = py_db
-        self.thread_id = thread_id
-        self.frame_id = frame_id
+        self.frame_accessor = frame_accessor
         self.seq = seq
         self.var_objs = var_objects
         self.cancel_event = threading.Event()
+
+    def send_result(self, xml):
+        raise NotImplementedError()
 
     def _on_run(self):
         start = time.time()
@@ -1513,9 +1540,29 @@ class GetValueAsyncThread(PyDBDaemonThread):
                 break
             xml.write(pydevd_xml.var_to_xml(var_obj, name, evaluate_full_value=True))
         xml.write("</xml>")
-        cmd = self.py_db.cmd_factory.make_load_full_value_message(self.seq, xml.getvalue())
+        self.send_result(xml)
         xml.close()
-        self.py_db.writer.add_command(cmd)
+
+
+class GetValueAsyncThreadDebug(AbstractGetValueAsyncThread):
+    """
+    A thread for evaluation async values, which returns result for debugger
+    Create message and send it via writer thread
+    """
+    def send_result(self, xml):
+        if self.frame_accessor is not None:
+            cmd = self.frame_accessor.cmd_factory.make_load_full_value_message(self.seq, xml.getvalue())
+            self.frame_accessor.writer.add_command(cmd)
+
+
+class GetValueAsyncThreadConsole(AbstractGetValueAsyncThread):
+    """
+    A thread for evaluation async values, which returns result for Console
+    Send result directly to Console's server
+    """
+    def send_result(self, xml):
+        if self.frame_accessor is not None:
+            self.frame_accessor.ReturnFullValue(self.seq, xml.getvalue())
 
 
 #=======================================================================================================================

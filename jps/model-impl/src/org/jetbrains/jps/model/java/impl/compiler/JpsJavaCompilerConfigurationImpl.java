@@ -20,10 +20,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElementChildRole;
 import org.jetbrains.jps.model.ex.JpsCompositeElementBase;
 import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
-import org.jetbrains.jps.model.java.compiler.JpsCompilerExcludes;
-import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
-import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerOptions;
-import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
+import org.jetbrains.jps.model.java.compiler.*;
 import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.File;
@@ -42,12 +39,14 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   private final List<String> myResourcePatterns = new ArrayList<>();
   private final List<ProcessorConfigProfile> myAnnotationProcessingProfiles = new ArrayList<>();
   private final ProcessorConfigProfileImpl myDefaultAnnotationProcessingProfile = new ProcessorConfigProfileImpl("Default");
+  private boolean myUseReleaseOption = true;
   private String myProjectByteCodeTargetLevel;
   private final Map<String, String> myModulesByteCodeTargetLevels = new HashMap<>();
   private final Map<String, JpsJavaCompilerOptions> myCompilerOptions = new HashMap<>();
   private String myJavaCompilerId = "Javac";
   private Map<JpsModule, ProcessorConfigProfile> myAnnotationProcessingProfileMap;
   private ResourcePatterns myCompiledPatterns;
+  private JpsValidationConfiguration myValidationConfiguration = new JpsValidationConfigurationImpl(false, Collections.emptySet());
 
   public JpsJavaCompilerConfigurationImpl() {
   }
@@ -102,6 +101,17 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   @Override
   public JpsCompilerExcludes getValidationExcludes() {
     return myValidationExcludes;
+  }
+
+  @NotNull
+  @Override
+  public JpsValidationConfiguration getValidationConfiguration() {
+    return myValidationConfiguration;
+  }
+
+  @Override
+  public void setValidationConfiguration(boolean validateOnBuild, @NotNull Set<String> disabledValidators) {
+    myValidationConfiguration = new JpsValidationConfigurationImpl(validateOnBuild, disabledValidators);
   }
 
   @NotNull
@@ -186,6 +196,16 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   @Override
   public void setProjectByteCodeTargetLevel(String level) {
     myProjectByteCodeTargetLevel = level;
+  }
+
+  @Override
+  public boolean useReleaseOption() {
+    return myUseReleaseOption;
+  }
+
+  @Override
+  public void setUseReleaseOption(boolean useReleaseOption) {
+    myUseReleaseOption = useReleaseOption;
   }
 
   @Override

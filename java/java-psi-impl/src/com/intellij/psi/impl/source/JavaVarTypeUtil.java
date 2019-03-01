@@ -28,7 +28,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 
 public class JavaVarTypeUtil {
-  
+  public static final RecursionGuard ourVarGuard = RecursionManager.createGuard("var.guard");
+
   public static PsiType getUpwardProjection(@NotNull PsiType t) {
     return t.accept(new UpwardProjectionTypeVisitor());
   }
@@ -52,7 +53,7 @@ public class JavaVarTypeUtil {
   }
 
   private static class UpwardProjectionTypeVisitor extends PsiTypeVisitorEx<PsiType> {
-    private static RecursionGuard upwardGuard = RecursionManager.createGuard("upwardProjectionGuard");
+    private static final RecursionGuard upwardGuard = RecursionManager.createGuard("upwardProjectionGuard");
     @Override
     public PsiType visitType(PsiType type) {
       return type;
@@ -126,7 +127,7 @@ public class JavaVarTypeUtil {
             }
           }
         }
-        return JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createType(aClass, targetSubstitutor);
+        return JavaPsiFacade.getElementFactory(aClass.getProject()).createType(aClass, targetSubstitutor);
       }
       return classType;
     }
@@ -213,7 +214,7 @@ public class JavaVarTypeUtil {
             return PsiType.NULL;
           }
         }
-        return JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createType(aClass, targetSubstitutor);
+        return JavaPsiFacade.getElementFactory(aClass.getProject()).createType(aClass, targetSubstitutor);
       }
       return PsiType.NULL;
     }

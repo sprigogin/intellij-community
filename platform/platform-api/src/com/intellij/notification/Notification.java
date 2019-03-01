@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification;
 
 import com.intellij.ide.DataManager;
@@ -27,7 +13,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,6 +31,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Three lines: title and content line and actions; contents on two lines and actions; contents on three lines or more; etc.
  * <br><br>
  * Warning: be careful not to use the links in HTML content, use {@link #addAction(AnAction)}
+ *
+ * @see NotificationAction
+ * @see com.intellij.notification.SingletonNotificationManager
  *
  * @author spleaner
  * @author Alexander Lobas
@@ -105,7 +93,6 @@ public class Notification {
     myIcon = icon;
     mySubtitle = subtitle;
 
-    assertHasTitleOrContent();
     id = calculateId(this);
   }
 
@@ -133,7 +120,6 @@ public class Notification {
     myListener = listener;
     myTimestamp = System.currentTimeMillis();
 
-    assertHasTitleOrContent();
     id = calculateId(this);
   }
 
@@ -233,29 +219,19 @@ public class Notification {
   }
 
   public static void fire(@NotNull final Notification notification, @NotNull AnAction action, @Nullable DataContext context) {
-    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, ActionPlaces.UNKNOWN, new DataContext() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        if (KEY.is(dataId)) {
-          return notification;
-        }
-        return context == null ? null : context.getData(dataId);
+    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, ActionPlaces.UNKNOWN, dataId -> {
+      if (KEY.is(dataId)) {
+        return notification;
       }
+      return context == null ? null : context.getData(dataId);
     });
     if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
-      ActionUtil.performActionDumbAware(action, event);
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event, event.getDataContext());
     }
   }
 
   public static void setDataProvider(@NotNull Notification notification, @NotNull JComponent component) {
-    DataManager.registerDataProvider(component, new DataProvider() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        return KEY.getName().equals(dataId) ? notification : null;
-      }
-    });
+    DataManager.registerDataProvider(component, dataId -> KEY.getName().equals(dataId) ? notification : null);
   }
 
   @NotNull
@@ -305,7 +281,7 @@ public class Notification {
   public void expire() {
     if (!myExpired.compareAndSet(false, true)) return;
 
-    UIUtil.invokeLaterIfNeeded(() -> hideBalloon());
+    UIUtil.invokeLaterIfNeeded(this::hideBalloon);
     NotificationsManager.getNotificationsManager().expire(this);
 
     Runnable whenExpired = myWhenExpired;
@@ -332,7 +308,7 @@ public class Notification {
     myBalloonRef = new WeakReference<>(balloon);
     balloon.addListener(new JBPopupAdapter() {
       @Override
-      public void onClosed(LightweightWindowEvent event) {
+      public void onClosed(@NotNull LightweightWindowEvent event) {
         if (SoftReference.dereference(myBalloonRef) == balloon) {
           myBalloonRef = null;
         }
@@ -364,11 +340,10 @@ public class Notification {
 
   @NotNull
   private static String calculateId(@NotNull Object notification) {
-    return String.valueOf(System.currentTimeMillis()) + "." + String.valueOf(System.identityHashCode(notification));
+    return System.currentTimeMillis() + "." + System.identityHashCode(notification);
   }
 
-  private void assertHasTitleOrContent() {
-    LOG.assertTrue(hasTitle() || hasContent(),
-                   "Notification should have title: [" + myTitle + "] and/or content: [" + myContent + "]; groupId: " + myGroupId);
+  public final void assertHasTitleOrContent() {
+    LOG.assertTrue(hasTitle() || hasContent(), "Notification should have title and/or content; groupId: " + myGroupId);
   }
 }

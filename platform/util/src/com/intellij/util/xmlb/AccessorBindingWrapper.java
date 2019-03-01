@@ -1,24 +1,30 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xmlb;
 
+import com.intellij.openapi.util.text.StringUtilRt;
+import com.intellij.util.xmlb.annotations.Property;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.awt.*;
 import java.util.List;
 
 class AccessorBindingWrapper extends Binding implements MultiNodeBinding {
   protected final Binding myBinding;
 
   private final boolean myFlat;
+  private final Property.Style beanStyle;
 
-  public AccessorBindingWrapper(@NotNull MutableAccessor accessor, @NotNull Binding binding, boolean flat) {
+  AccessorBindingWrapper(@NotNull MutableAccessor accessor,
+                                @NotNull Binding binding,
+                                boolean flat,
+                                Property.Style beanStyle) {
     super(accessor);
 
     myBinding = binding;
     myFlat = flat;
+    this.beanStyle = beanStyle;
   }
 
   public boolean isFlat() {
@@ -33,7 +39,18 @@ class AccessorBindingWrapper extends Binding implements MultiNodeBinding {
       throw new XmlSerializationException("Property " + myAccessor + " of object " + o + " (" + o.getClass() + ") must not be null");
     }
     if (myFlat) {
-      ((BeanBinding)myBinding).serializeInto(value, (Element)context, filter);
+      Element element = (Element)context;
+      if (beanStyle == Property.Style.ATTRIBUTE && value instanceof Rectangle) {
+        Rectangle bounds = (Rectangle)value;
+        LOG.assertTrue(element != null);
+        element.setAttribute("x", Integer.toString(bounds.x));
+        element.setAttribute("y", Integer.toString(bounds.y));
+        element.setAttribute("width", Integer.toString(bounds.width));
+        element.setAttribute("height", Integer.toString(bounds.height));
+      }
+      else {
+        ((BeanBinding)myBinding).serializeInto(value, element, filter);
+      }
       return null;
     }
     else {
@@ -53,7 +70,28 @@ class AccessorBindingWrapper extends Binding implements MultiNodeBinding {
       ((BeanBinding)myBinding).deserializeInto(currentValue, element);
     }
     else {
-      Object deserializedValue = myBinding.deserializeUnsafe(currentValue, element);
+      Object deserializedValue;
+      if (beanStyle == Property.Style.ATTRIBUTE && myBinding instanceof BeanBinding && ((BeanBinding)myBinding).myBeanClass == Rectangle.class) {
+        String xA = element.getAttributeValue("x");
+        String yA = element.getAttributeValue("y");
+        String wA = element.getAttributeValue("width");
+        String hA = element.getAttributeValue("height");
+
+        if (xA != null && yA != null && wA != null && hA != null) {
+          int x = StringUtilRt.parseInt(xA, 0);
+          int y = StringUtilRt.parseInt(yA, 0);
+          int h = StringUtilRt.parseInt(hA, 0);
+          int w = StringUtilRt.parseInt(wA, 0);
+          deserializedValue = new Rectangle(x, y, w, h);
+        }
+        else {
+          return context;
+        }
+      }
+      else {
+        deserializedValue = myBinding.deserializeUnsafe(currentValue, element);
+      }
+
       if (currentValue != deserializedValue) {
         myAccessor.set(context, deserializedValue);
       }
@@ -63,7 +101,7 @@ class AccessorBindingWrapper extends Binding implements MultiNodeBinding {
 
   @Nullable
   @Override
-  public Object deserializeList(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<Element> elements) {
+  public Object deserializeList(@SuppressWarnings("NullableProblems") @NotNull Object context, @NotNull List<? extends Element> elements) {
     Object currentValue = myAccessor.read(context);
     if (myBinding instanceof BeanBinding && myAccessor.isFinal()) {
       ((BeanBinding)myBinding).deserializeInto(currentValue, elements.get(0));
@@ -84,6 +122,16 @@ class AccessorBindingWrapper extends Binding implements MultiNodeBinding {
 
   @Override
   public boolean isBoundTo(@NotNull Element element) {
-    return myBinding.isBoundTo(element);
+    if (myBinding instanceof MapBinding) {
+      return ((MapBinding)myBinding).isBoundToWithoutProperty(element);
+    }
+    else {
+      return myBinding.isBoundTo(element);
+    }
+  }
+
+  @Override
+  public String toString() {
+    return myBinding.toString();
   }
 }

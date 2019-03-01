@@ -14,12 +14,8 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ObjectUtils;
 import com.siyeh.ig.performance.CollectionsListSettings;
-import com.siyeh.ig.psiutils.CommentTracker;
-import com.siyeh.ig.psiutils.ControlFlowUtils;
+import com.siyeh.ig.psiutils.*;
 import com.siyeh.ig.psiutils.ControlFlowUtils.InitializerUsageStatus;
-import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.VariableAccessUtils;
-import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -27,18 +23,18 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
 
 /**
  * @author Dmitry Batkovich
  */
-public class CollectionAddAllCanBeReplacedWithConstructorInspection extends
-                                                                    AbstractBaseJavaLocalInspectionTool {
+public class CollectionAddAllCanBeReplacedWithConstructorInspection extends AbstractBaseJavaLocalInspectionTool {
 
   private final CollectionsListSettings mySettings = new CollectionsListSettings() {
     @Override
     protected Collection<String> getDefaultSettings() {
-      return StreamEx.of(DEFAULT_COLLECTION_LIST).append("java.util.TreeSet", "java.util.TreeMap").sorted().toList();
+      return Collections.emptyList();
     }
   };
 
@@ -98,7 +94,6 @@ public class CollectionAddAllCanBeReplacedWithConstructorInspection extends
         if (assignmentExpression == null || !isAddAllReplaceable(expression, assignmentExpression)) return;
         final PsiMethod method = expression.resolveMethod();
         if (method != null) {
-          //noinspection DialogTitleCapitalization
           holder.registerProblem(nameElement, QuickFixBundle.message("collection.addall.can.be.replaced.with.constructor.fix.description"),
                                  new ReplaceAddAllWithConstructorFix(assignmentExpression, expression, methodName));
         }
@@ -148,13 +143,14 @@ public class CollectionAddAllCanBeReplacedWithConstructorInspection extends
       return false;
     }
     final PsiClass initializerClass = (PsiClass)classReference.resolve();
-    if (initializerClass == null ||
-        !mySettings.getCollectionClassesRequiringCapacity().contains(initializerClass.getQualifiedName()) ||
-        !hasProperConstructor(initializerClass)) {
+    if (initializerClass == null) return false;
+    if (!ConstructionUtils.isCollectionWithCopyConstructor(initializerClass) &&
+        (!mySettings.getCollectionClassesRequiringCapacity().contains(initializerClass.getQualifiedName()) ||
+         !hasProperConstructor(initializerClass))) {
       return false;
     }
     final PsiExpressionList argumentList = newExpression.getArgumentList();
-    return argumentList != null && argumentList.getExpressions().length == 0;
+    return argumentList != null && argumentList.isEmpty();
   }
 
   private static boolean hasProperConstructor(PsiClass psiClass) {
@@ -253,7 +249,7 @@ public class CollectionAddAllCanBeReplacedWithConstructorInspection extends
             ((PsiDeclarationStatement)variable.getParent()).getDeclaredElements().length == 1) {
           PsiElement scope = PsiTreeUtil.getParentOfType(expressionStatement, PsiMember.class, PsiStatement.class, PsiLambdaExpression.class);
           if (scope != null &&
-              ReferencesSearch.search(variable).forEach((PsiReference ref) -> PsiTreeUtil.isAncestor(scope, ref.getElement(), true))) {
+              ReferencesSearch.search(variable).allMatch(ref -> PsiTreeUtil.isAncestor(scope, ref.getElement(), true))) {
             PsiDeclarationStatement newDeclaration =
               JavaPsiFacade.getElementFactory(project).createVariableDeclarationStatement("x", PsiType.INT, null, methodCallExpression);
             PsiVariable newVariable = (PsiVariable)newDeclaration.getDeclaredElements()[0].replace(variable);

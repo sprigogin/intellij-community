@@ -32,8 +32,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.groovy.compiler.rt.ClassDependencyLoader;
 import org.jetbrains.groovy.compiler.rt.GroovyRtConstants;
+import org.jetbrains.jps.incremental.CompileContext;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
@@ -58,6 +62,7 @@ class InProcessGroovyc implements GroovycFlavor {
   private static final Pattern GROOVY_JAR_PATTERN = Pattern.compile("groovy(-(.*))?\\.jar");
   private static final Pattern GROOVY_ECLIPSE_BATCH_PATTERN = Pattern.compile("groovy-eclipse-batch-(.*)\\.jar");
   private static final ThreadPoolExecutor ourExecutor = ConcurrencyUtil.newSingleThreadExecutor("Groovyc");
+  private static final String GROOVYC_FINISHED = "Groovyc finished";
   private static SoftReference<Pair<String, ClassLoader>> ourParentLoaderCache;
   private static final UrlClassLoader.CachePool ourLoaderCachePool = UrlClassLoader.createCachePool();
   private final Collection<String> myOutputs;
@@ -69,23 +74,30 @@ class InProcessGroovyc implements GroovycFlavor {
   }
 
   @Override
-  public GroovycContinuation runGroovyc(final Collection<String> compilationClassPath,
-                                        final boolean forStubs,
-                                        final JpsGroovySettings settings,
-                                        final File tempFile,
-                                        final GroovycOutputParser parser) throws Exception {
+  public GroovycContinuation runGroovyc(Collection<String> compilationClassPath,
+                                        boolean forStubs,
+                                        CompileContext context,
+                                        File tempFile,
+                                        GroovycOutputParser parser, String byteCodeTargetLevel) throws Exception {
     boolean jointPossible = forStubs && !myHasStubExcludes;
-    final LinkedBlockingQueue<String> mailbox = jointPossible && SystemProperties.getBooleanProperty("groovyc.joint.compilation", true)
-                                                ? new LinkedBlockingQueue<>() : null;
+    LinkedBlockingQueue<Object> mailbox = jointPossible && SystemProperties.getBooleanProperty("groovyc.joint.compilation", true)
+                                          ? new LinkedBlockingQueue<>() : null;
 
     final JointCompilationClassLoader loader = createCompilationClassLoader(compilationClassPath);
     if (loader == null) {
-      parser.addCompilerMessage(parser.reportNoGroovy());
+      parser.addCompilerMessage(parser.reportNoGroovy(null));
       return null;
     }
 
     final Future<Void> future = ourExecutor.submit(() -> {
-      runGroovycInThisProcess(loader, forStubs, settings, tempFile, parser, mailbox);
+      try {
+        runGroovycInThisProcess(loader, forStubs, context, tempFile, parser, byteCodeTargetLevel, mailbox);
+      }
+      finally {
+        if (mailbox != null) {
+          mailbox.offer(GROOVYC_FINISHED);
+        }
+      }
       return null;
     });
     if (mailbox == null) {
@@ -97,30 +109,34 @@ class InProcessGroovyc implements GroovycFlavor {
   }
 
   @Nullable
-  private static GroovycContinuation waitForStubGeneration(final Future<Void> future,
-                                                           final LinkedBlockingQueue<String> mailbox,
-                                                           final GroovycOutputParser parser,
+  private static GroovycContinuation waitForStubGeneration(Future<Void> future,
+                                                           LinkedBlockingQueue<Object> mailbox,
+                                                           GroovycOutputParser parser,
                                                            JointCompilationClassLoader loader) throws InterruptedException {
     while (true) {
-      if (future.isDone()) {
+      Object msg = mailbox.poll(1, TimeUnit.MINUTES);
+      if (GROOVYC_FINISHED.equals(msg)) {
         return null;
       }
+      else if (msg instanceof Queue) {
+        // a signal that stubs are generated, so we can continue to other builders
+        // and use the passed queue to notify the suspended thread to continue compiling groovy
 
-      Object msg = mailbox.poll(10, TimeUnit.MILLISECONDS);
-      if (GroovyRtConstants.STUBS_GENERATED.equals(msg)) {
+        //noinspection unchecked
+        Queue<String> toGroovyc = (Queue<String>)msg;
         loader.resetCache();
-        return createContinuation(future, mailbox, parser);
+        return createContinuation(future, toGroovyc, parser);
       }
-      if (msg != null) {
+      else if (msg != null) {
         throw new AssertionError("Unknown message: " + msg);
       }
     }
   }
 
   @NotNull
-  private static GroovycContinuation createContinuation(final Future<Void> future,
-                                                        final LinkedBlockingQueue<String> mailbox,
-                                                        final GroovycOutputParser parser) {
+  private static GroovycContinuation createContinuation(Future<Void> future,
+                                                        @NotNull Queue<String> mailbox,
+                                                        GroovycOutputParser parser) {
     return new GroovycContinuation() {
       @NotNull
       @Override
@@ -141,10 +157,10 @@ class InProcessGroovyc implements GroovycFlavor {
   @SuppressWarnings("UseOfSystemOutOrSystemErr")
   private static void runGroovycInThisProcess(ClassLoader loader,
                                               boolean forStubs,
-                                              JpsGroovySettings settings,
+                                              CompileContext context,
                                               File tempFile,
                                               final GroovycOutputParser parser,
-                                              @Nullable Queue mailbox) throws Exception {
+                                              @Nullable String byteCodeTargetLevel, @Nullable Queue mailbox) {
     PrintStream oldOut = System.out;
     PrintStream oldErr = System.err;
     ClassLoader oldLoader = Thread.currentThread().getContextClassLoader();
@@ -154,8 +170,10 @@ class InProcessGroovyc implements GroovycFlavor {
     Thread.currentThread().setContextClassLoader(loader);
     try {
       Class<?> runnerClass = loader.loadClass("org.jetbrains.groovy.compiler.rt.GroovycRunner");
-      Method intMain = runnerClass.getDeclaredMethod("intMain2", boolean.class, boolean.class, boolean.class, String.class, String.class, Queue.class);
-      Integer exitCode = (Integer)intMain.invoke(null, settings.invokeDynamic, false, forStubs, tempFile.getPath(), settings.configScript, mailbox);
+      Method intMain = runnerClass.getDeclaredMethod("intMain2", boolean.class, boolean.class, boolean.class, String.class, String.class, String.class, Queue.class);
+      JpsGroovySettings groovySettings = JpsGroovycRunner.getGroovyCompilerSettings(context);
+      Integer exitCode = (Integer)intMain.invoke(null, groovySettings.invokeDynamic, false, forStubs, tempFile.getPath(), groovySettings.configScript,
+                                                 byteCodeTargetLevel, mailbox);
       parser.notifyFinished(exitCode);
     }
     catch (Exception e) {
@@ -325,7 +343,7 @@ class InProcessGroovyc implements GroovycFlavor {
       boolean hasLineSeparator = false;
 
       @Override
-      public void write(int b) throws IOException {
+      public void write(int b) {
         if (Thread.currentThread() != thread) {
           overridden.write(b);
           return;
@@ -345,7 +363,7 @@ class InProcessGroovyc implements GroovycFlavor {
       }
 
       @Override
-      public void flush() throws IOException {
+      public void flush() {
         if (Thread.currentThread() != thread) {
           overridden.flush();
           return;

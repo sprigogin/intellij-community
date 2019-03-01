@@ -6,22 +6,11 @@ package com.intellij.java.navigation
 import com.intellij.codeInsight.JavaProjectCodeInsightSettings
 import com.intellij.ide.util.gotoByName.*
 import com.intellij.lang.java.JavaLanguage
-import com.intellij.openapi.application.ModalityState
-import com.intellij.psi.CommonClassNames
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.PsiClass
-import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiFile
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.search.ProjectScope
-import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.psi.*
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
-import com.intellij.util.Consumer
-import com.intellij.util.concurrency.Semaphore
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 
 import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
-
 /**
  * @author peter
  */
@@ -96,6 +85,29 @@ class Impl extends Intf {
     assert !(impl.findMethodsByName('xxx1', false)[0] in elements)
   }
 
+  void "test goto symbol by Copy Reference result"() {
+    def methods = myFixture.addClass('''
+package pkg; 
+import java.util.*; 
+class Cls { 
+  void foo(int i) {} 
+  void bar(int j) {} 
+  void bar(boolean b) {} 
+  void bar(List<String> l) {} 
+}''').methods
+    assert gotoSymbol('pkg.Cls.foo') == [methods[0]]
+    assert gotoSymbol('pkg.Cls#foo') == [methods[0]]
+    assert gotoSymbol('pkg.Cls#foo(int)') == [methods[0]]
+
+    assert gotoSymbol('pkg.Cls.bar') as Set == methods[1..3] as Set
+    assert gotoSymbol('pkg.Cls#bar') as Set == methods[1..3] as Set
+    
+    assert gotoSymbol('pkg.Cls#bar(int)') == [methods[1]]
+    assert gotoSymbol('pkg.Cls#bar(boolean)') == [methods[2]]
+    assert gotoSymbol('pkg.Cls#bar(java.util.List)') == [methods[3]]
+    assert gotoSymbol('pkg.Cls#bar(java.util.List<java.lang.String>)') == [methods[3]]
+  }
+
   void "test disprefer underscore"() {
     def intf = myFixture.addClass("""
 class Intf {
@@ -124,6 +136,12 @@ class Intf {
     def i = addEmptyFile("foo/i.txt")
     def index = addEmptyFile("index.html")
     assert gotoFile('i') == [i, index]
+  }
+
+  void "test prefer shorter filename match"() {
+    def shorter = addEmptyFile("foo/cp-users.txt")
+    def longer = addEmptyFile("cp-users-and-smth.html")
+    assert gotoFile('cpusers') == [shorter, longer]
   }
 
   void "test consider dot-idea files out of project"() {
@@ -294,16 +312,10 @@ class Intf {
 
   void "test super method in jdk"() {
     def clazz = myFixture.addClass("package foo.bar; class Goo implements Runnable { public void run() {} }")
-    def ourRun = null
-    def sdkRun = null
-    def sdkRun2 = null
-    def sdkRun3 = null
-    runInEdtAndWait {
-      ourRun = clazz.methods[0]
-      sdkRun = ourRun.containingClass.interfaces[0].methods[0]
-      sdkRun2 = myFixture.javaFacade.findClass("java.security.PrivilegedAction").methods[0]
-      sdkRun3 = myFixture.javaFacade.findClass("java.security.PrivilegedExceptionAction").methods[0]
-    }
+    def ourRun = clazz.methods[0]
+    def sdkRun = ourRun.containingClass.interfaces[0].methods[0]
+    def sdkRun2 = myFixture.findClass("java.security.PrivilegedAction").methods[0]
+    def sdkRun3 = myFixture.findClass("java.security.PrivilegedExceptionAction").methods[0]
 
     def withLibs = filterJavaItems(gotoSymbol('run ', true))
     withLibs.remove(sdkRun2)
@@ -361,8 +373,7 @@ class Intf {
   }
 
   void "test out-of-project-content files"() {
-    def scope = ProjectScope.getAllScope(project)
-    def file = myFixture.javaFacade.findClass(CommonClassNames.JAVA_LANG_OBJECT, scope).containingFile
+    def file = myFixture.findClass(CommonClassNames.JAVA_LANG_OBJECT).containingFile
     def elements = gotoFile("Object.class", true)
     assert file in elements
   }
@@ -386,12 +397,19 @@ class Intf {
 
     assert gotoFile("barindex") == [fooBarFile]
     assert gotoFile("fooindex") == [fooBarFile]
-    assert gotoFile("fbindex") == [fbFile, someFbFile, fooBarFile, fbSomeFile]
+    assert gotoFile("fbindex") == [fbFile, someFbFile, fbSomeFile, fooBarFile]
     assert gotoFile("fbhtml") == [fbFile, someFbFile, fbSomeFile, fooBarFile]
 
     // partial slashes
     assert gotoFile("somefb/index.html") == [someFbFile]
     assert gotoFile("somefb\\index.html") == [someFbFile]
+  }
+
+  void "test file path matching with spaces instead of slashes"() {
+    def good = addEmptyFile("config/app.txt")
+    addEmptyFile("src/Configuration/ManagesApp.txt")
+
+    assert gotoFile("config app.txt")[0] == good
   }
 
   void "test multiple slashes in goto file"() {
@@ -410,7 +428,7 @@ class Intf {
 
   void "test show longer suffix matches from jdk and shorter from project"() {
     def seq = addEmptyFile("langc/Sequence.java")
-    def charSeq = JavaPsiFacade.getInstance(project).findClass(CharSequence.name, GlobalSearchScope.allScope(project))
+    def charSeq = myFixture.findClass(CharSequence.name)
     assert gotoFile('langcsequence', false) == [charSeq.containingFile, seq]
   }
 
@@ -432,6 +450,76 @@ class Intf {
     assert gotoClass('SomeClass') == [camel, upper]
     assert gotoFile('SomeClass.java') == [camel.containingFile, upper.containingFile]
   }
+  
+  void "test prefer closer path match"() {
+    def index = addEmptyFile("content/objc/features/index.html")
+    def i18n = addEmptyFile("content/objc/features/screenshots/i18n.html")
+    assert gotoFile('objc/features/i') == [index, i18n]
+  }
+
+  void "test matching file in a matching directory"() {
+    def file = addEmptyFile("foo/index/index")
+    assert gotoFile('in') == [file, file.parent]
+    assert gotoFile('foin') == [file, file.parent]
+  }
+
+  void "test prefer fully matching module name"() {
+    def module = myFixture.addFileToProject('module-info.java', 'module foo.bar {}')
+    def clazz = myFixture.addClass('package foo; class B { void bar() {} void barX() {} }')
+    assert gotoSymbol('foo.bar') == [(module as PsiJavaFile).moduleDeclaration, clazz.methods[0], clazz.methods[1]]
+  }
+
+  void "test allow name separators inside wildcard"() {
+    def clazz = myFixture.addClass('package foo; class X { void bar() {} }')
+    assert gotoSymbol('foo*bar') == [clazz.methods[0]]
+    assert gotoClass('foo*X') == [clazz]
+    assert gotoClass('X') == [clazz]
+    assert gotoClass('foo.*') == [clazz]
+  }
+
+  void "test prefer longer name vs qualifier matches"() {
+    def myInspection = myFixture.addClass('package ss; class MyInspection { }')
+    def ssBasedInspection = myFixture.addClass('package foo; class SSBasedInspection { }')
+    assert gotoClass('ss*inspection') == [ssBasedInspection, myInspection]
+  }
+
+  void "test show all same-named classes sorted by qname"() {
+    def aFoo = myFixture.addClass('package a; class Foo { }')
+    def bFoo = myFixture.addClass('package b; class Foo { }')
+    def fooBar = myFixture.addClass('package c; class FooBar { }')
+    assert gotoClass('Foo') == [aFoo, bFoo, fooBar]
+  }
+
+  void "test show prefix matches first when asterisk is in the middle"() {
+    def sb = myFixture.findClass(StringBuilder.name)
+    def asb = myFixture.findClass('java.lang.AbstractStringBuilder')
+    assert gotoClass('Str*Builder', true) == [sb, asb]
+    assert gotoClass('java.Str*Builder', true) == [sb, asb]
+  }
+
+  void "test include overridden qualified name method matches"() {
+    def m1 = myFixture.addClass('interface HttpRequest { void start() {} }').methods[0]
+    def m2 = myFixture.addClass('interface Request extends HttpRequest { void start() {} }').methods[0]
+    assert gotoSymbol('Request.start') == [m1, m2]
+    assert gotoSymbol('start') == [m1] // works as usual for non-qualified patterns
+  }
+
+  void "test colon in search end"() {
+    def foo = myFixture.addClass('class Foo { }')
+    assert gotoClass('Foo:') == [foo]
+  }
+
+  void "test multi-word class name with only first letter of second word"() {
+    myFixture.addClass('class Foo { }')
+    def fooBar = myFixture.addClass('class FooBar { }')
+    assert gotoClass('Foo B') == [fooBar]
+  }
+
+  void "test prefer filename match regardless of package match"() {
+    def f1 = addEmptyFile('resolve/ResolveCache.java')
+    def f2 = addEmptyFile('abc/ResolveCacheSettings.xml')
+    assert gotoFile('resolvecache') == [f1, f2]
+  }
 
   private List<Object> gotoClass(String text, boolean checkboxState = false) {
     return getPopupElements(new GotoClassModel2(project), text, checkboxState)
@@ -449,22 +537,8 @@ class Intf {
     return calcPopupElements(createPopup(model), text, checkboxState)
   }
 
-  static ArrayList<Object> calcPopupElements(ChooseByNamePopup popup, String text, boolean checkboxState = false) {
-    List<Object> elements = ['empty']
-    def semaphore = new Semaphore(1)
-    popup.scheduleCalcElements(text, checkboxState, ModalityState.NON_MODAL, SelectMostRelevant.INSTANCE, { set ->
-      elements = set as List<Object>
-      semaphore.up()
-    } as Consumer<Set<?>>)
-    def start = System.currentTimeMillis()
-    while (!semaphore.waitFor(10) && System.currentTimeMillis() - start < 10_000_000) {
-      PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
-    }
-    if (!semaphore.waitFor(10)) {
-      printThreadDump()
-      fail()
-    }
-    return elements
+  static List<Object> calcPopupElements(ChooseByNamePopup popup, String text, boolean checkboxState = false) {
+    return popup.calcPopupElements(text, checkboxState)
   }
 
   private ChooseByNamePopup createPopup(ChooseByNameModel model, PsiElement context = null) {

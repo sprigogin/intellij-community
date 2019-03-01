@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.*
 import com.intellij.openapi.components.impl.stores.ModuleStore
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.module.Module
+import com.intellij.project.isDirectoryBased
 import com.intellij.util.containers.computeIfAny
 import com.intellij.util.io.exists
 import java.nio.file.Paths
@@ -28,15 +15,19 @@ private val MODULE_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(StoragePathMa
 private open class ModuleStoreImpl(module: Module, private val pathMacroManager: PathMacroManager) : ModuleStoreBase() {
   override val project = module.project
 
-  override val storageManager = ModuleStateStorageManager(pathMacroManager.createTrackingSubstitutor(), module)
+  override val storageManager = ModuleStateStorageManager(TrackingPathMacroSubstitutorImpl(pathMacroManager), module)
 
-  override final fun getPathMacroManagerForDefaults() = pathMacroManager
+  final override fun getPathMacroManagerForDefaults() = pathMacroManager
 
   // todo what about Upsource? For now this implemented not in the ModuleStoreBase because `project` and `module` are available only in this class (ModuleStoreImpl)
   override fun <T> getStorageSpecs(component: PersistentStateComponent<T>, stateSpec: State, operation: StateStorageOperation): List<Storage> {
     val result =  super.getStorageSpecs(component, stateSpec, operation)
+    if (!project.isDirectoryBased) {
+      return result
+    }
+
     return StreamProviderFactory.EP_NAME.getExtensions(project).computeIfAny {
-      LOG.runAndLogException { it.customizeStorageSpecs(component, storageManager.componentManager!!, stateSpec, result, operation) }
+      LOG.runAndLogException { it.customizeStorageSpecs(component, storageManager, stateSpec, result, operation) }
     } ?: result
   }
 }
@@ -57,8 +48,8 @@ private class TestModuleStore(module: Module, pathMacroManager: PathMacroManager
 }
 
 // used in upsource
-abstract class ModuleStoreBase : ComponentStoreImpl(), ModuleStore {
-  override abstract val storageManager: StateStorageManagerImpl
+abstract class ModuleStoreBase : ChildlessComponentStore(), ModuleStore {
+  abstract override val storageManager: StateStorageManagerImpl
 
   override fun <T> getStorageSpecs(component: PersistentStateComponent<T>, stateSpec: State, operation: StateStorageOperation): List<Storage> {
     val storages = stateSpec.storages
@@ -70,7 +61,7 @@ abstract class ModuleStoreBase : ComponentStoreImpl(), ModuleStore {
     }
   }
 
-  override final fun setPath(path: String) {
+  final override fun setPath(path: String) {
     setPath(path, false)
   }
 

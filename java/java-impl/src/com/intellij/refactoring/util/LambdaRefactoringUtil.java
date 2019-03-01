@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.util;
 
 import com.intellij.codeInspection.RedundantLambdaCodeBlockInspection;
@@ -20,14 +6,12 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
-import com.intellij.psi.impl.source.resolve.DefaultParameterTypeInferencePolicy;
-import com.intellij.psi.impl.source.resolve.graphInference.FunctionalInterfaceParameterizationUtil;
-import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
@@ -36,6 +20,7 @@ import com.intellij.refactoring.introduceField.ElementToWorkOn;
 import com.intellij.refactoring.introduceVariable.IntroduceVariableHandler;
 import com.intellij.util.Function;
 import com.intellij.util.text.UniqueNameGenerator;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.SideEffectChecker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -60,7 +45,7 @@ public class LambdaRefactoringUtil {
                                                                    final boolean simplifyToExpressionLambda) {
     PsiLambdaExpression lambdaExpression = createLambda(referenceExpression, ignoreCast);
     if (lambdaExpression == null) return null;
-    lambdaExpression = (PsiLambdaExpression)referenceExpression.replace(lambdaExpression);
+    lambdaExpression = (PsiLambdaExpression)new CommentTracker().replaceAndRestoreComments(referenceExpression, lambdaExpression);
 
     if (simplifyToExpressionLambda) {
       simplifyToExpressionLambda(lambdaExpression);
@@ -87,7 +72,7 @@ public class LambdaRefactoringUtil {
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(referenceExpression.getProject());
     PsiLambdaExpression lambdaExpression = (PsiLambdaExpression)elementFactory.createExpressionFromText(lambda, referenceExpression);
     final PsiType functionalInterfaceType = referenceExpression.getFunctionalInterfaceType();
-    boolean needToSpecifyFormalTypes = !doNotAddParameterTypes && !isInferredSameTypeAfterConversion(lambdaExpression, referenceExpression, functionalInterfaceType);
+    boolean needToSpecifyFormalTypes = !doNotAddParameterTypes && !isInferredSameTypeAfterConversion(lambdaExpression, referenceExpression);
     if (needToSpecifyFormalTypes) {
       PsiParameterList typedParamList = specifyLambdaParameterTypes(functionalInterfaceType, lambdaExpression);
       if (typedParamList == null) {
@@ -189,8 +174,7 @@ public class LambdaRefactoringUtil {
       final PsiElement qualifier = referenceExpression.getQualifier();
       PsiClass containingClass = qualifierResolveResult.getContainingClass();
 
-      final boolean onArrayRef =
-        elementFactory.getArrayClass(PsiUtil.getLanguageLevel(referenceExpression)) == containingClass;
+      final boolean onArrayRef = PsiUtil.isArrayClass(containingClass);
 
       final PsiElement referenceNameElement = referenceExpression.getReferenceNameElement();
       if (isReceiver){
@@ -281,30 +265,20 @@ public class LambdaRefactoringUtil {
   }
 
   private static boolean isInferredSameTypeAfterConversion(PsiLambdaExpression lambdaExpression,
-                                                           PsiMethodReferenceExpression methodReferenceExpression,
-                                                           PsiType functionalInterfaceType) {
-    PsiElement parent = PsiUtil.skipParenthesizedExprUp(methodReferenceExpression.getParent());
-    if (!(parent instanceof PsiExpressionList)) {
+                                                           PsiMethodReferenceExpression methodReferenceExpression) {
+    PsiCall call = LambdaUtil.treeWalkUp(methodReferenceExpression);
+    if (call == null) {
       return true;
     }
-    PsiElement gParent = parent.getParent();
-    if (gParent instanceof PsiCall) {
-      if (gParent instanceof PsiCallExpression && ((PsiCallExpression)gParent).getTypeArguments().length > 0) {
-        return true;
-      }
-      JavaResolveResult result = ((PsiCall)gParent).resolveMethodGenerics();
-      if (result instanceof MethodCandidateInfo) {
-        PsiMethod method = ((MethodCandidateInfo)result).getElement();
-        if (!method.hasTypeParameters()) {
-          return true;
-        }
-        PsiExpression[] args = ((PsiExpressionList)parent).getExpressions();
-        int lambdaIdx = LambdaUtil.getLambdaIdx((PsiExpressionList)parent, methodReferenceExpression);
-        args[lambdaIdx] = lambdaExpression;
-        final PsiParameter[] methodParams = method.getParameterList().getParameters();
-        final PsiSubstitutor substitutor = ((MethodCandidateInfo)result).inferTypeArguments(DefaultParameterTypeInferencePolicy.INSTANCE, args, true);
-        PsiType formalTargetType = substitutor.substitute(PsiTypesUtil.getParameterType(methodParams, lambdaIdx, ((MethodCandidateInfo)result).isVarargs()));
-        return functionalInterfaceType.equals(FunctionalInterfaceParameterizationUtil.getGroundTargetType(formalTargetType));
+    Object marker = new Object();
+    PsiTreeUtil.mark(methodReferenceExpression, marker);
+    PsiCall copyTopLevelCall = LambdaUtil.copyTopLevelCall(call);
+    if (copyTopLevelCall != null) {
+      PsiMethodReferenceExpression methodReferenceInCopy = (PsiMethodReferenceExpression)PsiTreeUtil.releaseMark(copyTopLevelCall, marker);
+      if (methodReferenceInCopy != null) {
+        PsiType functionalInterfaceType = methodReferenceInCopy.getFunctionalInterfaceType();
+        PsiLambdaExpression lambdaCopy = (PsiLambdaExpression)methodReferenceInCopy.replace(lambdaExpression);
+        return Comparing.equal(functionalInterfaceType, lambdaCopy.getFunctionalInterfaceType());
       }
     }
     return false;
@@ -326,7 +300,7 @@ public class LambdaRefactoringUtil {
     for (int i = 0; i < parameters.length; i++) {
       PsiType psiType = substitutor.substitute(parameters[i].getType());
       if (psiType == null) return null;
-      if (!PsiTypesUtil.isDenotableType(psiType)) {
+      if (!PsiTypesUtil.isDenotableType(psiType, lambdaExpression)) {
         return null;
       }
 
@@ -348,7 +322,7 @@ public class LambdaRefactoringUtil {
 
     @Nullable
   public static PsiParameterList specifyLambdaParameterTypes(PsiType functionalInterfaceType,
-                                                             PsiLambdaExpression lambdaExpression) {
+                                                             @NotNull PsiLambdaExpression lambdaExpression) {
     String typedParamList = createLambdaParameterListWithFormalTypes(functionalInterfaceType, lambdaExpression, false);
     if (typedParamList != null) {
       PsiParameterList paramListWithFormalTypes = JavaPsiFacade.getElementFactory(lambdaExpression.getProject())

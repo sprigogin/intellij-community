@@ -4,7 +4,6 @@
 package org.jetbrains.java.decompiler.modules.decompiler.exps;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
-import org.jetbrains.java.decompiler.util.TextBuffer;
 import org.jetbrains.java.decompiler.main.collectors.BytecodeMappingTracer;
 import org.jetbrains.java.decompiler.modules.decompiler.ExprProcessor;
 import org.jetbrains.java.decompiler.modules.decompiler.vars.CheckTypesResult;
@@ -13,6 +12,7 @@ import org.jetbrains.java.decompiler.struct.match.MatchEngine;
 import org.jetbrains.java.decompiler.struct.match.MatchNode;
 import org.jetbrains.java.decompiler.util.InterpreterUtil;
 import org.jetbrains.java.decompiler.util.ListStack;
+import org.jetbrains.java.decompiler.util.TextBuffer;
 
 import java.util.*;
 
@@ -413,7 +413,7 @@ public class FunctionExprent extends Exprent {
   @Override
   public boolean equals(Object o) {
     if (o == this) return true;
-    if (o == null || !(o instanceof FunctionExprent)) return false;
+    if (!(o instanceof FunctionExprent)) return false;
 
     FunctionExprent fe = (FunctionExprent)o;
     return funcType == fe.getFuncType() &&
@@ -566,12 +566,12 @@ public class FunctionExprent extends Exprent {
   }
 
   private static VarType getMaxVarType(VarType[] arr) {
-    int[] types = new int[]{CodeConstants.TYPE_DOUBLE, CodeConstants.TYPE_FLOAT, CodeConstants.TYPE_LONG};
-    VarType[] vartypes = new VarType[]{VarType.VARTYPE_DOUBLE, VarType.VARTYPE_FLOAT, VarType.VARTYPE_LONG};
+    int[] types = {CodeConstants.TYPE_DOUBLE, CodeConstants.TYPE_FLOAT, CodeConstants.TYPE_LONG};
+    VarType[] vartypes = {VarType.VARTYPE_DOUBLE, VarType.VARTYPE_FLOAT, VarType.VARTYPE_LONG};
 
     for (int i = 0; i < types.length; i++) {
-      for (int j = 0; j < arr.length; j++) {
-        if (arr[j].type == types[i]) {
+      for (VarType anArr : arr) {
+        if (anArr.type == types[i]) {
           return vartypes[i];
         }
       }

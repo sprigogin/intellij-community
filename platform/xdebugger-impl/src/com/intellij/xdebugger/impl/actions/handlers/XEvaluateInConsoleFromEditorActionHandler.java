@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.actions.handlers;
 
 import com.intellij.execution.console.ConsoleExecuteAction;
@@ -19,6 +20,7 @@ import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import java.util.List;
 
@@ -47,16 +49,16 @@ public class XEvaluateInConsoleFromEditorActionHandler extends XAddToWatchesFrom
   @Override
   protected void perform(@NotNull XDebugSession session, DataContext dataContext) {
     Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
-    if (editor == null || !(editor instanceof EditorEx)) {
+    if (!(editor instanceof EditorEx)) {
       return;
     }
 
     int selectionStart = editor.getSelectionModel().getSelectionStart();
     int selectionEnd = editor.getSelectionModel().getSelectionEnd();
-    Promise<Pair<TextRange, String>> rangeAndText = null;
+    Promise<Pair<TextRange, String>> rangeAndText;
     if (selectionStart != selectionEnd) {
       TextRange textRange = new TextRange(selectionStart, selectionEnd);
-      rangeAndText = Promise.resolve(Pair.create(textRange, editor.getDocument().getText(textRange)));
+      rangeAndText = Promises.resolvedPromise(Pair.create(textRange, editor.getDocument().getText(textRange)));
     } else {
       XDebuggerEvaluator evaluator = session.getDebugProcess().getEvaluator();
       if (evaluator != null) {
@@ -75,17 +77,15 @@ public class XEvaluateInConsoleFromEditorActionHandler extends XAddToWatchesFrom
       }
     }
 
-    rangeAndText.done(textRangeStringPair -> {
-      ApplicationManager.getApplication().invokeLater(() -> {
-        TextRange range = textRangeStringPair.getFirst();
-        String text = textRangeStringPair.getSecond();
-        if (text == null)
-          return;
-        ConsoleExecuteAction action = getConsoleExecuteAction(session);
-        if (action != null) {
-          action.execute(range, text, (EditorEx) editor);
-        }
-      });
-    });
+    rangeAndText.onSuccess(textRangeStringPair -> ApplicationManager.getApplication().invokeLater(() -> {
+      TextRange range = textRangeStringPair.getFirst();
+      String text = textRangeStringPair.getSecond();
+      if (text == null)
+        return;
+      ConsoleExecuteAction action = getConsoleExecuteAction(session);
+      if (action != null) {
+        action.execute(range, text, (EditorEx) editor);
+      }
+    }));
   }
 }

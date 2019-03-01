@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,25 @@
  */
 package com.siyeh.ig.psiutils;
 
+import com.intellij.codeInspection.dataFlow.value.DfaRelationValue;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Function;
+import com.siyeh.ig.callMatcher.CallMatcher;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
+import static com.intellij.codeInspection.util.OptionalUtil.*;
+import static com.intellij.psi.CommonClassNames.JAVA_UTIL_OPTIONAL;
 
 public class BoolUtils {
 
@@ -58,7 +69,8 @@ public class BoolUtils {
       return null;
     }
     final PsiExpression operand = prefixExpression.getOperand();
-    return ParenthesesUtils.stripParentheses(operand);
+    PsiExpression stripped = ParenthesesUtils.stripParentheses(operand);
+    return stripped == null ? operand : stripped;
   }
 
   @NotNull
@@ -71,6 +83,59 @@ public class BoolUtils {
     return getNegatedExpressionText(condition, ParenthesesUtils.NUM_PRECEDENCES, tracker);
   }
 
+  private static final CallMatcher STREAM_ANY_MATCH = CallMatcher.instanceCall(CommonClassNames.JAVA_UTIL_STREAM_STREAM, "anyMatch");
+  private static final CallMatcher STREAM_NONE_MATCH = CallMatcher.instanceCall(CommonClassNames.JAVA_UTIL_STREAM_STREAM, "noneMatch");
+
+  private static final CallMatcher OPTIONAL_IS_PRESENT =
+    CallMatcher.anyOf(
+      CallMatcher.exactInstanceCall(JAVA_UTIL_OPTIONAL, "isPresent").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_INT, "isPresent").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_LONG, "isPresent").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_DOUBLE, "isPresent").parameterCount(0)
+    );
+  private static final CallMatcher OPTIONAL_IS_EMPTY =
+    CallMatcher.anyOf(
+      CallMatcher.exactInstanceCall(JAVA_UTIL_OPTIONAL, "isEmpty").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_INT, "isEmpty").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_LONG, "isEmpty").parameterCount(0),
+      CallMatcher.exactInstanceCall(OPTIONAL_DOUBLE, "isEmpty").parameterCount(0)
+    );
+
+  private static Predicate<PsiMethodCallExpression> withMinimalLanguageLevel(CallMatcher matcher, LanguageLevel level) {
+    return matcher.and(expression -> PsiUtil.getLanguageLevel(expression).isAtLeast(level));
+  }
+
+  private static class PredicatedReplacement {
+    Predicate<PsiMethodCallExpression> predicate;
+    String name;
+
+    private PredicatedReplacement(Predicate<PsiMethodCallExpression> predicate, String name) {
+      this.predicate = predicate;
+      this.name = name;
+    }
+  }
+
+  private static final List<PredicatedReplacement> ourReplacements = new ArrayList<>();
+  static {
+    ourReplacements.add(new PredicatedReplacement(OPTIONAL_IS_EMPTY, "isPresent"));
+    ourReplacements.add(new PredicatedReplacement(withMinimalLanguageLevel(OPTIONAL_IS_PRESENT, LanguageLevel.JDK_11), "isEmpty"));
+    ourReplacements.add(new PredicatedReplacement(STREAM_ANY_MATCH, "noneMatch"));
+    ourReplacements.add(new PredicatedReplacement(STREAM_NONE_MATCH, "anyMatch"));
+  }
+
+  private static String findSmartMethodNegation(PsiExpression expression) {
+    if (!(expression instanceof PsiMethodCallExpression)) return null;
+    PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
+    PsiMethodCallExpression copy = (PsiMethodCallExpression)call.copy();
+    for (PredicatedReplacement predicatedReplacement : ourReplacements) {
+      if (predicatedReplacement.predicate.test(call)) {
+        ExpressionUtils.bindCallTo(copy, predicatedReplacement.name);
+        return copy.getText();
+      }
+    }
+    return null;
+  }
+
   @NotNull
   public static String getNegatedExpressionText(@Nullable PsiExpression expression,
                                                 int precedence,
@@ -78,24 +143,30 @@ public class BoolUtils {
     if (expression == null) {
       return "";
     }
+    if (expression instanceof PsiMethodCallExpression) {
+      String smartNegation = findSmartMethodNegation(expression);
+      if (smartNegation != null) return smartNegation;
+    }
     if (expression instanceof PsiParenthesizedExpression) {
       final PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression)expression;
-      return '(' + getNegatedExpressionText(parenthesizedExpression.getExpression(), tracker) + ')';
+      PsiExpression operand = parenthesizedExpression.getExpression();
+      if (operand != null) {
+        return '(' + getNegatedExpressionText(operand, tracker) + ')';
+      }
     }
     if (expression instanceof PsiConditionalExpression) {
       final PsiConditionalExpression conditionalExpression = (PsiConditionalExpression)expression;
       final boolean needParenthesis = ParenthesesUtils.getPrecedence(conditionalExpression) >= precedence;
-      final String text = tracker.markUnchanged(conditionalExpression.getCondition()).getText() +
+      final String text = tracker.text(conditionalExpression.getCondition()) +
                           '?' + getNegatedExpressionText(conditionalExpression.getThenExpression(), tracker) +
                           ':' + getNegatedExpressionText(conditionalExpression.getElseExpression(), tracker);
       return needParenthesis ? "(" + text + ")" : text;
     }
     if (isNegation(expression)) {
       final PsiExpression negated = getNegated(expression);
-      if (negated == null) {
-        return "";
+      if (negated != null) {
+        return ParenthesesUtils.getText(tracker.markUnchanged(negated), precedence);
       }
-      return ParenthesesUtils.getText(tracker.markUnchanged(negated), precedence);
     }
     if (expression instanceof PsiPolyadicExpression) {
       final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;
@@ -107,7 +178,7 @@ public class BoolUtils {
         final boolean isEven = (operands.length & 1) != 1;
         for (int i = 0, length = operands.length; i < length; i++) {
           final PsiExpression operand = operands[i];
-          if (TypeUtils.hasFloatingPointType(operand)) {
+          if (TypeUtils.hasFloatingPointType(operand) && !ComparisonUtils.isEqualityComparison(polyadicExpression)) {
             // preserve semantics for NaNs
             return "!(" + polyadicExpression.getText() + ')';
           }
@@ -122,7 +193,7 @@ public class BoolUtils {
               result.append(negatedComparison);
             }
           }
-          result.append(tracker.markUnchanged(operand).getText());
+          result.append(tracker.text(operand));
         }
         return result.toString();
       }
@@ -141,10 +212,16 @@ public class BoolUtils {
           if (child instanceof PsiExpression) {
             return getNegatedExpressionText((PsiExpression)child, newPrecedence, tracker);
           }
-          return child instanceof PsiJavaToken ? targetToken : tracker.markUnchanged(child).getText();
+          return child instanceof PsiJavaToken ? targetToken : tracker.text(child);
         };
         final String join = StringUtil.join(polyadicExpression.getChildren(), replacer, "");
         return (newPrecedence > precedence) ? '(' + join + ')' : join;
+      }
+    }
+    if (expression instanceof PsiLiteralExpression) {
+      Object value = ((PsiLiteralExpression)expression).getValue();
+      if (value instanceof Boolean) {
+        return String.valueOf(!((Boolean)value));
       }
     }
     return '!' + ParenthesesUtils.getText(tracker.markUnchanged(expression), ParenthesesUtils.PREFIX_PRECEDENCE);
@@ -193,5 +270,45 @@ public class BoolUtils {
       return false;
     }
     return PsiKeyword.FALSE.equals(expression.getText());
+  }
+
+  /**
+   * Checks whether two supplied boolean expressions are opposite to each other (e.g. "a == null" and "a != null")
+   *
+   * @param expression1 first expression
+   * @param expression2 second expression
+   * @return true if it's determined that the expressions are opposite to each other.
+   */
+  @Contract(value = "null, _ -> false; _, null -> false", pure = true)
+  public static boolean areExpressionsOpposite(@Nullable PsiExpression expression1, @Nullable PsiExpression expression2) {
+    expression1 = PsiUtil.skipParenthesizedExprDown(expression1);
+    expression2 = PsiUtil.skipParenthesizedExprDown(expression2);
+    if (expression1 == null || expression2 == null) return false;
+    EquivalenceChecker equivalence = EquivalenceChecker.getCanonicalPsiEquivalence();
+    if (isNegation(expression1)) {
+      return equivalence.expressionsAreEquivalent(getNegated(expression1), expression2);
+    }
+    if (isNegation(expression2)) {
+      return equivalence.expressionsAreEquivalent(getNegated(expression2), expression1);
+    }
+    if (expression1 instanceof PsiBinaryExpression && expression2 instanceof PsiBinaryExpression) {
+      PsiBinaryExpression binOp1 = (PsiBinaryExpression)expression1;
+      PsiBinaryExpression binOp2 = (PsiBinaryExpression)expression2;
+      DfaRelationValue.RelationType rel1 = DfaRelationValue.RelationType.fromElementType(binOp1.getOperationTokenType());
+      DfaRelationValue.RelationType rel2 = DfaRelationValue.RelationType.fromElementType(binOp2.getOperationTokenType());
+      if (rel1 == null || rel2 == null) return false;
+      PsiType type = binOp1.getLOperand().getType();
+      // a > b and a <= b are not strictly opposite due to NaN semantics
+      if (type == null || type.equals(PsiType.FLOAT) || type.equals(PsiType.DOUBLE)) return false;
+      if (rel1 == rel2.getNegated()) {
+        return equivalence.expressionsAreEquivalent(binOp1.getLOperand(), binOp2.getLOperand()) &&
+               equivalence.expressionsAreEquivalent(binOp1.getROperand(), binOp2.getROperand());
+      }
+      if (rel1.getFlipped() == rel2.getNegated()) {
+        return equivalence.expressionsAreEquivalent(binOp1.getLOperand(), binOp2.getROperand()) &&
+               equivalence.expressionsAreEquivalent(binOp1.getROperand(), binOp2.getLOperand());
+      }
+    }
+    return false;
   }
 }

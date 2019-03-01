@@ -1,5 +1,7 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle;
 
+import com.intellij.configurationStore.Property;
 import com.intellij.configurationStore.UnknownElementCollector;
 import com.intellij.configurationStore.UnknownElementWriter;
 import com.intellij.lang.Language;
@@ -7,7 +9,6 @@ import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.extensions.ExtensionException;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
@@ -23,6 +24,7 @@ import com.intellij.util.Processor;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ClassMap;
+import com.intellij.util.containers.JBIterable;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -51,8 +53,8 @@ import java.util.regex.PatternSyntaxException;
  * <b>Note:</b> A direct use of any non-final public fields from {@code CodeStyleSettings} class is strongly discouraged. These fields,
  * as well as the inheritance from {@code CommonCodeStyleSettings}, are left only for backwards compatibility and may be removed in the future.
  */
-public class CodeStyleSettings extends CommonCodeStyleSettings
-  implements Cloneable, JDOMExternalizable, ImportsLayoutSettings, CodeStyleConstraints {
+@SuppressWarnings("deprecation")
+public class CodeStyleSettings extends LegacyCodeStyleSettings implements Cloneable, JDOMExternalizable, ImportsLayoutSettings {
   public static final int CURR_VERSION = 173;
 
   private static final Logger LOG = Logger.getInstance(CodeStyleSettings.class);
@@ -66,24 +68,33 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   @NonNls private static final String FILETYPE = "fileType";
   private CommonCodeStyleSettingsManager myCommonSettingsManager = new CommonCodeStyleSettingsManager(this);
 
-  private static CodeStyleSettings myDefaults;
+  private static class DefaultsHolder {
+    private static final CodeStyleSettings myDefaults = new CodeStyleSettings();
+  }
 
   private UnknownElementWriter myUnknownElementWriter = UnknownElementWriter.EMPTY;
 
+  private final SoftMargins mySoftMargins = new SoftMargins();
+
+  private final ExcludedFiles myExcludedFiles = new ExcludedFiles();
+
   private int myVersion = CURR_VERSION;
+
+  private final SimpleModificationTracker myModificationTracker = new SimpleModificationTracker();
 
   public CodeStyleSettings() {
     this(true);
   }
 
   public CodeStyleSettings(boolean loadExtensions) {
-    super(null);
     initTypeToName();
     initImportsByDefault();
 
     if (loadExtensions) {
-      final CodeStyleSettingsProvider[] codeStyleSettingsProviders = Extensions.getExtensions(CodeStyleSettingsProvider.EXTENSION_POINT_NAME);
-      for (final CodeStyleSettingsProvider provider : codeStyleSettingsProviders) {
+      for (final CodeStyleSettingsProvider provider : CodeStyleSettingsProvider.EXTENSION_POINT_NAME.getExtensionList()) {
+        addCustomSettings(provider.createCustomSettings(this));
+      }
+      for (CodeStyleSettingsProvider provider : LanguageCodeStyleSettingsProvider.getSettingsPagesProviders()) {
         addCustomSettings(provider.createCustomSettings(this));
       }
     }
@@ -135,10 +146,15 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     }
   }
 
+  @NotNull
   public <T extends CustomCodeStyleSettings> T getCustomSettings(@NotNull Class<T> aClass) {
     synchronized (myCustomSettings) {
       //noinspection unchecked
-      return (T)myCustomSettings.get(aClass);
+      T result = (T)myCustomSettings.get(aClass);
+      if (result == null) {
+        throw new RuntimeException("Unable to get registered settings of #" + aClass.getSimpleName() + " (" + aClass.getName() + ")");
+      }
+      return result;
     }
   }
 
@@ -174,16 +190,17 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
       }
 
       myCommonSettingsManager = from.myCommonSettingsManager.clone(this);
-      
+
       myRepeatAnnotations.clear();
       myRepeatAnnotations.addAll(from.myRepeatAnnotations);
     }
   }
 
   public void copyFrom(CodeStyleSettings from) {
-    copyPublicFields(from, this);
-    copyPublicFields(from.OTHER_INDENT_OPTIONS, OTHER_INDENT_OPTIONS);
-    mySoftMargins.setValues(from.getSoftMargins());
+    CommonCodeStyleSettings.copyPublicFields(from, this);
+    CommonCodeStyleSettings.copyPublicFields(from.OTHER_INDENT_OPTIONS, OTHER_INDENT_OPTIONS);
+    mySoftMargins.setValues(from.getDefaultSoftMargins());
+    myExcludedFiles.setDescriptors(from.getExcludedFiles().getDescriptors());
     copyCustomSettingsFrom(from);
   }
 
@@ -290,7 +307,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   @Deprecated
   public boolean REPEAT_SYNCHRONIZED = true;
 
-  private List<String> myRepeatAnnotations = new ArrayList<>();
+  private final List<String> myRepeatAnnotations = new ArrayList<>();
 
   /** @deprecated Use JavaCodeStyleSettings.getRepeatAnnotations() */
   @Deprecated
@@ -307,12 +324,12 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
 
   //----------------- FUNCTIONAL EXPRESSIONS -----
 
-  /** @deprecated Use JavaCodeStyleSettings.REPLACE_INSTANCE_OF */
+  /** @deprecated Use JavaCodeStyleSettings.REPLACE_INSTANCEOF_AND_CAST */
   @Deprecated
-  public boolean REPLACE_INSTANCEOF = false;
-  /** @deprecated Use JavaCodeStyleSettings.REPLACE_CAST */
+  public boolean REPLACE_INSTANCEOF;
+  /** @deprecated Use JavaCodeStyleSettings.REPLACE_INSTANCEOF_AND_CAST */
   @Deprecated
-  public boolean REPLACE_CAST = false;
+  public boolean REPLACE_CAST;
   /** @deprecated Use JavaCodeStyleSettings.REPLACE_NULL_CHECK */
   @Deprecated
   public boolean REPLACE_NULL_CHECK = true;
@@ -326,7 +343,6 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   public boolean LAYOUT_STATIC_IMPORTS_SEPARATELY = true;
 
   /** @deprecated Use JavaCodeStyleSettings.USE_FQ_CLASS_NAMES */
-  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public boolean USE_FQ_CLASS_NAMES;
 
@@ -335,22 +351,18 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   public boolean USE_FQ_CLASS_NAMES_IN_JAVADOC = true;
 
   /** @deprecated Use JavaCodeStyleSettings.USE_SINGLE_CLASS_IMPORTS */
-  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public boolean USE_SINGLE_CLASS_IMPORTS = true;
 
   /** @deprecated Use JavaCodeStyleSettings.INSERT_INNER_CLASS_IMPORTS */
-  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public boolean INSERT_INNER_CLASS_IMPORTS;
 
   /** @deprecated Use JavaCodeStyleSettings.CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND */
-  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public int CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND = 5;
 
   /** @deprecated Use JavaCodeStyleSettings.NAMES_COUNT_TO_USE_IMPORT_ON_DEMAND */
-  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public int NAMES_COUNT_TO_USE_IMPORT_ON_DEMAND = 3;
 
@@ -363,7 +375,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated
   public final PackageEntryTable IMPORT_LAYOUT_TABLE = new PackageEntryTable();
-  
+
   @Override
   @Deprecated
   public boolean isLayoutStaticImportsSeparately() {
@@ -466,14 +478,16 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   /**
    * @deprecated Use get/setRightMargin() methods instead.
    */
-  @SuppressWarnings("DeprecatedIsStillUsed")
+  @SuppressWarnings({"DeprecatedIsStillUsed", "MissingDeprecatedAnnotation"})
+  @Property(externalName = "max_line_length")
   public int RIGHT_MARGIN = 120;
   /**
    * <b>Do not use this field directly since it doesn't reflect a setting for a specific language which may
    * overwrite this one. Call {@link #isWrapOnTyping(Language)} method instead.</b>
    *
-   * @see #WRAP_ON_TYPING
+   * @see CommonCodeStyleSettings#WRAP_ON_TYPING
    */
+  @Property(externalName = "wrap_on_typing")
   public boolean WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN;
 
 // endregion
@@ -578,7 +592,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * @deprecated Use JavaCodeStyleSettings.JD_INDENT_ON_CONTINUATION
    */
   @Deprecated
-  public boolean JD_INDENT_ON_CONTINUATION = false;
+  public boolean JD_INDENT_ON_CONTINUATION;
 
 // endregion
 
@@ -684,7 +698,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * @deprecated Use HtmlCodeStyleSettings
    */
   @Deprecated
-  public boolean HTML_ENFORCE_QUOTES = false;
+  public boolean HTML_ENFORCE_QUOTES;
   /**
    * @deprecated Use HtmlCodeStyleSettings
    */
@@ -786,6 +800,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   @Override
   public void readExternal(Element element) throws InvalidDataException {
     myVersion = getVersion(element);
+    notifySettingsBeforeLoading();
     DefaultJDOMExternalizer.readExternal(this, element);
     if (LAYOUT_STATIC_IMPORTS_SEPARATELY) {
       // add <all other static imports> entry if there is none
@@ -845,8 +860,10 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     }
 
     mySoftMargins.deserializeFrom(element);
+    myExcludedFiles.deserializeFrom(element);
 
     migrateLegacySettings();
+    notifySettingsLoaded();
   }
 
   @Override
@@ -855,17 +872,15 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     CodeStyleSettings parentSettings = new CodeStyleSettings();
     DefaultJDOMExternalizer.writeExternal(this, element, new DifferenceFilter<>(this, parentSettings));
     mySoftMargins.serializeInto(element);
+    myExcludedFiles.serializeInto(element);
 
     myUnknownElementWriter.write(element, getCustomSettingsValues(), CustomCodeStyleSettings::getTagName, settings -> {
       CustomCodeStyleSettings parentCustomSettings = parentSettings.getCustomSettings(settings.getClass());
-      if (parentCustomSettings == null) {
-        throw new WriteExternalException("Custom settings are null for " + settings.getClass());
-      }
       settings.writeExternal(element, parentCustomSettings);
     });
 
     if (!myAdditionalIndentOptions.isEmpty()) {
-      FileType[] fileTypes = myAdditionalIndentOptions.keySet().toArray(new FileType[myAdditionalIndentOptions.keySet().size()]);
+      FileType[] fileTypes = myAdditionalIndentOptions.keySet().toArray(FileType.EMPTY_ARRAY);
       Arrays.sort(fileTypes, Comparator.comparing(FileType::getDefaultExtension));
       for (FileType fileType : fileTypes) {
         Element additionalIndentOptions = new Element(ADDITIONAL_INDENT_OPTIONS);
@@ -876,7 +891,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
         }
       }
     }
-    
+
     myCommonSettingsManager.writeExternal(element);
     if (!myRepeatAnnotations.isEmpty()) {
       Element annos = new Element(REPEAT_ANNOTATIONS);
@@ -888,8 +903,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   }
 
   private static IndentOptions getDefaultIndentOptions(FileType fileType) {
-    final FileTypeIndentOptionsProvider[] providers = Extensions.getExtensions(FileTypeIndentOptionsProvider.EP_NAME);
-    for (final FileTypeIndentOptionsProvider provider : providers) {
+    for (final FileTypeIndentOptionsProvider provider : FileTypeIndentOptionsProvider.EP_NAME.getExtensionList()) {
       if (provider.getFileType().equals(fileType)) {
         return getFileTypeIndentOptions(provider);
       }
@@ -898,7 +912,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   }
 
   @Override
-  @Nullable
+  @NotNull
   public IndentOptions getIndentOptions() {
     return OTHER_INDENT_OPTIONS;
   }
@@ -912,6 +926,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * @see FileTypeIndentOptionsProvider
    * @see LanguageCodeStyleSettingsProvider
    */
+  @NotNull
   public IndentOptions getIndentOptions(@Nullable FileType fileType) {
     IndentOptions indentOptions = getLanguageIndentOptions(fileType);
     if (indentOptions != null) return indentOptions;
@@ -973,7 +988,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    */
   @NotNull
   public IndentOptions getIndentOptionsByFile(@Nullable PsiFile file, @Nullable TextRange formatRange, boolean ignoreDocOptions,
-                                              @Nullable Processor<FileIndentOptionsProvider> providerProcessor) {
+                                              @Nullable Processor<? super FileIndentOptionsProvider> providerProcessor) {
     if (file != null && file.isValid()) {
       boolean isFullReformat = isFileFullyCoveredByRange(file, formatRange);
       if (!ignoreDocOptions && !isFullReformat) {
@@ -987,7 +1002,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
         }
       }
 
-      for (FileIndentOptionsProvider provider : Extensions.getExtensions(FileIndentOptionsProvider.EP_NAME)) {
+      for (FileIndentOptionsProvider provider : FileIndentOptionsProvider.EP_NAME.getExtensionList()) {
         if (!isFullReformat || provider.useOnFullReformat()) {
           IndentOptions indentOptions = provider.getIndentOptions(this, file);
           if (indentOptions != null) {
@@ -1000,7 +1015,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
           }
         }
       }
-      
+
       Language language = LanguageUtil.getLanguageForPsi(file.getProject(), file.getVirtualFile());
       if (language != null) {
         IndentOptions options = getIndentOptions(language);
@@ -1014,11 +1029,9 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     else
       return OTHER_INDENT_OPTIONS;
   }
-  
+
   private static boolean isFileFullyCoveredByRange(@NotNull PsiFile file, @Nullable TextRange formatRange) {
-    return
-      formatRange != null &&
-      file.getTextRange().equals(formatRange);
+    return formatRange != null && formatRange.equals(file.getTextRange());
   }
 
   private static void logIndentOptions(@NotNull PsiFile file,
@@ -1030,18 +1043,30 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
               ", use tabs=" + options.USE_TAB_CHARACTER +
               ", tab size=" + options.TAB_SIZE);
   }
-  
+
   @Nullable
   private IndentOptions getLanguageIndentOptions(@Nullable FileType fileType) {
-    if (fileType == null || !(fileType instanceof LanguageFileType)) return null;
+    if (!(fileType instanceof LanguageFileType)) return null;
     Language lang = ((LanguageFileType)fileType).getLanguage();
     return getIndentOptions(lang);
   }
 
+  /**
+   * Returns language indent options or, if the language doesn't have any options of its own, indent options configured for other file
+   * types.
+   *
+   * @param language The language to get indent options for.
+   * @return Language indent options.
+   */
+  public IndentOptions getLanguageIndentOptions(@NotNull Language language) {
+    IndentOptions langOptions = getIndentOptions(language);
+    return langOptions != null ? langOptions : OTHER_INDENT_OPTIONS;
+  }
+
   @Nullable
   private IndentOptions getIndentOptions(Language lang) {
-    CommonCodeStyleSettings langSettings = getCommonSettings(lang);
-    return langSettings == this ? null : langSettings.getIndentOptions();
+    CommonCodeStyleSettings settings = myCommonSettingsManager.getCommonSettings(lang);
+    return settings != null ? settings.getIndentOptions() : null;
   }
 
   public boolean isSmartTabs(FileType fileType) {
@@ -1167,22 +1192,21 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   private void loadAdditionalIndentOptions() {
     synchronized (myAdditionalIndentOptions) {
       myLoadedAdditionalIndentOptions = true;
-      final FileTypeIndentOptionsProvider[] providers = Extensions.getExtensions(FileTypeIndentOptionsProvider.EP_NAME);
-      for (final FileTypeIndentOptionsProvider provider : providers) {
+      for (final FileTypeIndentOptionsProvider provider : FileTypeIndentOptionsProvider.EP_NAME.getExtensionList()) {
         if (!myAdditionalIndentOptions.containsKey(provider.getFileType())) {
           registerAdditionalIndentOptions(provider.getFileType(), getFileTypeIndentOptions(provider));
         }
       }
     }
   }
-  
+
   private static IndentOptions getFileTypeIndentOptions(FileTypeIndentOptionsProvider provider) {
     try {
       return provider.createIndentOptions();
     }
     catch (AbstractMethodError error) {
       LOG.error("Plugin uses obsolete API.", new ExtensionException(provider.getClass()));
-      return new IndentOptions(); 
+      return new IndentOptions();
     }
   }
 
@@ -1240,14 +1264,31 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     }
   }
 
-  public CommonCodeStyleSettings getCommonSettings(Language lang) {
-    return myCommonSettingsManager.getCommonSettings(lang);
+  /**
+   * Attempts to get language-specific common settings from {@code LanguageCodeStyleSettingsProvider}.
+   *
+   * @param lang The language to get settings for.
+   * @return If the provider for the language exists and is able to create language-specific default settings
+   *         ({@code LanguageCodeStyleSettingsProvider.getDefaultCommonSettings()} doesn't return null)
+   *         returns the instance of settings for this language. Otherwise returns new instance of common code style settings
+   *         with default values.
+   */
+  @NotNull
+  public CommonCodeStyleSettings getCommonSettings(@Nullable Language lang) {
+    CommonCodeStyleSettings settings = myCommonSettingsManager.getCommonSettings(lang);
+    if (settings == null) {
+      settings = myCommonSettingsManager.getDefaults();
+      //if (lang != null) {
+      //  LOG.warn("Common code style settings for language '" + lang.getDisplayName() + "' not found, using defaults.");
+      //}
+    }
+    return settings;
   }
 
   /**
-   * @param langName The language name. 
+   * @param langName The language name.
    * @return Language-specific code style settings or shared settings if not found.
-   * @see CommonCodeStyleSettingsManager#getCommonSettings 
+   * @see CommonCodeStyleSettingsManager#getCommonSettings
    */
   public CommonCodeStyleSettings getCommonSettings(String langName) {
     return myCommonSettingsManager.getCommonSettings(langName);
@@ -1258,12 +1299,12 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * in language's CommonCodeStyleSettings instance.
    *
    * @param language The language to get right margin for or null if root (default) right margin is requested.
-   * @return The right margin for the language if it is defined (not null) and its settings contain non-negative margin. Root (default) 
+   * @return The right margin for the language if it is defined (not null) and its settings contain non-negative margin. Root (default)
    *         margin otherwise (CodeStyleSettings.RIGHT_MARGIN).
    */
   public int getRightMargin(@Nullable Language language) {
     if (language != null) {
-      CommonCodeStyleSettings langSettings = getCommonSettings(language);
+      CommonCodeStyleSettings langSettings = myCommonSettingsManager.getCommonSettings(language);
       if (langSettings != null) {
         if (langSettings.RIGHT_MARGIN >= 0) return langSettings.RIGHT_MARGIN;
       }
@@ -1273,13 +1314,13 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
 
   /**
    * Assigns another right margin for the language or (if it is null) to root (default) margin.
-   * 
+   *
    * @param language The language to assign the right margin to or null if root (default) right margin is to be changed.
    * @param rightMargin New right margin.
    */
   public void setRightMargin(@Nullable Language language, int rightMargin) {
     if (language != null) {
-      CommonCodeStyleSettings langSettings = getCommonSettings(language);
+      CommonCodeStyleSettings langSettings = myCommonSettingsManager.getCommonSettings(language);
       if (langSettings != null) {
         langSettings.RIGHT_MARGIN = rightMargin;
         return;
@@ -1305,14 +1346,13 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    */
   public boolean isWrapOnTyping(@Nullable Language language) {
     if (language != null) {
-      CommonCodeStyleSettings langSettings = getCommonSettings(language);
+      CommonCodeStyleSettings langSettings = myCommonSettingsManager.getCommonSettings(language);
       if (langSettings != null) {
-        if (langSettings.WRAP_ON_TYPING != WrapOnTyping.DEFAULT.intValue) {
-          return langSettings.WRAP_ON_TYPING == WrapOnTyping.WRAP.intValue;
+        if (langSettings.WRAP_ON_TYPING != CommonCodeStyleSettings.WrapOnTyping.DEFAULT.intValue) {
+          return langSettings.WRAP_ON_TYPING == CommonCodeStyleSettings.WrapOnTyping.WRAP.intValue;
         }
       }
     }
-    //noinspection deprecation
     return WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN;
   }
 
@@ -1349,6 +1389,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     if (!(obj instanceof CodeStyleSettings)) return false;
     if (!ReflectionUtil.comparePublicNonFinalFields(this, obj)) return false;
     if (!mySoftMargins.equals(((CodeStyleSettings)obj).mySoftMargins)) return false;
+    if (!myExcludedFiles.equals(((CodeStyleSettings)obj).getExcludedFiles())) return false;
     if (!OTHER_INDENT_OPTIONS.equals(((CodeStyleSettings)obj).OTHER_INDENT_OPTIONS)) return false;
     if (!myCommonSettingsManager.equals(((CodeStyleSettings)obj).myCommonSettingsManager)) return false;
     for (CustomCodeStyleSettings customSettings : myCustomSettings.values()) {
@@ -1357,11 +1398,9 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     return true;
   }
 
+  @NotNull
   public static CodeStyleSettings getDefaults() {
-    if (myDefaults == null) {
-      myDefaults = new CodeStyleSettings();
-    }
-    return myDefaults;
+    return DefaultsHolder.myDefaults;
   }
 
   private void migrateLegacySettings() {
@@ -1373,10 +1412,20 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
     }
   }
 
+  private void notifySettingsBeforeLoading() {
+    JBIterable.from(myCustomSettings.values())
+              .forEach(CustomCodeStyleSettings::beforeLoading);
+  }
+
+  private void notifySettingsLoaded() {
+    JBIterable.from(myCustomSettings.values())
+              .forEach(CustomCodeStyleSettings::afterLoaded);
+  }
+
   @SuppressWarnings("deprecation")
   public void resetDeprecatedFields() {
     CodeStyleSettings defaults = getDefaults();
-    ReflectionUtil.copyFields(this.getClass().getFields(), defaults, this, new DifferenceFilter<CodeStyleSettings>(this, defaults){
+    ReflectionUtil.copyFields(getClass().getFields(), defaults, this, new DifferenceFilter<CodeStyleSettings>(this, defaults){
       @Override
       public boolean isAccept(@NotNull Field field) {
         return field.getAnnotation(Deprecated.class) != null;
@@ -1401,7 +1450,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
   @NotNull
   public List<Integer> getSoftMargins(@Nullable Language language) {
     if (language != null) {
-      CommonCodeStyleSettings languageSettings = getCommonSettings(language);
+      CommonCodeStyleSettings languageSettings = myCommonSettingsManager.getCommonSettings(language);
       if (languageSettings != null && !languageSettings.getSoftMargins().isEmpty()) {
         return languageSettings.getSoftMargins();
       }
@@ -1415,7 +1464,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * @param softMargins The soft margins to set.
    */
   public void setSoftMargins(@NotNull Language language, List<Integer> softMargins) {
-    CommonCodeStyleSettings languageSettings = getCommonSettings(language);
+    CommonCodeStyleSettings languageSettings = myCommonSettingsManager.getCommonSettings(language);
     assert languageSettings != null : "Settings for language " + language.getDisplayName() + " do not exist";
     languageSettings.setSoftMargins(softMargins);
   }
@@ -1425,7 +1474,7 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    */
   @NotNull
   public List<Integer> getDefaultSoftMargins() {
-    return getSoftMargins();
+    return mySoftMargins.getValues();
   }
 
   /**
@@ -1433,6 +1482,16 @@ public class CodeStyleSettings extends CommonCodeStyleSettings
    * @param softMargins The default soft margins.
    */
   public void setDefaultSoftMargins(List<Integer> softMargins) {
-    setSoftMargins(softMargins);
+    mySoftMargins.setValues(softMargins);
   }
+
+  @NotNull
+  public ExcludedFiles getExcludedFiles() {
+    return myExcludedFiles;
+  }
+
+  public SimpleModificationTracker getModificationTracker() {
+    return myModificationTracker;
+  }
+
 }

@@ -35,13 +35,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
  */
 class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implements Cloneable{
   private static final Logger LOG = Logger.getInstance("#com.intellij.util.indexing.impl.ValueContainerImpl");
-  private final static Object myNullValue = new Object();
+  private static final Object myNullValue = new Object();
 
   // there is no volatile as we modify under write lock and read under read lock
   // Most often (80%) we store 0 or one mapping, then we store them in two fields: myInputIdMapping, myInputIdMappingValue
@@ -70,10 +71,26 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
     }
   }
 
-  private void resetFileSetForValue(Value value, Object fileSet) {
-    if (value == null) value = (Value)myNullValue;
-    if (!(myInputIdMapping instanceof THashMap)) myInputIdMappingValue = fileSet;
-    else ((THashMap<Value, Object>)myInputIdMapping).put(value, fileSet);
+  @Nullable
+  private THashMap<Value, Object> asMapping() {
+    //noinspection unchecked
+    return myInputIdMapping instanceof THashMap ? (THashMap<Value, Object>)myInputIdMapping : null;
+  }
+
+  private Value nullValue() {
+    //noinspection unchecked
+    return (Value)myNullValue;
+  }
+
+  private void resetFileSetForValue(Value value, @NotNull Object fileSet) {
+    if (value == null) value = nullValue();
+    THashMap<Value, Object> map = asMapping();
+    if (map == null) {
+      myInputIdMappingValue = fileSet;
+    }
+    else {
+      map.put(value, fileSet);
+    }
   }
 
   @Override
@@ -81,7 +98,7 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
     return myInputIdMapping != null ? myInputIdMapping instanceof THashMap ? ((THashMap)myInputIdMapping).size(): 1 : 0;
   }
 
-  static final ThreadLocal<IndexId> ourDebugIndexInfo = new ThreadLocal<IndexId>();
+  static final ThreadLocal<IndexId> ourDebugIndexInfo = new ThreadLocal<>();
 
   @Override
   public void removeAssociatedValue(int inputId) {
@@ -93,8 +110,8 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
 
       if (valueIterator.getValueAssociationPredicate().contains(inputId)) {
         if (fileSetObjects == null) {
-          fileSetObjects = new SmartList<Object>();
-          valueObjects = new SmartList<Value>();
+          fileSetObjects = new SmartList<>();
+          valueObjects = new SmartList<>();
         }
         else if (DebugAssertions.DEBUG) {
           LOG.error("Expected only one value per-inputId for " + ourDebugIndexInfo.get(), String.valueOf(fileSetObjects.get(0)), String.valueOf(value));
@@ -131,15 +148,19 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
       }
     }
 
-    if (!(myInputIdMapping instanceof THashMap)) {
+    THashMap<Value, Object> mapping = asMapping();
+    if (mapping == null) {
       myInputIdMapping = null;
       myInputIdMappingValue = null;
     } else {
-      THashMap<Value, Object> mapping = (THashMap<Value, Object>)myInputIdMapping;
       mapping.remove(value);
       if (mapping.size() == 1) {
-        myInputIdMapping = mapping.keySet().iterator().next();
-        myInputIdMappingValue = mapping.get((Value)myInputIdMapping);
+        Value mappingValue = mapping.keySet().iterator().next();
+        myInputIdMapping = mappingValue;
+        Object inputIdMappingValue = mapping.get(mappingValue);
+        // prevent NPEs on file set due to Value class being mutable or having inconsistent equals wrt disk persistence 
+        // (instance that is serialized and new instance created with deserialization from the same bytes are expected to be equal)
+        myInputIdMappingValue = inputIdMappingValue != null ? inputIdMappingValue : new Integer(0);
       }
     }
   }
@@ -147,97 +168,100 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
   @NotNull
   @Override
   public InvertedIndexValueIterator<Value> getValueIterator() {
-    if (myInputIdMapping != null) {
-      if (!(myInputIdMapping instanceof THashMap)) {
-        return new InvertedIndexValueIterator<Value>() {
-          private Value value = (Value)myInputIdMapping;
+    if (myInputIdMapping == null) {
+      //noinspection unchecked
+      return EmptyValueIterator.INSTANCE;
+    }
+    final THashMap<Value, Object> mapping = asMapping();
+    if (mapping == null) {
+      return new InvertedIndexValueIterator<Value>() {
+        private Value value = (Value)myInputIdMapping;
 
-          @NotNull
-          @Override
-          public ValueContainer.IntIterator getInputIdsIterator() {
-            return getIntIteratorOutOfFileSetObject(getFileSetObject());
-          }
+        @NotNull
+        @Override
+        public IntIterator getInputIdsIterator() {
+          return getIntIteratorOutOfFileSetObject(getFileSetObject());
+        }
 
-          @NotNull
-          @Override
-          public IntPredicate getValueAssociationPredicate() {
-            return getPredicateOutOfFileSetObject(getFileSetObject());
-          }
+        @NotNull
+        @Override
+        public IntPredicate getValueAssociationPredicate() {
+          return getPredicateOutOfFileSetObject(getFileSetObject());
+        }
 
-          @Override
-          public Object getFileSetObject() {
-            return myInputIdMappingValue;
-          }
+        @Override
+        public Object getFileSetObject() {
+          return myInputIdMappingValue;
+        }
 
-          @Override
-          public boolean hasNext() {
-            return value != null;
-          }
+        @Override
+        public boolean hasNext() {
+          return value != null;
+        }
 
-          @Override
-          public Value next() {
-            Value next = value;
-            if (next == myNullValue) next = null;
-            value = null;
-            return next;
-          }
+        @Override
+        public Value next() {
+          Value next = value;
+          if (next == myNullValue) next = null;
+          value = null;
+          return next;
+        }
 
-          @Override
-          public void remove() {
-            throw new UnsupportedOperationException();
-          }
-        };
-      } else {
-        return new InvertedIndexValueIterator<Value>() {
-          private Value current;
-          private Object currentValue;
-          private final THashMap<Value, Object> myMapping = ((THashMap<Value, Object>)myInputIdMapping);
-          private final Iterator<Value> iterator = myMapping.keySet().iterator();
+        @Override
+        public void remove() {
+          throw new UnsupportedOperationException();
+        }
+      };
+    }
+    else {
+      return new InvertedIndexValueIterator<Value>() {
+        private Value current;
+        private Object currentValue;
+        private final Iterator<Map.Entry<Value, Object>> iterator = mapping.entrySet().iterator();
 
-          @Override
-          public boolean hasNext() {
-            return iterator.hasNext();
-          }
+        @Override
+        public boolean hasNext() {
+          return iterator.hasNext();
+        }
 
-          @Override
-          public Value next() {
-            current = iterator.next();
-            Value next = current;
-            currentValue = myMapping.get(next);
-            if (next == myNullValue) next = null;
-            return next;
-          }
+        @Override
+        public Value next() {
+          Map.Entry<Value, Object> entry = iterator.next();
+          current = entry.getKey();
+          Value next = current;
+          currentValue = entry.getValue();
+          if (next == myNullValue) next = null;
+          return next;
+        }
 
-          @Override
-          public void remove() {
-            throw new UnsupportedOperationException();
-          }
+        @Override
+        public void remove() {
+          throw new UnsupportedOperationException();
+        }
 
-          @NotNull
-          @Override
-          public ValueContainer.IntIterator getInputIdsIterator() {
-            return getIntIteratorOutOfFileSetObject(getFileSetObject());
-          }
+        @NotNull
+        @Override
+        public IntIterator getInputIdsIterator() {
+          return getIntIteratorOutOfFileSetObject(getFileSetObject());
+        }
 
-          @NotNull
-          @Override
-          public IntPredicate getValueAssociationPredicate() {
-            return getPredicateOutOfFileSetObject(getFileSetObject());
-          }
+        @NotNull
+        @Override
+        public IntPredicate getValueAssociationPredicate() {
+          return getPredicateOutOfFileSetObject(getFileSetObject());
+        }
 
-          @Override
-          public Object getFileSetObject() {
-            if (current == null) throw new IllegalStateException();
-            return currentValue;
-          }
-        };
-      }
-    } else {
-      return emptyIterator;
+        @Override
+        public Object getFileSetObject() {
+          if (current == null) throw new IllegalStateException();
+          return currentValue;
+        }
+      };
     }
   }
 
-  static class EmptyValueIterator<Value> extends EmptyIterator<Value> implements InvertedIndexValueIterator<Value> {
+  private static class EmptyValueIterator<Value> extends EmptyIterator<Value> implements InvertedIndexValueIterator<Value> {
+    private static final EmptyValueIterator INSTANCE = new EmptyValueIterator();
 
     @NotNull
     @Override
@@ -257,9 +281,8 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
     }
   }
 
-  private static final EmptyValueIterator emptyIterator = new EmptyValueIterator();
-
-  private static @NotNull IntPredicate getPredicateOutOfFileSetObject(@Nullable Object input) {
+  @NotNull
+  private static IntPredicate getPredicateOutOfFileSetObject(@Nullable Object input) {
     if (input == null) return EMPTY_PREDICATE;
 
     if (input instanceof Integer) {
@@ -275,20 +298,20 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
     return ((ChangeBufferingList)input).intPredicate();
   }
 
-  private static @NotNull
+  @NotNull
+  private static
   ValueContainer.IntIterator getIntIteratorOutOfFileSetObject(@Nullable Object input) {
     if (input == null) return EMPTY_ITERATOR;
-    if (input instanceof Integer){
+    if (input instanceof Integer) {
       return new SingleValueIterator(((Integer)input).intValue());
-    } else {
-      return ((ChangeBufferingList)input).intIterator();
     }
+    return ((ChangeBufferingList)input).intIterator();
   }
 
   private Object getFileSetObject(Value value) {
     if (myInputIdMapping == null) return null;
 
-    value = value != null ? value:(Value)myNullValue;
+    value = value != null ? value : nullValue();
 
     if (myInputIdMapping == value || // myNullValue is Object
         myInputIdMapping.equals(value)
@@ -296,16 +319,18 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
       return myInputIdMappingValue;
     }
 
-    if (!(myInputIdMapping instanceof THashMap)) return null;
-    return ((THashMap<Value, Object>)myInputIdMapping).get(value);
+    THashMap<Value, Object> mapping = asMapping();
+    return mapping == null ? null : mapping.get(value);
   }
 
   @Override
   public ValueContainerImpl<Value> clone() {
     try {
-      final ValueContainerImpl clone = (ValueContainerImpl)super.clone();
-      if (myInputIdMapping instanceof THashMap) {
-        final THashMap<Value, Object> cloned = ((THashMap<Value, Object>)myInputIdMapping).clone();
+      @SuppressWarnings("unchecked")
+      final ValueContainerImpl<Value> clone = (ValueContainerImpl<Value>)super.clone();
+      THashMap<Value, Object> mapping = asMapping();
+      if (mapping != null) {
+        final THashMap<Value, Object> cloned = mapping.clone();
         cloned.forEachEntry(new TObjectObjectProcedure<Value, Object>() {
           @Override
           public boolean execute(Value key, Object val) {
@@ -354,7 +379,8 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
     }
   };
 
-  private @Nullable ChangeBufferingList ensureFileSetCapacityForValue(Value value, int count) {
+  @Nullable
+  private ChangeBufferingList ensureFileSetCapacityForValue(Value value, int count) {
     if (count <= 1) return null;
     Object fileSetObject = getFileSetObject(value);
 
@@ -364,7 +390,8 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
         list.add(((Integer)fileSetObject).intValue());
         resetFileSetForValue(value, list);
         return list;
-      } else if (fileSetObject instanceof ChangeBufferingList) {
+      }
+      if (fileSetObject instanceof ChangeBufferingList) {
         ChangeBufferingList list = (ChangeBufferingList)fileSetObject;
         list.ensureCapacity(count);
         return list;
@@ -378,23 +405,25 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
   }
 
   private void attachFileSetForNewValue(Value value, Object fileSet) {
-    value = value != null ? value:(Value)myNullValue;
+    value = value != null ? value : nullValue();
     if (myInputIdMapping != null) {
-      if (!(myInputIdMapping instanceof THashMap)) {
-        Object oldMapping = myInputIdMapping;
-        myInputIdMapping = new THashMap<Value, Object>(2);
-        ((THashMap<Value, Object>)myInputIdMapping).put((Value)oldMapping, myInputIdMappingValue);
+      THashMap<Value, Object> mapping = asMapping();
+      if (mapping == null) {
+        Value oldMapping = (Value)myInputIdMapping;
+        myInputIdMapping = mapping = new THashMap<>(2);
+        mapping.put(oldMapping, myInputIdMappingValue);
         myInputIdMappingValue = null;
       }
-      ((THashMap<Value, Object>)myInputIdMapping).put(value, fileSet);
-    } else {
+      mapping.put(value, fileSet);
+    }
+    else {
       myInputIdMapping = value;
       myInputIdMappingValue = fileSet;
     }
   }
 
   @Override
-  public void saveTo(DataOutput out, DataExternalizer<Value> externalizer) throws IOException {
+  public void saveTo(DataOutput out, DataExternalizer<? super Value> externalizer) throws IOException {
     DataInputOutputUtil.writeINT(out, size());
 
     for (final InvertedIndexValueIterator<Value> valueIterator = getValueIterator(); valueIterator.hasNext();) {
@@ -428,7 +457,7 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
 
   static final int NUMBER_OF_VALUES_THRESHOLD = 20;
 
-  public void readFrom(DataInputStream stream, DataExternalizer<Value> externalizer) throws IOException {
+  public void readFrom(DataInputStream stream, DataExternalizer<? extends Value> externalizer) throws IOException {
     FileId2ValueMapping<Value> mapping = null;
 
     while (stream.available() > 0) {
@@ -438,7 +467,7 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
         final int inputId = -valueCount;
 
         if (mapping == null && size() > NUMBER_OF_VALUES_THRESHOLD) { // avoid O(NumberOfValues)
-          mapping = new FileId2ValueMapping<Value>(this);
+          mapping = new FileId2ValueMapping<>(this);
         }
 
         boolean doCompact;
@@ -479,7 +508,7 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
 
   private static class SingleValueIterator implements IntIdsIterator {
     private final int myValue;
-    private boolean myValueRead = false;
+    private boolean myValueRead;
 
     private SingleValueIterator(int value) {
       myValue = value;
@@ -492,9 +521,8 @@ class ValueContainerImpl<Value> extends UpdatableValueContainer<Value> implement
 
     @Override
     public int next() {
-      int next = myValue;
       myValueRead = true;
-      return next;
+      return myValue;
     }
 
     @Override

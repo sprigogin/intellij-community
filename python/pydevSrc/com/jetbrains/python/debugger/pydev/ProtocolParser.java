@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
 import com.google.common.collect.Lists;
@@ -66,7 +67,7 @@ public class ProtocolParser {
       throw new PyDebuggerException("Expected <threading_event> or <asyncio_event>, found " + reader.getNodeName());
     }
 
-    final Long time = Long.parseLong(readString(reader, "time", ""));
+    final long time = Long.parseLong(readString(reader, "time", ""));
     final String name = readString(reader, "name", "");
     final String thread_id = readString(reader, "thread_id", "");
     final String type = readString(reader, "type", "");
@@ -132,7 +133,7 @@ public class ProtocolParser {
     return threadingEvent;
   }
 
-  public static boolean parseInputCommand(String payload) throws PyDebuggerException {
+  public static boolean parseInputCommand(String payload) {
     return payload.equals("True");
   }
 
@@ -151,7 +152,7 @@ public class ProtocolParser {
     }
   }
 
-  public static String parseSourceContent(String payload) throws PyDebuggerException {
+  public static String parseSourceContent(String payload) {
     return payload;
   }
 

@@ -105,7 +105,6 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
   @Override
   public TaskInfo[] getCurrentTasks() {
     List<R> repositories = myRepositoryManager.getRepositories();
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     Map<String, TaskInfo> tasks = FactoryMap.create(key -> new TaskInfo(key, new ArrayList<>()));
     for (R repository : repositories) {
       String branch = getActiveBranch(repository);
@@ -118,7 +117,7 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
       return new TaskInfo[] { tasks.values().iterator().next() };
     }
     else {
-      return tasks.values().toArray(new TaskInfo[tasks.values().size()]);
+      return tasks.values().toArray(new TaskInfo[0]);
     }
   }
 

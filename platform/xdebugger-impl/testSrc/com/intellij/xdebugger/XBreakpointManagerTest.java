@@ -1,10 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger;
 
+import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.JdomKt;
 import com.intellij.xdebugger.breakpoints.SuspendPolicy;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XBreakpointListener;
@@ -136,7 +134,7 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
   }
 
   public void testRemoveFile() {
-    final VirtualFile file = myTempFiles.createVFile("breakpoint", ".txt");
+    final VirtualFile file = getTempDir().createVFile("breakpoint", ".txt");
     addLineBreakpoint(myBreakpointManager, file.getUrl(), 0, null);
     assertOneElement(myBreakpointManager.getBreakpoints(MY_LINE_BREAKPOINT_TYPE));
     delete(file);
@@ -157,7 +155,7 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     "</breakpoints>" +
     "<option name=\"time\" value=\"1\" />" +
     "</breakpoint-manager>";
-    load(JdomKt.loadElement(oldStyle));
+    load(JDOMUtil.load(oldStyle));
     XLineBreakpoint<MyBreakpointProperties> breakpoint = assertOneElement(myBreakpointManager.getBreakpoints(MY_LINE_BREAKPOINT_TYPE));
     assertEquals(condition, breakpoint.getCondition());
     assertEquals(logExpression, breakpoint.getLogExpression());

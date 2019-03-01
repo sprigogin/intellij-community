@@ -1,12 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.actions;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
 import com.intellij.execution.RunnerAndConfigurationSettings;
-import com.intellij.execution.RunnerRegistry;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.executors.DefaultDebugExecutor;
 import com.intellij.execution.executors.DefaultRunExecutor;
@@ -32,7 +29,7 @@ import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.ui.components.JBList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -50,7 +47,6 @@ import java.util.List;
 
 /**
  * @author anna
- * @since 24-Dec-2008
  */
 public class AbstractRerunFailedTestsAction extends AnAction implements AnAction.TransparentUpdate {
   private static final Logger LOG = Logger.getInstance(AbstractRerunFailedTestsAction.class);
@@ -81,7 +77,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     e.getPresentation().setEnabled(isActive(e));
   }
 
-  private boolean isActive(AnActionEvent e) {
+  private boolean isActive(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     if (project == null) {
       return false;
@@ -162,7 +158,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
 
     final LinkedHashMap<Executor, ProgramRunner> availableRunners = new LinkedHashMap<>();
     for (Executor ex : new Executor[] {DefaultRunExecutor.getRunExecutorInstance(), DefaultDebugExecutor.getDebugExecutorInstance()}) {
-      final ProgramRunner runner = RunnerRegistry.getInstance().getRunner(ex.getId(), profile);
+      final ProgramRunner runner = ProgramRunner.getRunner(ex.getId(), profile);
       if (runner != null) {
         availableRunners.put(ex, runner);
       }
@@ -172,38 +168,35 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
       LOG.error(environment.getExecutor().getActionName() + " is not available now");
     }
     else if (availableRunners.size() == 1) {
-      //noinspection ConstantConditions
       performAction(environmentBuilder.runner(availableRunners.get(environment.getExecutor())));
     }
     else {
-      final JBList list = new JBList(availableRunners.keySet());
-      list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-      list.setSelectedValue(environment.getExecutor(), true);
-      list.setCellRenderer(new DefaultListCellRenderer() {
-        @NotNull
-        @Override
-        public Component getListCellRendererComponent(@NotNull JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-          final Component component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-          if (value instanceof Executor) {
-            setText(UIUtil.removeMnemonic(((Executor)value).getStartActionText()));
-            setIcon(((Executor)value).getIcon());
+      ArrayList<Executor> model = ContainerUtil.newArrayList(availableRunners.keySet());
+      JBPopupFactory.getInstance().createPopupChooserBuilder(model)
+        .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+        .setSelectedValue(environment.getExecutor(), true)
+        .setRenderer(new DefaultListCellRenderer() {
+          @NotNull
+          @Override
+          public Component getListCellRendererComponent(@NotNull JList list,
+                                                        Object value,
+                                                        int index,
+                                                        boolean isSelected,
+                                                        boolean cellHasFocus) {
+            final Component component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof Executor) {
+              setText(UIUtil.removeMnemonic(((Executor)value).getStartActionText()));
+              setIcon(((Executor)value).getIcon());
+            }
+            return component;
           }
-          return component;
-        }
-      });
-      //noinspection ConstantConditions
-      JBPopupFactory.getInstance().createListPopupBuilder(list)
+        })
         .setTitle("Restart Failed Tests")
         .setMovable(false)
         .setResizable(false)
         .setRequestFocus(true)
-        .setItemChoosenCallback(() -> {
-          final Object value = list.getSelectedValue();
-          if (value instanceof Executor) {
-            //noinspection ConstantConditions
-            performAction(environmentBuilder.runner(availableRunners.get(value)).executor((Executor)value));
-          }
-        }).createPopup().showUnderneathOf(event.getComponent());
+        .setItemChosenCallback((value) -> performAction(environmentBuilder.runner(availableRunners.get(value)).executor(value)))
+        .createPopup().showUnderneathOf(event.getComponent());
     }
   }
 
@@ -282,12 +275,6 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     }
 
     @Override
-    @NotNull
-    public ConfigurationType getType() {
-      return myConfiguration.getType();
-    }
-
-    @Override
     public ConfigurationPerRunnerSettings createRunnerSettings(final ConfigurationInfoProvider provider) {
       return myConfiguration.createRunnerSettings(provider);
     }
@@ -302,6 +289,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
       return myConfiguration.clone();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public int getUniqueID() {
       return myConfiguration.getUniqueID();

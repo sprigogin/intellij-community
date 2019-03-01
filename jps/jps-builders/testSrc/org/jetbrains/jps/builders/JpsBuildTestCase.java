@@ -3,7 +3,6 @@ package org.jetbrains.jps.builders;
 
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
-import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.UsefulTestCase;
@@ -24,6 +23,7 @@ import org.jetbrains.jps.builders.storage.BuildDataPaths;
 import org.jetbrains.jps.cmdline.ClasspathBootstrap;
 import org.jetbrains.jps.cmdline.ProjectDescriptor;
 import org.jetbrains.jps.incremental.BuilderRegistry;
+import org.jetbrains.jps.incremental.FSOperations;
 import org.jetbrains.jps.incremental.IncProjectBuilder;
 import org.jetbrains.jps.incremental.RebuildRequestedException;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
@@ -132,16 +132,16 @@ public abstract class JpsBuildTestCase extends UsefulTestCase {
       if (newContent != null) {
         FileUtil.writeToFile(file, newContent);
       }
-      long oldTimestamp = FileSystemUtil.lastModified(file);
+      long oldTimestamp = FSOperations.lastModified(file);
       long time = System.currentTimeMillis();
       setLastModified(file, time);
-      if (FileSystemUtil.lastModified(file) <= oldTimestamp) {
+      if (FSOperations.lastModified(file) <= oldTimestamp) {
         setLastModified(file, time + 1);
-        long newTimeStamp = FileSystemUtil.lastModified(file);
+        long newTimeStamp = FSOperations.lastModified(file);
         if (newTimeStamp <= oldTimestamp) {
           //Mac OS and some versions of Linux truncates timestamp to nearest second
           setLastModified(file, time + 1000);
-          newTimeStamp = FileSystemUtil.lastModified(file);
+          newTimeStamp = FSOperations.lastModified(file);
           assertTrue("Failed to change timestamp for " + file.getAbsolutePath(), newTimeStamp > oldTimestamp);
         }
         sleepUntil(newTimeStamp);
@@ -440,16 +440,27 @@ public abstract class JpsBuildTestCase extends UsefulTestCase {
   }
 
   public JpsModule addModule(String moduleName, String... srcPaths) {
+    return addModule(moduleName, srcPaths, getAbsolutePath(getModuleOutputRelativePath(moduleName)), null, getJdk());
+  }
+
+  protected final JpsSdk<JpsDummyElement> getJdk() {
     if (myJdk == null) {
       myJdk = addJdk("1.6");
     }
-    return addModule(moduleName, srcPaths, getAbsolutePath(getModuleOutputRelativePath(moduleName)), null, myJdk);
+    return myJdk;
+  }
+
+  @NotNull
+  protected static File getModuleOutput(JpsModule module) {
+    String outputUrl = JpsJavaExtensionService.getInstance().getOutputUrl(module, false);
+    return JpsPathUtil.urlToFile(outputUrl);
   }
 
   @NotNull
   protected String getModuleOutputRelativePath(JpsModule module) {
     return getModuleOutputRelativePath(module.getName());
   }
+
   @NotNull
   protected String getModuleOutputRelativePath(String moduleName) {
     return "out/production/" + moduleName;

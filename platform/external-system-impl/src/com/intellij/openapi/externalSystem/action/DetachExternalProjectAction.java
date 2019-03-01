@@ -39,7 +39,6 @@ import java.util.List;
 
 /**
  * @author Denis Zhdanov
- * @since 6/13/13 5:42 PM
  */
 public class DetachExternalProjectAction extends ExternalSystemNodeAction<ProjectData> {
 
@@ -47,7 +46,7 @@ public class DetachExternalProjectAction extends ExternalSystemNodeAction<Projec
     super(ProjectData.class);
     getTemplatePresentation().setText(ExternalSystemBundle.message("action.detach.external.project.text", "external"));
     getTemplatePresentation().setDescription(ExternalSystemBundle.message("action.detach.external.project.description"));
-    getTemplatePresentation().setIcon(SystemInfoRt.isMac ? AllIcons.ToolbarDecorator.Mac.Remove : AllIcons.ToolbarDecorator.Remove);
+    getTemplatePresentation().setIcon(AllIcons.General.Remove);
   }
 
   @Override
@@ -62,7 +61,7 @@ public class DetachExternalProjectAction extends ExternalSystemNodeAction<Projec
   }
 
   @Override
-  protected boolean isEnabled(AnActionEvent e) {
+  protected boolean isEnabled(@NotNull AnActionEvent e) {
     if (!super.isEnabled(e)) return false;
     return ExternalSystemDataKeys.SELECTED_PROJECT_NODE.getData(e.getDataContext()) != null;
   }

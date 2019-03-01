@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env $PYTHON$
 # -*- coding: utf-8 -*-
 
 import socket
@@ -58,10 +58,13 @@ def try_activate_instance(args):
     if not (os.path.exists(port_path) and os.path.exists(token_path)):
         return False
 
-    with open(port_path) as pf:
-        port = int(pf.read())
-    with open(token_path) as tf:
-        token = tf.read()
+    try:
+        with open(port_path) as pf:
+            port = int(pf.read())
+        with open(token_path) as tf:
+            token = tf.read()
+    except (ValueError):
+        return False
 
     s = socket.socket()
     s.settimeout(0.3)
@@ -83,7 +86,7 @@ def try_activate_instance(args):
 
     if found:
         cmd = 'activate ' + token + '\0' + os.getcwd() + '\0' + '\0'.join(args)
-        if sys.version_info.major >= 3: cmd = cmd.encode('utf-8')
+        if sys.version_info[0] >= 3: cmd = cmd.encode('utf-8')
         encoded = struct.pack('>h', len(cmd)) + cmd
         s.send(encoded)
         time.sleep(0.5)  # don't close the socket immediately
@@ -96,7 +99,7 @@ def start_new_instance(args):
     if sys.platform == 'darwin':
         if len(args) > 0:
             args.insert(0, '--args')
-        os.execvp('open', ['-a', RUN_PATH] + args)
+        os.execvp('/usr/bin/open', ['-a', RUN_PATH] + args)
     else:
         bin_file = os.path.split(RUN_PATH)[1]
         os.execv(RUN_PATH, [bin_file] + args)

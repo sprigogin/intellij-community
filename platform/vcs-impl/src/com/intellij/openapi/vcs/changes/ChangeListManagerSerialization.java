@@ -16,9 +16,14 @@
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcsUtil.VcsUtil;
+import com.intellij.xml.util.XmlStringUtil;
 import org.jdom.Element;
+import org.jdom.Verifier;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,10 +36,13 @@ class ChangeListManagerSerialization {
   @NonNls private static final String ATT_NAME = "name";
   @NonNls private static final String ATT_COMMENT = "comment";
   @NonNls private static final String ATT_DEFAULT = "default";
-  @NonNls private static final String ATT_READONLY = "readonly";
   @NonNls private static final String ATT_VALUE_TRUE = "true";
   @NonNls private static final String ATT_CHANGE_BEFORE_PATH = "beforePath";
   @NonNls private static final String ATT_CHANGE_AFTER_PATH = "afterPath";
+  @NonNls private static final String ATT_CHANGE_BEFORE_PATH_ESCAPED = "beforePathEscaped";
+  @NonNls private static final String ATT_CHANGE_AFTER_PATH_ESCAPED = "afterPathEscaped";
+  @NonNls private static final String ATT_CHANGE_BEFORE_PATH_IS_DIR = "beforeDir";
+  @NonNls private static final String ATT_CHANGE_AFTER_PATH_IS_DIR = "afterDir";
   @NonNls private static final String ATT_PATH = "path";
   @NonNls private static final String ATT_MASK = "mask";
   @NonNls private static final String NODE_LIST = "list";
@@ -115,7 +123,6 @@ class ChangeListManagerSerialization {
     Element listNode = new Element(NODE_LIST);
 
     if (list.isDefault()) listNode.setAttribute(ATT_DEFAULT, ATT_VALUE_TRUE);
-    if (list.isReadOnly()) listNode.setAttribute(ATT_READONLY, ATT_VALUE_TRUE);
 
     listNode.setAttribute(ATT_ID, list.getId());
     listNode.setAttribute(ATT_NAME, list.getName());
@@ -167,7 +174,6 @@ class ChangeListManagerSerialization {
     String comment = StringUtil.notNullize(listNode.getAttributeValue(ATT_COMMENT));
     ChangeListData data = ChangeListData.readExternal(listNode);
     boolean isDefault = ATT_VALUE_TRUE.equals(listNode.getAttributeValue(ATT_DEFAULT));
-    boolean isReadOnly = ATT_VALUE_TRUE.equals(listNode.getAttributeValue(ATT_READONLY));
 
     List<Change> changes = new ArrayList<>();
     for (Element changeNode : listNode.getChildren(NODE_CHANGE)) {
@@ -180,7 +186,6 @@ class ChangeListManagerSerialization {
       .setChanges(changes)
       .setData(data)
       .setDefault(isDefault)
-      .setReadOnly(isReadOnly)
       .build();
   }
 
@@ -214,20 +219,81 @@ class ChangeListManagerSerialization {
   @NotNull
   private static Element writeChange(@NotNull Change change) {
     Element changeNode = new Element(NODE_CHANGE);
-
-    ContentRevision bRev = change.getBeforeRevision();
-    ContentRevision aRev = change.getAfterRevision();
-
-    changeNode.setAttribute(ATT_CHANGE_BEFORE_PATH, bRev != null ? bRev.getFile().getPath() : "");
-    changeNode.setAttribute(ATT_CHANGE_AFTER_PATH, aRev != null ? aRev.getFile().getPath() : "");
+    writeContentRevision(changeNode, change.getBeforeRevision(), RevisionSide.BEFORE);
+    writeContentRevision(changeNode, change.getAfterRevision(), RevisionSide.AFTER);
     return changeNode;
   }
 
   @NotNull
   private static Change readChange(@NotNull Element changeNode) {
-    String bRev = changeNode.getAttributeValue(ATT_CHANGE_BEFORE_PATH);
-    String aRev = changeNode.getAttributeValue(ATT_CHANGE_AFTER_PATH);
-    return new Change(StringUtil.isEmpty(bRev) ? null : new FakeRevision(bRev),
-                      StringUtil.isEmpty(aRev) ? null : new FakeRevision(aRev));
+    FakeRevision bRev = readContentRevision(changeNode, RevisionSide.BEFORE);
+    FakeRevision aRev = readContentRevision(changeNode, RevisionSide.AFTER);
+    return new Change(bRev, aRev);
+  }
+
+  private static void writeContentRevision(@NotNull Element changeNode, @Nullable ContentRevision rev, @NotNull RevisionSide side) {
+    if (rev == null) return;
+    FilePath filePath = rev.getFile();
+    String path = filePath.getPath();
+    if (hasIllegalXmlChars(path)) {
+      changeNode.setAttribute(side.getPathKey(), JDOMUtil.removeControlChars(path));
+      changeNode.setAttribute(side.getEscapedPathKey(), XmlStringUtil.escapeIllegalXmlChars(path));
+    }
+    else {
+      changeNode.setAttribute(side.getPathKey(), path);
+    }
+    changeNode.setAttribute(side.getIsDirKey(), String.valueOf(filePath.isDirectory()));
+  }
+
+  @Nullable
+  private static FakeRevision readContentRevision(@NotNull Element changeNode, @NotNull RevisionSide side) {
+    String plainPath = changeNode.getAttributeValue(side.getPathKey());
+    String escapedPath = changeNode.getAttributeValue(side.getEscapedPathKey());
+    String path = escapedPath != null ? XmlStringUtil.unescapeIllegalXmlChars(escapedPath) : plainPath;
+    if (StringUtil.isEmpty(path)) return null;
+
+    String value = changeNode.getAttributeValue(side.getIsDirKey());
+    if (value != null) {
+      boolean isDirectory = Boolean.parseBoolean(value);
+      return new FakeRevision(VcsUtil.getFilePath(path, isDirectory));
+    }
+    else {
+      // old-style config. Will get "isDirectory" flag from VFS.
+      return new FakeRevision(VcsUtil.getFilePath(path));
+    }
+  }
+
+  private enum RevisionSide {
+    BEFORE(ATT_CHANGE_BEFORE_PATH, ATT_CHANGE_BEFORE_PATH_ESCAPED, ATT_CHANGE_BEFORE_PATH_IS_DIR),
+    AFTER(ATT_CHANGE_AFTER_PATH, ATT_CHANGE_AFTER_PATH_ESCAPED, ATT_CHANGE_AFTER_PATH_IS_DIR);
+
+    @NotNull private final String myPathKey;
+    @NotNull private final String myEscapedPathKey;
+    @NotNull private final String myIsDirKey;
+
+    RevisionSide(@NotNull String pathKey, @NotNull String escapedPathKey, @NotNull String isDirKey) {
+      myPathKey = pathKey;
+      myEscapedPathKey = escapedPathKey;
+      myIsDirKey = isDirKey;
+    }
+
+    @NotNull
+    public String getPathKey() {
+      return myPathKey;
+    }
+
+    @NotNull
+    String getEscapedPathKey() {
+      return myEscapedPathKey;
+    }
+
+    @NotNull
+    public String getIsDirKey() {
+      return myIsDirKey;
+    }
+  }
+
+  private static boolean hasIllegalXmlChars(@NotNull String text) {
+    return text.chars().anyMatch(c -> !Verifier.isXMLCharacter(c));
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.dashboard.actions;
 
 import com.intellij.execution.ExecutionBundle;
@@ -20,45 +6,43 @@ import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configuration.ConfigurationFactoryEx;
 import com.intellij.execution.configurations.ConfigurationFactory;
+import com.intellij.execution.configurations.RunConfiguration;
+import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.dashboard.RunDashboardManager;
 import com.intellij.execution.dashboard.RunDashboardRunConfigurationNode;
 import com.intellij.execution.impl.RunDialog;
 import com.intellij.execution.impl.RunnerAndConfigurationSettingsImpl;
 import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author konstantin.aleev
  */
-public class CopyConfigurationAction extends RunConfigurationTreeAction {
-  public CopyConfigurationAction() {
-    super(ExecutionBundle.message("copy.configuration.action.name"),
-          ExecutionBundle.message("copy.configuration.action.name"),
-          PlatformIcons.COPY_ICON);
-  }
-
+public class CopyConfigurationAction extends AnAction {
   @Override
   public void update(@NotNull AnActionEvent e) {
-    super.update(e);
-    if (ActionPlaces.isPopupPlace(e.getPlace())) {
+    Project project = e.getProject();
+    RunDashboardRunConfigurationNode node = project == null ? null : RunDashboardActionUtils.getTarget(e);
+    boolean enabled = node != null && RunDashboardManager.getInstance(project).isShowConfigurations() &&
+                      RunManager.getInstance(node.getProject()).hasSettings(node.getConfigurationSettings());
+    e.getPresentation().setEnabled(enabled);
+    boolean popupPlace = ActionPlaces.isPopupPlace(e.getPlace());
+    e.getPresentation().setVisible(enabled || !popupPlace);
+    if (popupPlace) {
       e.getPresentation().setText(ExecutionBundle.message("copy.configuration.action.name") + "...");
     }
   }
 
   @Override
-  protected boolean isEnabled4(RunDashboardRunConfigurationNode node) {
-    Project project = node.getProject();
-    return !project.isDisposed() && RunDashboardManager.getInstance(project).isShowConfigurations() &&
-           RunManager.getInstance(node.getProject()).hasSettings(node.getConfigurationSettings());
-  }
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
+    RunDashboardRunConfigurationNode node = project == null ? null : RunDashboardActionUtils.getTarget(e);
+    if (node == null) return;
 
-  @Override
-  @SuppressWarnings("unchecked")
-  protected void doActionPerformed(RunDashboardRunConfigurationNode node) {
-    RunManager runManager = RunManager.getInstance(node.getProject());
+    RunManager runManager = RunManager.getInstance(project);
     RunnerAndConfigurationSettings settings = node.getConfigurationSettings();
 
     RunnerAndConfigurationSettings copiedSettings = ((RunnerAndConfigurationSettingsImpl)settings).clone();
@@ -66,13 +50,20 @@ public class CopyConfigurationAction extends RunConfigurationTreeAction {
     copiedSettings.setFolderName(settings.getFolderName());
 
     final ConfigurationFactory factory = settings.getFactory();
+    RunConfiguration configuration = settings.getConfiguration();
+    //noinspection deprecation
     if (factory instanceof ConfigurationFactoryEx) {
-      ((ConfigurationFactoryEx)factory).onConfigurationCopied(settings.getConfiguration());
+      //noinspection deprecation,unchecked
+      ((ConfigurationFactoryEx)factory).onConfigurationCopied(configuration);
+    }
+    if (configuration instanceof RunConfigurationBase) {
+      ((RunConfigurationBase)configuration).onConfigurationCopied();
     }
 
-    if (RunDialog.editConfiguration(node.getProject(), copiedSettings,
+    if (RunDialog.editConfiguration(project, copiedSettings,
                                     ExecutionBundle.message("run.dashboard.edit.configuration.dialog.title"))) {
-      runManager.addConfiguration(copiedSettings, settings.isShared());
+      copiedSettings.setShared(settings.isShared());
+      runManager.addConfiguration(copiedSettings);
     }
   }
 }

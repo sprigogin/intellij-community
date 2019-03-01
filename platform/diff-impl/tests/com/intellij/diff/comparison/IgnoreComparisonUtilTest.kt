@@ -16,10 +16,17 @@
 package com.intellij.diff.comparison
 
 import com.intellij.diff.DiffTestCase
+import com.intellij.diff.comparison.ComparisonUtilTestBase.Companion.convertLineFragments
+import com.intellij.diff.comparison.ComparisonUtilTestBase.Companion.del
+import com.intellij.diff.comparison.ComparisonUtilTestBase.Companion.ins
+import com.intellij.diff.comparison.ComparisonUtilTestBase.Companion.mod
 import com.intellij.diff.fragments.LineFragment
+import com.intellij.diff.tools.util.text.LineOffsetsUtil
 import com.intellij.diff.util.IntPair
+import com.intellij.diff.util.Range
 import com.intellij.openapi.util.Couple
 import com.intellij.openapi.util.TextRange
+import com.intellij.util.containers.ContainerUtil
 import java.util.*
 
 class IgnoreComparisonUtilTest : DiffTestCase() {
@@ -157,6 +164,16 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
          " +++", "",
          "----", "")
       .run()
+
+    Test("A_B_C_", "",
+         " +++++", "",
+         "--    ", "")
+      .run()
+
+    Test("A_B_C_", "",
+         "++++ +", "",
+         "    --", "")
+      .run()
   }
 
   fun testLines() {
@@ -173,7 +190,8 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
 
     Test("X_", "X_Y_",
          "  ", "++  ",
-         "  ", "  --")
+         "- ", "  - ")
+      .changedLines(mod(0, 1, 1, 1))
       .run()
 
     Test("X_Y_", "X_",
@@ -209,7 +227,8 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
 
     Test("X_Y_Z", "A_Y_Z",
          "++   ", "     ",
-         "     ", "-    ")
+         "     ", "--   ")
+      .changedLines(ins(1, 0, 1))
       .run()
 
     Test("X_Y_Z", "A_Y_Z",
@@ -245,6 +264,11 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
     Test("X_Y_Z", "X_B_Z",
          "  +  ", "  +  ",
          "     ", "     ")
+      .run()
+
+    Test("X_Y_Z", "X_B_Z",
+         "  +  ", "     ",
+         "     ", "  -  ")
       .run()
 
     Test("X_Y_Z", "X_B_Z",
@@ -373,12 +397,39 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
          "     +   + + +  ", "     +   + + +  ",
          "          -     ", "          -     ")
       .changedLinesNumber(2, 1)
+      .changedLines(mod(0, 0, 2, 1))
       .run()
 
     Test("int X = 0;", "intX = 0;",
          "   + + +  ", "    + +  ",
          "-----     ", "----     ")
       .changedLinesNumber(1, 1)
+      .run()
+
+    Test("import xx.x;_import xx.y;_import xx.z;", "import xx.x;_// import xx.y;_import xx.z;",
+         "++++++++++++++++++++++++++++++++++++++", "+++++++++++++               +++++++++++++",
+         "                                      ", "             ----------------            ")
+      .changedLinesNumber(0, 1)
+      .run()
+
+    Test("import xx.x;_import xx.y;_import xx.z;_import xx.a;", "//import xx.x;_import xx.y;_import xx.z;_//import xx.a;",
+         "+++++++++++++++++++++++++++++++++++++++++++++++++++", "              +++++++++++++++++++++++++++              ",
+         "                                                   ", "---------------                          --------------")
+      .changedLinesNumber(0, 2)
+      .run()
+
+    Test("foo();_bar 'text';", "foo();_// TODO: bar 'text'",
+         "          +       ", "      ++++++++++++++++++++",
+         "       -----------", "                          ")
+      .changedLines(del(1, 2, 1))
+      .changedLinesNumber(1, 0)
+      .run()
+
+    Test("import x.A;_import x.B;_import x.C;__@C_class Test { }_", "import x.B;__@x.C_class Test {}_",
+         "+++++++++++++++++++++++++++++++++++++  +     +    + + +", "+++++++++++++    +     +    +  +",
+         "                                                       ", "              --                ")
+      .changedLinesNumber(1, 1)
+      .changedLines(mod(4, 2, 1, 1))
       .run()
   }
 
@@ -401,6 +452,103 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
       .run()
   }
 
+  fun `test explicit blocks`() {
+    Test("X_a_Y_b_Z", "X_a 1 c_Y_b 1 c_Z",
+         "         ", "   +++     +++   ",
+         "         ", "      -          ")
+      .ranged(Range(1, 2, 1, 2))
+      .changedLinesNumber(1, 1)
+      .run()
+
+    Test("X_a_Y_b_Z", "X_a 1 c_Y_b 1 c_Z",
+         "         ", "   ++++    +++   ",
+         "         ", "                 ")
+      .ranged(Range(1, 2, 1, 2))
+      .changedLinesNumber(0, 0)
+      .run()
+
+    Test("X_a_Y_b_Z", "X_a 1 c_Y_b 1 c_Z",
+         "         ", "              +  ",
+         "         ", "           ---   ")
+      .ranged(Range(3, 4, 3, 4))
+      .changedLinesNumber(1, 1)
+      .run()
+
+    Test("X_a_Y_b_Z", "X_a 1 c_Y_b 1 c_Z",
+         "         ", "              +  ",
+         "  -      ", "          ----   ")
+      .ranged(Range(1, 2, 3, 4))
+      .changedLinesNumber(1, 1)
+      .run()
+
+    Test("X_a_Y_b_Z", "Y_b 1 c_Z",
+         "         ", "      +  ",
+         "         ", "   ---   ")
+      .ranged(Range(3, 4, 1, 2))
+      .changedLinesNumber(1, 1)
+      .run()
+
+    Test("X_a_Y_b_Z", "Y_c_d_b_Z",
+         "         ", "  ++++   ",
+         "         ", "         ")
+      .ranged(Range(3, 4, 1, 4))
+      .changedLinesNumber(0, 0)
+      .run()
+
+    Test("X_a_Y_Z", "Y_c_d_Z",
+         "       ", "  ++++ ",
+         "       ", "       ")
+      .ranged(Range(3, 3, 1, 3))
+      .changedLinesNumber(0, 0)
+      .run()
+
+
+    Test("X_a_Y_Z", "Y_c_d_Z",
+         "       ", "       ",
+         "       ", "  ---- ")
+      .ranged(Range(3, 3, 1, 3))
+      .changedLinesNumber(0, 2)
+      .run()
+
+    Test("X_W 1 W_Y_W 2 W_Z", "X_W 3 W_B_W 4 W_Z",
+         "    +       +    ", "    +       +    ",
+         "        --       ", "        --       ")
+      .ranged(Range(2, 4, 2, 4))
+      .changedLinesNumber(1, 1)
+      .noInnerChanges()
+      .run()
+
+    Test("X_W 1 W_Y_W 2 W_Z", "X_W 3 W_B_W 4 W_Z",
+         "    +       +    ", "    +       +    ",
+         "        --       ", "        --       ")
+      .ranged(Range(1, 5, 1, 5))
+      .changedLinesNumber(1, 1)
+      .noInnerChanges()
+      .run()
+
+    Test("X_W 1 W_Y_W 2 W_Z", "X_W 3 W_B_W 4 W_Z",
+         "    +       +    ", "    +       +    ",
+         "                 ", "                 ")
+      .ranged(Range(1, 2, 3, 4))
+      .changedLinesNumber(0, 0)
+      .noInnerChanges()
+      .run()
+
+    Test("X_a Y_Z", "Y_aY_Z",
+         "   + + ", "    + ",
+         "  ---  ", "  --  ")
+      .ranged(Range(1, 2, 1, 2))
+      .changedLinesNumber(1, 1)
+      .run()
+
+    Test("X_a Y_Z", "X_aY_Z",
+         "   + + ", "    + ",
+         "  ---  ", "  --  ")
+      .ranged(Range(1, 2, 1, 2))
+      .changedLinesNumber(1, 1)
+      .run()
+  }
+
   private inner class Test(val input1: String, val input2: String,
                            ignored1: String, ignored2: String,
                            result1: String, result2: String) {
@@ -409,16 +557,28 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
     val result1: String = result1.filterNot { it == '.' }
     val result2: String = result2.filterNot { it == '.' }
 
-    private var inner = true
-    private var changedLines: IntPair? = null
+    private var innerPolicy = InnerFragmentsPolicy.WORDS
+    private var changedLinesNumber: IntPair? = null
+    private var range: Range? = null
+    private var changedLines: List<Couple<IntPair>>? = null
 
     fun noInnerChanges(): Test {
-      inner = false
+      innerPolicy = InnerFragmentsPolicy.NONE
       return this
     }
 
     fun changedLinesNumber(lines1: Int, lines2: Int): Test {
-      changedLines = IntPair(lines1, lines2)
+      changedLinesNumber = IntPair(lines1, lines2)
+      return this
+    }
+
+    fun ranged(range: Range): Test {
+      this.range = range
+      return this
+    }
+
+    fun changedLines(vararg expected: Couple<IntPair>): Test {
+      changedLines = ContainerUtil.list(*expected)
       return this
     }
 
@@ -434,15 +594,31 @@ class IgnoreComparisonUtilTest : DiffTestCase() {
       val ignoredRanges1 = parseIgnored(ignored1)
       val ignoredRanges2 = parseIgnored(ignored2)
 
-      val result = MANAGER.compareLinesWithIgnoredRanges(text1, text2, ignoredRanges1, ignoredRanges2, inner, INDICATOR)
+      val ignored1 = ComparisonManagerImpl.collectIgnoredRanges(ignoredRanges1)
+      val ignored2 = ComparisonManagerImpl.collectIgnoredRanges(ignoredRanges2)
+
+      val lineOffsets1 = LineOffsetsUtil.create(text1)
+      val lineOffsets2 = LineOffsetsUtil.create(text2)
+
+      val result = if (range != null) {
+        MANAGER.compareLinesWithIgnoredRanges(range!!, text1, text2, lineOffsets1, lineOffsets2, ignored1, ignored2, innerPolicy, INDICATOR)
+      }
+      else {
+        MANAGER.compareLinesWithIgnoredRanges(text1, text2, lineOffsets1, lineOffsets2, ignored1, ignored2, innerPolicy, INDICATOR)
+      }
 
       val expected = Couple(parseExpected(result1), parseExpected(result2))
       val actual = parseActual(result)
       assertEquals(expected, actual)
 
-      if (changedLines != null) {
+      if (changedLinesNumber != null) {
         val actualLines = countChangedLines(result)
-        assertEquals(changedLines, actualLines)
+        assertEquals(changedLinesNumber, actualLines)
+      }
+
+      if (changedLines != null) {
+        val actualChangedLines = convertLineFragments(result)
+        assertOrderedEquals(changedLines!!, actualChangedLines)
       }
     }
   }

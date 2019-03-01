@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView;
 
@@ -82,19 +68,38 @@ public abstract class ProjectView {
 
   public abstract boolean isFlattenPackages(String paneId);
 
+  public boolean isFoldersAlwaysOnTop(String paneId) {
+    return true;
+  }
+
   public abstract boolean isShowMembers(String paneId);
 
   public abstract boolean isHideEmptyMiddlePackages(String paneId);
 
-  public abstract void setHideEmptyPackages(boolean hideEmptyPackages, @NotNull String paneId);
+  public abstract void setHideEmptyPackages(@NotNull String paneId, boolean hideEmptyPackages);
+
+  public boolean isCompactDirectories(String paneId) {
+    return false;
+  }
+
+  public void setCompactDirectories(@NotNull String paneId, boolean compactDirectories) {
+  }
+
+  public boolean isShowExcludedFiles(String paneId) {
+    return true;
+  }
 
   public abstract boolean isShowLibraryContents(String paneId);
 
-  public abstract void setShowLibraryContents(boolean showLibraryContents, @NotNull String paneId);
+  public abstract void setShowLibraryContents(@NotNull String paneId, boolean showLibraryContents);
 
   public abstract boolean isShowModules(String paneId);
 
-  public abstract void setShowModules(boolean showModules, @NotNull String paneId);
+  public abstract void setShowModules(@NotNull String paneId, boolean showModules);
+
+  public abstract boolean isFlattenModules(String paneId);
+
+  public abstract void setFlattenModules(@NotNull String paneId, boolean flattenModules);
 
   public abstract boolean isShowURL(String paneId);
 
@@ -108,7 +113,7 @@ public abstract class ProjectView {
 
   public abstract boolean isAbbreviatePackageNames(String paneId);
 
-  public abstract void setAbbreviatePackageNames(boolean abbreviatePackageNames, @NotNull String paneId);
+  public abstract void setAbbreviatePackageNames(@NotNull String paneId, boolean abbreviatePackageNames);
 
   /**
    * e.g. {@link com.intellij.ide.projectView.impl.ProjectViewPane#ID}
@@ -116,7 +121,7 @@ public abstract class ProjectView {
    */
   public abstract String getCurrentViewId();
 
-  public abstract void selectPsiElement(PsiElement element, boolean requestFocus);
+  public abstract void selectPsiElement(@NotNull PsiElement element, boolean requestFocus);
 
   public abstract boolean isManualOrder(String paneId);
   public abstract void setManualOrder(@NotNull String paneId, final boolean enabled);

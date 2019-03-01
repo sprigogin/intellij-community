@@ -25,14 +25,17 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.update.UpdatedFiles;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcs.log.Hash;
 import git4idea.DialogManager;
 import git4idea.GitLocalBranch;
 import git4idea.GitRemoteBranch;
@@ -46,7 +49,9 @@ import git4idea.config.GitVcsSettings;
 import git4idea.config.UpdateMethod;
 import git4idea.history.GitHistoryUtils;
 import git4idea.merge.MergeChangeCollector;
+import git4idea.push.GitPushParamsImpl.ForceWithLeaseReference;
 import git4idea.repo.GitBranchTrackInfo;
+import git4idea.repo.GitRemote;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
 import git4idea.update.GitRebaseOverMergeProblem;
@@ -60,10 +65,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 import static com.intellij.util.containers.ContainerUtil.filter;
+import static git4idea.commands.GitAuthenticationListener.GIT_AUTHENTICATION_SUCCESS;
 import static git4idea.push.GitPushNativeResult.Type.FORCED_UPDATE;
 import static git4idea.push.GitPushNativeResult.Type.NEW_REF;
+import static git4idea.push.GitPushProcessCustomizationFactory.GIT_PUSH_CUSTOMIZATION_FACTORY_EP;
 import static git4idea.push.GitPushRepoResult.Type.NOT_PUSHED;
 import static git4idea.push.GitPushRepoResult.Type.REJECTED_NO_FF;
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 
 /**
  * Executes git push operation:
@@ -89,6 +98,7 @@ public class GitPushOperation {
   private final ProgressIndicator myProgressIndicator;
   private final GitVcsSettings mySettings;
   private final GitRepositoryManager myRepositoryManager;
+  @Nullable private final GitPushProcessCustomizationFactory.GitPushProcessCustomization myPushProcessCustomization;
 
   public GitPushOperation(@NotNull Project project,
                           @NotNull GitPushSupport pushSupport,
@@ -118,6 +128,8 @@ public class GitPushOperation {
         currentHeads.put(repository, new GitRevisionNumber(head));
       }
     }
+
+    myPushProcessCustomization = findPushCustomization();
   }
 
   @NotNull
@@ -185,6 +197,7 @@ public class GitPushOperation {
           }
         }
       }
+      if (myPushProcessCustomization != null) myPushProcessCustomization.executeAfterPush(results);
     }
     finally {
       if (beforePushLabel != null) {
@@ -195,6 +208,24 @@ public class GitPushOperation {
       }
     }
     return prepareCombinedResult(results, updatedRoots, preUpdatePositions, beforePushLabel, afterPushLabel);
+  }
+
+  @Nullable
+  private GitPushProcessCustomizationFactory.GitPushProcessCustomization findPushCustomization() {
+    List<GitPushProcessCustomizationFactory.GitPushProcessCustomization> customizations = StreamEx
+      .of(GIT_PUSH_CUSTOMIZATION_FACTORY_EP.getExtensions())
+      .map(factory -> factory.createCustomization(myProject, myPushSpecs, myForce)).toList();
+
+    if (customizations.isEmpty()) {
+      return null;
+    }
+    else if (customizations.size() > 1) {
+      LOG.error("Only one GitPushProcessCustomization is allowed, but more are installed: " + customizations);
+      return null;
+    }
+    else {
+      return customizations.get(0);
+    }
   }
 
   @NotNull
@@ -300,6 +331,10 @@ public class GitPushOperation {
       results.put(repository, repoResult);
     }
 
+    if (myPushProcessCustomization != null) {
+      return myPushProcessCustomization.executeAfterPushIteration(results);
+    }
+
     // fill other not-processed repositories as not-pushed
     for (GitRepository repository : repositories) {
       if (!results.containsKey(repository)) {
@@ -350,12 +385,32 @@ public class GitPushOperation {
     GitRemoteBranch targetBranch = target.getBranch();
 
     GitLineHandlerListener progressListener = GitStandardProgressAnalyzer.createListener(myProgressIndicator);
-    boolean setUpstream = pushSpec.getTarget().isNewBranchCreated() && !branchTrackingInfoIsSet(repository, sourceBranch);
+    boolean setUpstream = target.isNewBranchCreated() && !branchTrackingInfoIsSet(repository, sourceBranch);
     String tagMode = myTagMode == null ? null : myTagMode.getArgument();
 
     String spec = sourceBranch.getFullName() + ":" + targetBranch.getNameForRemoteOperations();
-    GitCommandResult res =
-      myGit.push(repository, targetBranch.getRemote(), spec, myForce, setUpstream, mySkipHook, tagMode, progressListener);
+    GitRemote remote = targetBranch.getRemote();
+
+    List<GitPushParams.ForceWithLease> forceWithLease = emptyList();
+    if (myForce && Registry.is("git.use.push.force.with.lease")) {
+      Hash hash = repository.getBranches().getHash(targetBranch);
+      String expectedHash = hash != null ? hash.asString() : "";
+      forceWithLease = singletonList(new ForceWithLeaseReference(targetBranch.getNameForRemoteOperations(), expectedHash));
+    }
+
+    GitPushParamsImpl params = new GitPushParamsImpl(remote, spec, myForce, setUpstream, mySkipHook, tagMode, forceWithLease);
+
+    GitCommandResult res;
+    if (myPushProcessCustomization != null) {
+      res = myPushProcessCustomization.runPushCommand(repository, pushSpec, params, progressListener);
+    }
+    else {
+      res = myGit.push(repository, params, progressListener);
+    }
+
+    if (res.success()) {
+      BackgroundTaskUtil.syncPublisher(myProject, GIT_AUTHENTICATION_SUCCESS).authenticationSucceeded(repository, remote);
+    }
     return new ResultWithOutput(res);
   }
 

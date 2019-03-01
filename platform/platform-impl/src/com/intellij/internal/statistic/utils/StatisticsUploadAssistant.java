@@ -17,41 +17,29 @@ package com.intellij.internal.statistic.utils;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.featureStatistics.FeatureUsageTrackerImpl;
-import com.intellij.internal.statistic.CollectUsagesException;
-import com.intellij.internal.statistic.UsagesCollector;
-import com.intellij.internal.statistic.beans.ConvertUsagesUtil;
-import com.intellij.internal.statistic.beans.GroupDescriptor;
-import com.intellij.internal.statistic.beans.UsageDescriptor;
-import com.intellij.internal.statistic.connect.RemotelyConfigurableStatisticsService;
-import com.intellij.internal.statistic.connect.StatisticsConnectionService;
-import com.intellij.internal.statistic.connect.StatisticsHttpClientSender;
 import com.intellij.internal.statistic.connect.StatisticsService;
+import com.intellij.internal.statistic.eventLog.EventLogStatisticsService;
 import com.intellij.internal.statistic.persistence.SentUsagesPersistence;
 import com.intellij.internal.statistic.persistence.UsageStatisticsPersistenceComponent;
-import com.intellij.openapi.application.impl.ApplicationInfoImpl;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.KeyedExtensionCollector;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Time;
-import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NotNull;
-
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
 
 public class StatisticsUploadAssistant {
-  private static final Logger LOG = Logger.getInstance(UsagesCollector.class);
-  public static final Object LOCK = new Object();
+  private static final String IDEA_SUPPRESS_REPORT_STATISTICS = "idea.suppress.statistics.report";
+  private static final String ENABLE_LOCAL_STATISTICS_WITHOUT_REPORT = "idea.local.statistics.without.report";
 
-  public String getData() {
-    return getData(Collections.emptySet());
-  }
+  public static final Object LOCK = new Object();
+  private static final EventLogStatisticsService logStatisticsService = new EventLogStatisticsService();
+
+  private StatisticsUploadAssistant(){}
 
   public static boolean isShouldShowNotification() {
     return UsageStatisticsPersistenceComponent.getInstance().isShowNotification() &&
            (System.currentTimeMillis() - Time.WEEK > ((FeatureUsageTrackerImpl)FeatureUsageTracker.getInstance()).getFirstRunTime());
+  }
+
+  public static long getSendPeriodInMillis() {
+    return UsageStatisticsPersistenceComponent.getInstance().getPeriod().getMillis();
   }
 
   public static boolean isTimeToSend() {
@@ -69,71 +57,25 @@ public class StatisticsUploadAssistant {
   }
 
   public static boolean isSendAllowed(final SentUsagesPersistence settings) {
-    return settings != null && settings.isAllowed();
+    return settings != null && settings.isAllowed() &&
+           !Boolean.getBoolean(IDEA_SUPPRESS_REPORT_STATISTICS) &&
+           !Boolean.getBoolean(ENABLE_LOCAL_STATISTICS_WITHOUT_REPORT);
   }
 
-  public String getData(@NotNull Set<String> disabledGroups) {
-    return getDataString(disabledGroups);
+  public static boolean isCollectAllowed() {
+    final UsageStatisticsPersistenceComponent settings = UsageStatisticsPersistenceComponent.getInstance();
+    return (settings != null && settings.isAllowed()) || Boolean.getBoolean(ENABLE_LOCAL_STATISTICS_WITHOUT_REPORT);
+  }
+
+  public static boolean isTestStatisticsEnabled() {
+    return Boolean.getBoolean(ENABLE_LOCAL_STATISTICS_WITHOUT_REPORT) || StringUtil.isNotEmpty(System.getenv("TEAMCITY_VERSION"));
   }
 
   public static void updateSentTime() {
     UsageStatisticsPersistenceComponent.getInstance().setSentTime(System.currentTimeMillis());
   }
 
-  @NotNull
-  public static String getDataString(@NotNull Set<String> disabledGroups) {
-    return getDataString(disabledGroups, 0);
-  }
-
-  @NotNull
-  public static String getDataString(@NotNull Set<String> disabledGroups,
-                                     int maxSize) {
-    return getDataString(getAllUsages(disabledGroups), maxSize);
-  }
-
-  public static <T extends UsageDescriptor> String getDataString(@NotNull Map<GroupDescriptor, Set<T>> usages, int maxSize) {
-    if (usages.isEmpty()) {
-      return "";
-    }
-
-    String dataStr = ConvertUsagesUtil.convertUsages(usages);
-    return maxSize > 0 && dataStr.getBytes(CharsetToolkit.UTF8_CHARSET).length > maxSize ? ConvertUsagesUtil.cutDataString(dataStr, maxSize) : dataStr;
-  }
-
-  private static final KeyedExtensionCollector<StatisticsService, String> COLLECTOR;
-
-  static {
-    COLLECTOR = new KeyedExtensionCollector<>("com.intellij.statisticsService");
-  }
-
-  public static StatisticsService getStatisticsService() {
-    String key = ((ApplicationInfoImpl)ApplicationInfoImpl.getShadowInstance()).getStatisticsServiceKey();
-    StatisticsService service = key == null ? null : COLLECTOR.findSingle(key);
-    if (service != null) {
-      return service;
-    }
-
-    return new RemotelyConfigurableStatisticsService(new StatisticsConnectionService(),
-                                                     new StatisticsHttpClientSender(),
-                                                     new StatisticsUploadAssistant());
-  }
-
-  @NotNull
-  private static Map<GroupDescriptor, Set<UsageDescriptor>> getAllUsages(@NotNull Set<String> disabledGroups) {
-    synchronized (LOCK) {
-      Map<GroupDescriptor, Set<UsageDescriptor>> usageDescriptors = new LinkedHashMap<>();
-      for (UsagesCollector usagesCollector : UsagesCollector.EP_NAME.getExtensions()) {
-        GroupDescriptor groupDescriptor = usagesCollector.getGroupId();
-        if (!disabledGroups.contains(groupDescriptor.getId())) {
-          try {
-            usageDescriptors.merge(groupDescriptor, usagesCollector.getUsages(), ContainerUtil::union);
-          }
-          catch (CollectUsagesException e) {
-            LOG.info(e);
-          }
-        }
-      }
-      return usageDescriptors;
-    }
+  public static StatisticsService getEventLogStatisticsService() {
+    return logStatisticsService;
   }
 }

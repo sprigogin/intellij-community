@@ -106,7 +106,7 @@ public class GitNewResetDialog extends DialogWrapper {
       return String.format("%s -> %s", getSourceText(entry.getKey()), getTargetText(entry.getValue()));
     }
 
-    StringBuilder desc = new StringBuilder("");
+    StringBuilder desc = new StringBuilder();
     for (Map.Entry<GitRepository, VcsFullCommitDetails> entry : commits.entrySet()) {
       GitRepository repository = entry.getKey();
       VcsFullCommitDetails commit = entry.getValue();
@@ -118,7 +118,7 @@ public class GitNewResetDialog extends DialogWrapper {
 
   @NotNull
   private static String getTargetText(@NotNull VcsFullCommitDetails commit) {
-    String commitMessage = StringUtil.escapeXml(StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0));
+    String commitMessage = StringUtil.escapeXmlEntities(StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0));
     return String.format("<code><b>%s</b> \"%s\"</code> by <code>%s</code>",
                          commit.getId().toShortString(), commitMessage, VcsUserUtil.getShortPresentation(commit.getAuthor()));
   }

@@ -21,14 +21,12 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.EdtTestUtil;
 import com.jetbrains.env.PyEnvTestCase;
 import com.jetbrains.env.PyExecutionFixtureTestTask;
 import com.jetbrains.env.PyTestTask;
-import com.jetbrains.env.Staging;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import com.jetbrains.python.psi.*;
@@ -41,6 +39,7 @@ import com.jetbrains.python.sdk.skeletons.SkeletonVersionChecker;
 import com.jetbrains.python.toolbox.Maybe;
 import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
 
 import java.io.File;
@@ -107,26 +106,6 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
 
         myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
         EdtTestUtil.runInEdtAndWait((() -> myFixture.checkHighlighting(true, false, false)));
-      }
-    });
-  }
-
-  // PY-4349
-  @Test
-  @Staging
-  public void testFakeNamedTuple() {
-    runTest(new SkeletonsTask() {
-      @Override
-      protected void runTestOn(@NotNull Sdk sdk) {
-        final LanguageLevel languageLevel = PythonSdkType.getLanguageLevelForSdk(sdk);
-        // XXX: A workaround for invalidating VFS cache with the test file copied to our temp directory
-        LocalFileSystem.getInstance().refresh(false);
-
-        // Run inspections on code that uses named tuples
-        EdtTestUtil.runInEdtAndWait(() -> myFixture.configureByFile(getTestName(false) + ".py"));
-        myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
-
-        EdtTestUtil.runInEdtAndWait(() -> myFixture.checkHighlighting(true, false, false));
       }
     });
   }
@@ -203,7 +182,7 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
 
 
     @Override
-    public void runTestOn(String sdkHome) throws Exception {
+    public void runTestOn(@NotNull String sdkHome, @Nullable Sdk existingSdk) throws Exception {
       final Sdk sdk = createTempSdk(sdkHome, SdkCreationType.SDK_PACKAGES_AND_SKELETONS);
       runTestOn(sdk);
     }

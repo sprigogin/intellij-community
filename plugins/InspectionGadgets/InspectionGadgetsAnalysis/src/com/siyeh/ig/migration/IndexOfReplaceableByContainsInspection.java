@@ -1,5 +1,5 @@
 /*
- * Copyright 2005-2014  Bas Leijdekkers
+ * Copyright 2005-2018  Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,12 @@
 
 package com.siyeh.ig.migration;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -54,7 +54,7 @@ public class IndexOfReplaceableByContainsInspection
   @NotNull
   public String buildErrorString(Object... infos) {
     final PsiBinaryExpression expression = (PsiBinaryExpression)infos[0];
-    final PsiExpression lhs = expression.getLOperand();
+    final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
     final String text;
     if (lhs instanceof PsiMethodCallExpression) {
       final PsiMethodCallExpression callExpression =
@@ -64,7 +64,7 @@ public class IndexOfReplaceableByContainsInspection
     }
     else {
       final PsiMethodCallExpression callExpression =
-        (PsiMethodCallExpression)expression.getROperand();
+        (PsiMethodCallExpression)PsiUtil.skipParenthesizedExprDown(expression.getROperand());
       assert callExpression != null;
       text = createContainsExpressionText(callExpression, true,
                                           expression.getOperationTokenType(), new CommentTracker());
@@ -83,15 +83,14 @@ public class IndexOfReplaceableByContainsInspection
     extends InspectionGadgetsFix {
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof PsiBinaryExpression)) {
         return;
       }
       final PsiBinaryExpression expression = (PsiBinaryExpression)element;
-      final PsiExpression lhs = expression.getLOperand();
-      final PsiExpression rhs = expression.getROperand();
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
+      final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(expression.getROperand());
       CommentTracker commentTracker = new CommentTracker();
       final String newExpressionText;
       if (lhs instanceof PsiMethodCallExpression) {
@@ -114,8 +113,7 @@ public class IndexOfReplaceableByContainsInspection
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message(
-        "replace.indexof.with.contains.quickfix");
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", "indexOf()", "contains()");
     }
   }
 
@@ -127,12 +125,12 @@ public class IndexOfReplaceableByContainsInspection
       qualifierText = "";
     }
     else {
-      qualifierText = commentTracker.markUnchanged(qualifierExpression).getText();
+      qualifierText = commentTracker.text(qualifierExpression);
     }
     final PsiExpressionList argumentList = call.getArgumentList();
     final PsiExpression expression = argumentList.getExpressions()[0];
     @NonNls final String newExpressionText =
-      qualifierText + ".contains(" + commentTracker.markUnchanged(expression).getText() + ')';
+      qualifierText + ".contains(" + commentTracker.text(expression) + ')';
     if (tokenType.equals(JavaTokenType.EQEQ)) {
       return '!' + newExpressionText;
     }
@@ -164,14 +162,10 @@ public class IndexOfReplaceableByContainsInspection
     public void visitBinaryExpression(
       PsiBinaryExpression expression) {
       super.visitBinaryExpression(expression);
-      final PsiExpression rhs = expression.getROperand();
-      if (rhs == null) {
-        return;
-      }
-      if (!ComparisonUtils.isComparison(expression)) {
-        return;
-      }
-      final PsiExpression lhs = expression.getLOperand();
+      final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(expression.getROperand());
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
+      if (rhs == null || lhs == null) return;
+      if (!ComparisonUtils.isComparison(expression)) return;
       if (lhs instanceof PsiMethodCallExpression) {
         if (canBeReplacedByContains(lhs, rhs, false,
                                     expression.getOperationTokenType())) {

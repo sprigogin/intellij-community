@@ -128,7 +128,7 @@ public class PyQualifiedReference extends PyReferenceImpl {
       return true;
     }
     if (match.size() > 1) {
-      final PyClass ourClass = PyiUtil.stubToOriginal(qualifierType.getPyClass(), PyClass.class);
+      final PyClass ourClass = PyiUtil.getOriginalElementOrLeaveAsIs(qualifierType.getPyClass(), PyClass.class);
       final PsiElement theirClass = CompletionUtil.getOriginalOrSelf(match.get(match.size() - 1));
       if (ourClass != theirClass) return true;
     }
@@ -282,24 +282,17 @@ public class PyQualifiedReference extends PyReferenceImpl {
         final PyQualifiedExpression qualifierExpression = (PyQualifiedExpression)qualifier;
         final QualifiedName qualifiedName = qualifierExpression.asQualifiedName();
         if (qualifiedName != null) {
-          final Collection<PyExpression> attrs = collectAssignedAttributes(qualifiedName, qualifier);
-          for (PyExpression ex : attrs) {
-            final String name = ex.getName();
+          final Collection<PyTargetExpression> attrs = collectAssignedAttributes(qualifiedName, qualifier);
+          for (PyTargetExpression expression : attrs) {
+            final String name = expression.getName();
             if (name != null && name.endsWith(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED)) {
               continue;
             }
-            if (ex instanceof PsiNamedElement && qualifierType instanceof PyClassType && name != null) {
-              variants.add(LookupElementBuilder.createWithSmartPointer(name, ex)
+            if (qualifierType instanceof PyClassType && name != null) {
+              variants.add(LookupElementBuilder.createWithSmartPointer(name, expression)
                              .withTypeText(qualifierType.getName())
                              .withIcon(PlatformIcons.FIELD_ICON));
-            }
-            if (ex instanceof PyReferenceExpression) {
-              PyReferenceExpression refExpr = (PyReferenceExpression)ex;
-              namesAlready.add(refExpr.getReferencedName());
-            }
-            else if (ex instanceof PyTargetExpression) {
-              PyTargetExpression targetExpr = (PyTargetExpression)ex;
-              namesAlready.add(targetExpr.getName());
+              namesAlready.add(name);
             }
           }
         }
@@ -414,10 +407,10 @@ public class PyQualifiedReference extends PyReferenceImpl {
    * Can be used for completion.
    */
   @NotNull
-  public static Collection<PyExpression> collectAssignedAttributes(@NotNull final QualifiedName qualifierQName,
+  public static Collection<PyTargetExpression> collectAssignedAttributes(@NotNull final QualifiedName qualifierQName,
                                                                    @NotNull final PsiElement anchor) {
     final Set<String> names = new HashSet<>();
-    final List<PyExpression> results = new ArrayList<>();
+    final List<PyTargetExpression> results = new ArrayList<>();
     for (ScopeOwner owner = ScopeUtil.getScopeOwner(anchor); owner != null; owner = ScopeUtil.getScopeOwner(owner)) {
       final Scope scope = ControlFlowCache.getScope(owner);
       for (final PyTargetExpression target : scope.getTargetExpressions()) {
@@ -437,7 +430,7 @@ public class PyQualifiedReference extends PyReferenceImpl {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     // performance: a qualified reference can never resolve to a local variable or parameter
     if (isLocalScope(element)) {
       return false;

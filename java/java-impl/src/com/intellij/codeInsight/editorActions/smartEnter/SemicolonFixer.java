@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.editorActions.smartEnter;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Document;
@@ -23,7 +24,6 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.PsiJavaPatterns;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.impl.source.tree.ElementType;
 import com.intellij.psi.impl.source.tree.TreeUtil;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -33,13 +33,13 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author max
- * @since Sep 5, 2003
  */
 public class SemicolonFixer implements Fixer {
   @Override
   public void apply(Editor editor, JavaSmartEnterProcessor processor, PsiElement psiElement) throws IncorrectOperationException {
-    @SuppressWarnings("unused") boolean b =
-      fixReturn(editor, psiElement) || fixForUpdate(editor, psiElement) || fixAfterLastValidElement(editor, psiElement);
+    if (fixReturn(editor, psiElement)) return;
+    if (fixForUpdate(editor, psiElement)) return;
+    fixAfterLastValidElement(editor, psiElement);
   }
 
   private static boolean fixReturn(@NotNull Editor editor, @Nullable PsiElement psiElement) {
@@ -78,7 +78,7 @@ public class SemicolonFixer implements Fixer {
     }
 
     String toInsert = ";";
-    if (CodeStyleSettingsManager.getSettings(psiElement.getProject()).getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_SEMICOLON) {
+    if (CodeStyle.getSettings(psiElement.getContainingFile()).getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_SEMICOLON) {
       toInsert += " ";
     }
     document.insertString(range.getEndOffset(), toInsert);
@@ -134,7 +134,7 @@ public class SemicolonFixer implements Fixer {
           if (((PsiForStatement)parent).getUpdate() == psiElement) {
             return false;
           }
-          if (CodeStyleSettingsManager.getSettings(psiElement.getProject()).getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_SEMICOLON) {
+          if (CodeStyle.getSettings(psiElement.getContainingFile()).getCommonSettings(JavaLanguage.INSTANCE).SPACE_AFTER_SEMICOLON) {
             toInsert += " ";
           }
         }

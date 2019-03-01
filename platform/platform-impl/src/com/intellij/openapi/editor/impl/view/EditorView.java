@@ -22,6 +22,7 @@ import com.intellij.openapi.editor.impl.TextDrawingCallback;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
@@ -30,6 +31,7 @@ import java.awt.*;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
 import java.awt.font.FontRenderContext;
+import java.awt.font.LineMetrics;
 import java.awt.geom.Point2D;
 import java.text.Bidi;
 
@@ -40,7 +42,7 @@ import java.text.Bidi;
  * Also contains a cache of several font-related quantities (line height, space width, etc).
  */
 public class EditorView implements TextDrawingCallback, Disposable, Dumpable, HierarchyListener, VisibleAreaListener {
-  private static Key<LineLayout> FOLD_REGION_TEXT_LAYOUT = Key.create("text.layout");
+  private static final Key<LineLayout> FOLD_REGION_TEXT_LAYOUT = Key.create("text.layout");
 
   private final EditorImpl myEditor;
   private final DocumentEx myDocument;
@@ -61,7 +63,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
   private int myLineHeight; // guarded by myLock
   private int myDescent; // guarded by myLock
   private int myCharHeight; // guarded by myLock
-  private int myMaxCharWidth; // guarded by myLock
+  private float myMaxCharWidth; // guarded by myLock
   private int myTabSize; // guarded by myLock
   private int myTopOverhang; //guarded by myLock
   private int myBottomOverhang; //guarded by myLock
@@ -137,7 +139,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
   }
 
   @Override
-  public void visibleAreaChanged(VisibleAreaEvent e) {
+  public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
     checkFontRenderContext(null);
   }
   public int yToVisualLine(int y) {
@@ -371,6 +373,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
     if (myDocument.getTextLength() == 0) return false;
     LogicalPosition logicalPosition = visualToLogicalPosition(visualPosition);
     int offset = logicalPositionToOffset(logicalPosition);
+    if (!logicalPosition.equals(offsetToLogicalPosition(offset))) return false; // virtual space
     if (myEditor.getSoftWrapModel().getSoftWrap(offset) != null) {
       VisualPosition beforeWrapPosition = offsetToVisualPosition(offset, true, true);
       if (visualPosition.line == beforeWrapPosition.line && 
@@ -452,7 +455,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
     }
   }
 
-  int getMaxCharWidth() {
+  float getMaxCharWidth() {
     synchronized (myLock) {
       initMetricsIfNeeded();
       return myMaxCharWidth;
@@ -484,7 +487,8 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
   private void initMetricsIfNeeded() {
     if (myPlainSpaceWidth >= 0) return;
 
-    FontMetrics fm = FontInfo.getFontMetrics(myEditor.getColorsScheme().getFont(EditorFontType.PLAIN), myFontRenderContext);
+    Font font = myEditor.getColorsScheme().getFont(EditorFontType.PLAIN);
+    FontMetrics fm = FontInfo.getFontMetrics(font, myFontRenderContext);
 
     float width = FontLayoutService.getInstance().charWidth2D(fm, ' ');
     myPlainSpaceWidth = width > 0 ? width : 1;
@@ -494,8 +498,26 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
     float verticalScalingFactor = getVerticalScalingFactor();
 
     int fontMetricsHeight = FontLayoutService.getInstance().getHeight(fm);
-    myLineHeight = (int)Math.ceil(fontMetricsHeight * verticalScalingFactor);
+    int lineHeight;
+    if (Registry.is("editor.text.xcode.vertical.spacing")) {
+      //Here we approximate line calculation to the variant used in Xcode 9 editor
+      LineMetrics metrics = font.getLineMetrics("", myFontRenderContext);
 
+      double height = Math.ceil(metrics.getHeight()) + metrics.getLeading();
+      double delta = verticalScalingFactor - 1;
+      int spacing;
+      if (Math.round((height * delta) / 2) <= 1) {
+        spacing = delta > 0 ? 2 : 0;
+      }
+      else {
+        spacing = ((int)Math.ceil((height * delta) / 2)) * 2;
+      }
+      lineHeight = (int)Math.ceil(height) + spacing;
+    }
+    else {
+      lineHeight = (int)Math.ceil(fontMetricsHeight * verticalScalingFactor);
+    }
+    myLineHeight = Math.max(1, lineHeight);
     int descent = FontLayoutService.getInstance().getDescent(fm);
     myDescent = descent + (myLineHeight - fontMetricsHeight) / 2;
     myTopOverhang = fontMetricsHeight - myLineHeight + myDescent - descent;
@@ -503,7 +525,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable, Hi
 
     // assuming that bold italic 'W' gives a good approximation of font's widest character
     FontMetrics fmBI = FontInfo.getFontMetrics(myEditor.getColorsScheme().getFont(EditorFontType.BOLD_ITALIC), myFontRenderContext);
-    myMaxCharWidth = FontLayoutService.getInstance().charWidth(fmBI, 'W');
+    myMaxCharWidth = FontLayoutService.getInstance().charWidth2D(fmBI, 'W');
   }
   
   public int getTabSize() {

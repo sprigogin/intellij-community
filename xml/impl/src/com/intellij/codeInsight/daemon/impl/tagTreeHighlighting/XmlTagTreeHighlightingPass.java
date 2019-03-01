@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.tagTreeHighlighting;
 
 import com.intellij.application.options.editor.WebEditorOptions;
@@ -45,7 +31,8 @@ import com.intellij.psi.xml.XmlChildRole;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlTokenType;
 import com.intellij.ui.breadcrumbs.BreadcrumbsProvider;
-import com.intellij.xml.breadcrumbs.BreadcrumbsXmlWrapper;
+import com.intellij.xml.breadcrumbs.BreadcrumbsUtilEx;
+import com.intellij.xml.breadcrumbs.PsiFileBreadcrumbsCollector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -74,7 +61,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     myFile = file;
     myEditor = editor;
     final FileViewProvider viewProvider = file.getManager().findViewProvider(file.getVirtualFile());
-    myInfoProvider = BreadcrumbsXmlWrapper.findInfoProvider(editor, viewProvider);
+    myInfoProvider = BreadcrumbsUtilEx.findProvider(false, viewProvider);
   }
 
   @Override
@@ -88,9 +75,8 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     }
 
     final int offset = myEditor.getCaretModel().getOffset();
-    PsiElement[] elements = BreadcrumbsXmlWrapper.getLinePsiElements(offset,
-                                                                     myFile.getVirtualFile(),
-                                                                     myProject, myInfoProvider);
+    PsiElement[] elements =
+      PsiFileBreadcrumbsCollector.getLinePsiElements(myEditor.getDocument(), offset, myFile.getVirtualFile(), myProject, myInfoProvider);
 
     if (elements == null || elements.length == 0 || !XmlTagTreeHighlightingUtil.containsTagsWithSameName(elements)) {
       elements = PsiElement.EMPTY_ARRAY;
@@ -122,7 +108,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
   private static boolean isTagStartOrEnd(@Nullable PsiElement element) {
     if (element == null) return false;
     final IElementType type = element.getNode().getElementType();
-    if (type == XmlTokenType.XML_NAME) return isTagStartOrEnd(element.getNextSibling()) || isTagStartOrEnd(element.getPrevSibling());
+    if (type == XmlTokenType.XML_NAME || type == XmlTokenType.XML_TAG_NAME) return isTagStartOrEnd(element.getNextSibling()) || isTagStartOrEnd(element.getPrevSibling());
     return type == XmlTokenType.XML_START_TAG_START || type == XmlTokenType.XML_END_TAG_START || type == XmlTokenType.XML_TAG_END;
   }
 
@@ -140,7 +126,7 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     }
 
     ASTNode tagName = startTagStart.getTreeNext();
-    if (tagName == null || tagName.getElementType() != XmlTokenType.XML_NAME) {
+    if (tagName == null || (tagName.getElementType() != XmlTokenType.XML_NAME && tagName.getElementType() != XmlTokenType.XML_TAG_NAME)) {
       return null;
     }
 
@@ -315,13 +301,9 @@ public class XmlTagTreeHighlightingPass extends TextEditorHighlightingPass {
     final MarkupModel markupModel = DocumentMarkupModel.forDocument(editor.getDocument(), project, true);
 
     for (RangeHighlighter highlighter : markupModel.getAllHighlighters()) {
-      Object tooltip = highlighter.getErrorStripeTooltip();
-
-      if (!(tooltip instanceof HighlightInfo)) {
-        continue;
-      }
-
-      if (((HighlightInfo)tooltip).type == TYPE) {
+      HighlightInfo info = HighlightInfo.fromRangeHighlighter(highlighter);
+      if (info == null) continue;
+      if (info.type == TYPE) {
         highlighter.dispose();
       }
     }

@@ -27,6 +27,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
+import com.intellij.psi.impl.PsiSuperMethodImplUtil;
 import com.intellij.psi.impl.search.ThrowSearchUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.LocalSearchScope;
@@ -34,7 +35,9 @@ import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
-import com.intellij.psi.util.*;
+import com.intellij.psi.util.PropertyUtilBase;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.util.JavaNonCodeSearchElementDescriptionProvider;
 import com.intellij.refactoring.util.NonCodeSearchDescriptionLocation;
 import com.intellij.usageView.UsageInfo;
@@ -44,10 +47,7 @@ import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author peter
@@ -181,6 +181,7 @@ public class JavaFindUsagesHandler extends FindUsagesHandler{
                                                                        ContainerUtil.iterate(containingClass.getMethods()));
         if (setter != null) accessors.add(setter);
         accessors.addAll(PropertyUtilBase.getAccessors(containingClass, fieldName));
+        accessors.removeIf(accessor -> field != PropertyUtilBase.findPropertyFieldByMember(accessor));
         if (!accessors.isEmpty()) {
           boolean containsPhysical = ContainerUtil.find(accessors, psiMethod -> psiMethod.isPhysical()) != null;
           final boolean doSearch = !containsPhysical || askShouldSearchAccessors(fieldName);
@@ -253,20 +254,27 @@ public class JavaFindUsagesHandler extends FindUsagesHandler{
   @Override
   public Collection<PsiReference> findReferencesToHighlight(@NotNull final PsiElement target, @NotNull final SearchScope searchScope) {
     if (target instanceof PsiMethod) {
-      final PsiMethod[] superMethods = ((PsiMethod)target).findDeepestSuperMethods();
+      Set<PsiMethod> superTargets = ContainerUtil.newLinkedHashSet();
+      PsiMethod[] superMethods = ((PsiMethod)target).findDeepestSuperMethods();
       if (superMethods.length == 0) {
-        return MethodReferencesSearch.search((PsiMethod)target, searchScope, true).findAll();
+        superTargets.add((PsiMethod)target);
       }
-      final Collection<PsiReference> result = new ArrayList<>();
-      GlobalSearchScope resolveScope = null;
       if (searchScope instanceof LocalSearchScope) {
-        final PsiElement[] scopeElements = ((LocalSearchScope)searchScope).getScope();
-        resolveScope = GlobalSearchScope.union(ContainerUtil.map2Array(scopeElements, GlobalSearchScope.class, PsiElement::getResolveScope));
-      }
-      for (PsiMethod superMethod : superMethods) {
-        if (resolveScope != null) {
-          superMethod = PsiSuperMethodUtil.correctMethodByScope(superMethod, resolveScope);
+        PsiElement[] scopeElements = ((LocalSearchScope)searchScope).getScope();
+        GlobalSearchScope resolveScope =
+          GlobalSearchScope.union(ContainerUtil.map2Array(scopeElements, GlobalSearchScope.class, PsiElement::getResolveScope));
+        for (HierarchicalMethodSignature superSignature : PsiSuperMethodImplUtil.getHierarchicalMethodSignature((PsiMethod)target, resolveScope)
+          .getSuperSignatures()) {
+          PsiMethod method = superSignature.getMethod();
+          PsiMethod[] deepestSupers = method.findDeepestSuperMethods();
+          Collections.addAll(superTargets, deepestSupers.length == 0 ? new PsiMethod[]{method} : deepestSupers);
         }
+      } else {
+        Collections.addAll(superTargets, superMethods);
+      }
+
+      Collection<PsiReference> result = new LinkedHashSet<>();
+      for (PsiMethod superMethod : superTargets) {
         result.addAll(MethodReferencesSearch.search(superMethod, searchScope, true).findAll());
       }
       return result;

@@ -24,7 +24,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
@@ -53,7 +53,7 @@ public abstract class XmlFormattingPolicy {
     return myRootToBlockMap.get(root);
   }
 
-  private Block createBlockFor(final Pair<PsiElement,Language> root) {
+  private Block createBlockFor(final Pair<? extends PsiElement, ? extends Language> root) {
     final FormattingModelBuilder builder = LanguageFormatting.INSTANCE.forContext(root.getSecond(), root.getFirst());
     if (builder != null) {
       final Block result = builder.createModel(root.getFirst(), getSettings()).getRootBlock();

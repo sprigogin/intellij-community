@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.codeStyleSettings;
 
+import com.intellij.formatting.fileSet.FileSetDescriptor;
+import com.intellij.formatting.fileSet.PatternDescriptor;
 import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
@@ -31,7 +19,6 @@ import java.util.List;
  * @author Rustam Vishnyakov
  */
 public class CodeStyleConfigurationTest extends CodeStyleTestCase {
-
   /**
    * Check that indent options are correctly read if mixed with other language options
    */
@@ -58,7 +45,7 @@ public class CodeStyleConfigurationTest extends CodeStyleTestCase {
     assertEquals(2, indentOptions.INDENT_SIZE);
     assertEquals(3, indentOptions.CONTINUATION_INDENT_SIZE);
     assertEquals(2, indentOptions.TAB_SIZE);
-    assertEquals(true, indentOptions.USE_TAB_CHARACTER);
+    assertTrue(indentOptions.USE_TAB_CHARACTER);
     assertEquals(3, langSettings.IF_BRACE_FORCE);
   }
 
@@ -157,5 +144,41 @@ public class CodeStyleConfigurationTest extends CodeStyleTestCase {
     assertEquals(140, softMargins.get(2).intValue());
   }
 
+  public void testSaveExcludedFiles() throws Exception {
+    CodeStyleSettings settings = new CodeStyleSettings();
+    settings.getExcludedFiles().addDescriptor(new PatternDescriptor("*.java"));
+    settings.getExcludedFiles().addDescriptor(new PatternDescriptor("/lib/**/*.min.js"));
+    Element root = createOption("config", "root");
+    settings.writeExternal(root);
+    root.removeAttribute("version");
+    assertXmlOutputEquals(
+      "<option name=\"config\" value=\"root\">\n" +
+      "  <option name=\"DO_NOT_FORMAT\">\n" +
+      "    <list>\n" +
+      "      <fileSet type=\"pattern\" pattern=\"*.java\" />\n" +
+      "      <fileSet type=\"pattern\" pattern=\"/lib/**/*.min.js\" />\n" +
+      "    </list>\n" +
+      "  </option>\n" +
+      "</option>",
+      root);
+  }
 
+  public void testReadExcludedFiles() throws Exception {
+    CodeStyleSettings settings = new CodeStyleSettings();
+    String source =
+      "<option name=\"config\" value=\"root\">\n" +
+      "  <option name=\"DO_NOT_FORMAT\">\n" +
+      "    <list>\n" +
+      "      <fileSet type=\"pattern\" pattern=\"*.java\" />\n" +
+      "      <fileSet type=\"pattern\" pattern=\"/lib/**/*.min.js\" />\n" +
+      "    </list>\n" +
+      "  </option>\n" +
+      "</option>";
+    Element root = JDOMUtil.load(source);
+    settings.readExternal(root);
+    List<FileSetDescriptor> descriptors = settings.getExcludedFiles().getDescriptors();
+    assertSize(2, descriptors);
+    assertEquals("*.java", descriptors.get(0).getPattern());
+    assertEquals("/lib/**/*.min.js", descriptors.get(1).getPattern());
+  }
 }

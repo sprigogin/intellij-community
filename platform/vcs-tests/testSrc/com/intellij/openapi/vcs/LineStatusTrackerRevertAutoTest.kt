@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs
 
 import com.intellij.openapi.diagnostic.Logger
@@ -24,10 +10,10 @@ class LineStatusTrackerRevertAutoTest : BaseLineStatusTrackerTestCase() {
   companion object {
     private val LOG = Logger.getInstance(LineStatusTrackerRevertAutoTest::class.java)
 
-    private val TEST_RUNS = 100
-    private val MODIFICATIONS = 10
-    private val TEXT_LENGTH = 10
-    private val CHANGE_LENGTH = 10
+    private const val TEST_RUNS = 100
+    private const val MODIFICATIONS = 10
+    private const val TEXT_LENGTH = 10
+    private const val CHANGE_LENGTH = 10
   }
 
   private lateinit var myRng: Random
@@ -63,13 +49,13 @@ class LineStatusTrackerRevertAutoTest : BaseLineStatusTrackerTestCase() {
       if (i % 1000 == 0) LOG.debug(i.toString())
       try {
         val initial = generateText(textLength)
-        test(initial, initial, smart) {
+        lightTest(initial, initial, smart) {
           // println("Initial: " + initial.replace("\n", "\\n"));
 
           val count = myRng.nextInt(modifications)
           for (j in 0 until count) {
             val writeChanges = myRng.nextInt(4) + 1
-            runCommand {
+            runCommandVerify {
               for (k in 0 until writeChanges) {
                 applyRandomChange(changeLength)
               }
@@ -110,7 +96,7 @@ class LineStatusTrackerRevertAutoTest : BaseLineStatusTrackerTestCase() {
       try {
         val initial = generateText(textLength)
         val initialVcs = generateText(textLength)
-        test(initial, initialVcs, smart) {
+        lightTest(initial, initialVcs, smart) {
           checkRevert(tracker.getRanges()!!.size * 2)
         }
 

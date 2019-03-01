@@ -214,10 +214,6 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   protected void afterShow() {
     super.afterShow();
     registerAutoMove();
-
-    if (!myFocusTrackback.isMustBeShown()) {
-      cancel();
-    }
   }
 
   private void registerAutoMove() {
@@ -295,7 +291,7 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   @Override
   @NotNull
   protected MyContentPanel createContentPanel(final boolean resizable, final PopupBorder border, final boolean isToDrawMacCorner) {
-    return new MyContainer(resizable, border, isToDrawMacCorner);
+    return new MyContainer(border);
   }
 
   protected boolean isResizable() {
@@ -303,8 +299,8 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   private static class MyContainer extends MyContentPanel {
-    private MyContainer(final boolean resizable, final PopupBorder border, final boolean drawMacCorner) {
-      super(resizable, border, drawMacCorner);
+    private MyContainer(PopupBorder border) {
+      super(border);
       setOpaque(true);
       setFocusCycleRoot(true);
     }

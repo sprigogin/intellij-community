@@ -21,11 +21,9 @@ import com.intellij.codeInsight.daemon.impl.SeveritiesProvider;
 import com.intellij.icons.AllIcons;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.Collections;
 import java.util.List;
 
@@ -37,7 +35,7 @@ public class SpellCheckerSeveritiesProvider extends SeveritiesProvider {
   @NotNull
   public List<HighlightInfoType> getSeveritiesHighlightInfoTypes() {
     class T extends HighlightInfoType.HighlightInfoTypeImpl implements HighlightInfoType.Iconable{
-      public T(@NotNull HighlightSeverity severity, TextAttributesKey attributesKey) {
+      private T(@NotNull HighlightSeverity severity, @NotNull TextAttributesKey attributesKey) {
         super(severity, attributesKey);
       }
 
@@ -47,11 +45,6 @@ public class SpellCheckerSeveritiesProvider extends SeveritiesProvider {
       }
     }
     return Collections.singletonList(new T(TYPO, TYPO_KEY));
-  }
-
-  @Override
-  public Color getTrafficRendererColor(@NotNull TextAttributes textAttributes) {
-    return textAttributes.getErrorStripeColor();
   }
 
   @Override

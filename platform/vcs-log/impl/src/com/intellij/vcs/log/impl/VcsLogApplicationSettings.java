@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -24,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Set;
 
+import static com.intellij.vcs.log.impl.CommonUiProperties.SHOW_DIFF_PREVIEW;
 import static com.intellij.vcs.log.impl.MainVcsLogUiProperties.*;
 
 @State(name = "Vcs.Log.App.Settings", storages = {@Storage("vcs.xml")})
@@ -38,10 +25,10 @@ public class VcsLogApplicationSettings implements PersistentStateComponent<VcsLo
   }
 
   @Override
-  public void loadState(State state) {
+  public void loadState(@NotNull State state) {
     myState = state;
   }
-  
+
   @SuppressWarnings("unchecked")
   @NotNull
   @Override
@@ -54,6 +41,9 @@ public class VcsLogApplicationSettings implements PersistentStateComponent<VcsLo
     }
     else if (SHOW_CHANGES_FROM_PARENTS.equals(property)) {
       return (T)Boolean.valueOf(myState.SHOW_CHANGES_FROM_PARENTS);
+    }
+    else if (SHOW_DIFF_PREVIEW.equals(property)) {
+      return (T)Boolean.valueOf(myState.SHOW_DIFF_PREVIEW);
     }
     throw new UnsupportedOperationException("Property " + property + " does not exist");
   }
@@ -69,6 +59,9 @@ public class VcsLogApplicationSettings implements PersistentStateComponent<VcsLo
     else if (SHOW_CHANGES_FROM_PARENTS.equals(property)) {
       myState.SHOW_CHANGES_FROM_PARENTS = (Boolean)value;
     }
+    else if (SHOW_DIFF_PREVIEW.equals(property)) {
+      myState.SHOW_DIFF_PREVIEW = (Boolean)value;
+    }
     else {
       throw new UnsupportedOperationException("Property " + property + " does not exist");
     }
@@ -78,13 +71,15 @@ public class VcsLogApplicationSettings implements PersistentStateComponent<VcsLo
   @Override
   public <T> boolean exists(@NotNull VcsLogUiProperty<T> property) {
     return COMPACT_REFERENCES_VIEW.equals(property) || SHOW_TAG_NAMES.equals(property) ||
-           SHOW_CHANGES_FROM_PARENTS.equals(property);
+           SHOW_CHANGES_FROM_PARENTS.equals(property) || SHOW_DIFF_PREVIEW.equals(property);
   }
 
+  @Override
   public void addChangeListener(@NotNull VcsLogUiProperties.PropertiesChangeListener listener) {
     myListeners.add(listener);
   }
 
+  @Override
   public void removeChangeListener(@NotNull VcsLogUiProperties.PropertiesChangeListener listener) {
     myListeners.remove(listener);
   }
@@ -93,5 +88,6 @@ public class VcsLogApplicationSettings implements PersistentStateComponent<VcsLo
     public boolean COMPACT_REFERENCES_VIEW = true;
     public boolean SHOW_TAG_NAMES = false;
     public boolean SHOW_CHANGES_FROM_PARENTS = false;
+    public boolean SHOW_DIFF_PREVIEW = false;
   }
 }

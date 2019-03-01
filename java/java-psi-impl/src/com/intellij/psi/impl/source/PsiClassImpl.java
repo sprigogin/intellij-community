@@ -36,6 +36,7 @@ import com.intellij.psi.impl.source.tree.CompositeElement;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.stub.JavaStubImplUtil;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.PsiFileStub;
 import com.intellij.psi.stubs.StubElement;
@@ -169,12 +170,12 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
 
     PsiElement parent = getParent();
     if (parent instanceof PsiJavaFile) {
-      return StringUtil.getQualifiedName(((PsiJavaFile)parent).getPackageName(), getName());
+      return StringUtil.getQualifiedName(((PsiJavaFile)parent).getPackageName(), StringUtil.notNullize(getName()));
     }
     if (parent instanceof PsiClass) {
       String parentQName = ((PsiClass)parent).getQualifiedName();
       if (parentQName == null) return null;
-      return StringUtil.getQualifiedName(parentQName, getName());
+      return StringUtil.getQualifiedName(parentQName, StringUtil.notNullize(getName()));
     }
 
     return null;
@@ -409,16 +410,14 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
 
   @Override
   public boolean isDeprecated() {
-    final PsiClassStub stub = getGreenStub();
-    if (stub != null) {
-      return stub.isDeprecated() || stub.hasDeprecatedAnnotation() && PsiImplUtil.isDeprecatedByAnnotation(this);
-    }
-
-    return PsiImplUtil.isDeprecatedByDocTag(this) || PsiImplUtil.isDeprecatedByAnnotation(this);
+    return JavaStubImplUtil.isMemberDeprecated(this, getGreenStub());
   }
 
   @Override
   public PsiDocComment getDocComment(){
+    PsiClassStub<?> stub = getGreenStub();
+    if (stub != null && !stub.hasDocComment()) return null;
+
     return (PsiDocComment)getNode().findChildByRoleAsPsiElement(ChildRole.DOC_COMMENT);
   }
 
@@ -474,6 +473,7 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     }
   }
 
+  @Override
   public String toString(){
     return "PsiClass:" + getName();
   }
@@ -503,8 +503,8 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     }
 
     // rename constructors
-    for (PsiMethod method : getConstructors()) {
-      if (method.getName().equals(oldName)) {
+    for (PsiMethod method : getMethods()) {
+      if (method.isConstructor() && method.getName().equals(oldName)) {
         method.setName(newName);
       }
     }
@@ -576,7 +576,6 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     final StubElement parentStub = stub.getParentStub();
     PsiElement psi = parentStub.getPsi();
     if (!(psi instanceof StubBasedPsiElementBase)) {
-      LOG.error(stub + " parent is " + parentStub);
       return null;
     }
 

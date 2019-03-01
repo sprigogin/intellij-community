@@ -111,11 +111,13 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
     return null;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return myElement;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return myRange;
@@ -277,7 +279,7 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final String canonicalText = getCanonicalText();
 
     final PsiElement element = ElementManipulators.getManipulator(myElement)
@@ -292,7 +294,7 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return myElement.getManager().areElementsEquivalent(resolve(), element);
   }
 

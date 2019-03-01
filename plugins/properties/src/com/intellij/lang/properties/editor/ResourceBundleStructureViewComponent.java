@@ -64,6 +64,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
     getTree().setCellRenderer(new ResourceBundleEditorRenderer());
   }
 
+  @NotNull
   @Override
   protected ActionGroup createActionGroup() {
     final DefaultActionGroup result = (DefaultActionGroup) super.createActionGroup();
@@ -72,7 +73,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
   }
 
   @Override
-  protected void addGroupByActions(final DefaultActionGroup result) {
+  protected void addGroupByActions(@NotNull final DefaultActionGroup result) {
     super.addGroupByActions(result);
     result.add(new NewPropertyAction(true), Constraints.FIRST);
   }
@@ -96,7 +97,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
   }
 
   @Override
-  public Object getData(final String dataId) {
+  public Object getData(@NotNull final String dataId) {
     if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       return new ResourceBundleAsVirtualFile(myResourceBundle);
     } else if (PlatformDataKeys.FILE_EDITOR.is(dataId)) {
@@ -133,7 +134,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
           }
         }
       }
-      return elements.toArray(new PsiElement[elements.size()]);
+      return elements.toArray(PsiElement.EMPTY_ARRAY);
     }
     else if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
       if (getSelectedPsiFiles().length != 0) {

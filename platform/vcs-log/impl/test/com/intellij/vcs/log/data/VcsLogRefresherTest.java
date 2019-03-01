@@ -17,7 +17,6 @@ package com.intellij.vcs.log.data;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.impl.ProgressManagerImpl;
@@ -83,6 +82,9 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
       if (myDataWaiter.failed()) {
         fail("Only one refresh should have happened, an error happened instead: " + myDataWaiter.getExceptionText());
       }
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
@@ -198,7 +200,7 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
     assertNull(message, myDataWaiter.myQueue.poll(500, TimeUnit.MILLISECONDS));
   }
 
-  private VcsLogRefresherImpl createLoader(Consumer<DataPack> dataPackConsumer) {
+  private VcsLogRefresherImpl createLoader(Consumer<? super DataPack> dataPackConsumer) {
     myLogData = new VcsLogData(myProject, myLogProviders, new FatalErrorHandler() {
       @Override
       public void consume(@Nullable Object source, @NotNull Throwable throwable) {
@@ -211,29 +213,31 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
       }
     }, myProject);
     VcsLogRefresherImpl refresher =
-      new VcsLogRefresherImpl(myProject, myLogData.getStorage(), myLogProviders, myLogData.getUserRegistry(), myLogData.getIndex(),
+      new VcsLogRefresherImpl(myProject, myLogData.getStorage(), myLogProviders, myLogData.getUserRegistry(),
+                              myLogData.getModifiableIndex(),
                               new VcsLogProgress(myProject, myLogData),
                               myLogData.getTopCommitsCache(), dataPackConsumer, FAILING_EXCEPTION_HANDLER, RECENT_COMMITS_COUNT
       ) {
         @Override
-        protected ProgressIndicator startNewBackgroundTask(@NotNull final Task.Backgroundable refreshTask) {
+        protected SingleTaskController.SingleTask startNewBackgroundTask(@NotNull final Task.Backgroundable refreshTask) {
           LOG.debug("Starting a background task...");
-          myStartedTasks.add(((ProgressManagerImpl)ProgressManager.getInstance()).runProcessWithProgressAsynchronously(refreshTask));
+          Future<?> future = ((ProgressManagerImpl)ProgressManager.getInstance()).runProcessWithProgressAsynchronously(refreshTask);
+          myStartedTasks.add(future);
           LOG.debug(myStartedTasks.size() + " started tasks");
-          return new EmptyProgressIndicator();
+          return new SingleTaskController.SingleTaskImpl(future, new EmptyProgressIndicator());
         }
       };
     Disposer.register(myLogData, refresher);
     return refresher;
   }
 
-  private void assertDataPack(@NotNull List<TimedVcsCommit> expectedLog, @NotNull List<GraphCommit<Integer>> actualLog) {
+  private void assertDataPack(@NotNull List<TimedVcsCommit> expectedLog, @NotNull List<? extends GraphCommit<Integer>> actualLog) {
     List<TimedVcsCommit> convertedActualLog = convert(actualLog);
     assertOrderedEquals(convertedActualLog, expectedLog);
   }
 
   @NotNull
-  private List<TimedVcsCommit> convert(@NotNull List<GraphCommit<Integer>> actualLog) {
+  private List<TimedVcsCommit> convert(@NotNull List<? extends GraphCommit<Integer>> actualLog) {
     return ContainerUtil.map(actualLog, commit -> {
       Function<Integer, Hash> convertor = integer -> myLogData.getCommitId(integer).getHash();
       return new TimedVcsCommitImpl(convertor.fun(commit.getId()), ContainerUtil.map(commit.getParents(), convertor),

@@ -1,31 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.search.searches;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.util.Processor;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.Query;
 import com.intellij.util.QueryExecutor;
 import com.intellij.util.QueryParameters;
@@ -41,19 +25,18 @@ import org.jetbrains.annotations.Nullable;
 public class DefinitionsScopedSearch extends ExtensibleQueryFactory<PsiElement, DefinitionsScopedSearch.SearchParameters> {
   public static final ExtensionPointName<QueryExecutor> EP_NAME = ExtensionPointName.create("com.intellij.definitionsScopedSearch");
   public static final DefinitionsScopedSearch INSTANCE = new DefinitionsScopedSearch();
-  
-  static {
-    final QueryExecutor[] OLD_EXECUTORS = DefinitionsSearch.EP_NAME.getExtensions();
-    for (final QueryExecutor executor : OLD_EXECUTORS) {
-      INSTANCE.registerExecutor(new QueryExecutor<PsiElement, SearchParameters>() {
-        @Override
-        public boolean execute(@NotNull SearchParameters queryParameters, @NotNull Processor<PsiElement> consumer) {
-          return executor.execute(queryParameters.getElement(), consumer);
-        }
-      });
-    }
- }
 
+  static {
+    INSTANCE.registerExecutor((queryParameters, consumer) -> {
+      //noinspection deprecation
+      for (QueryExecutor executor : DefinitionsSearch.EP_NAME.getExtensions()) {
+        //noinspection unchecked
+        if (!executor.execute(queryParameters.getElement(), consumer))
+          return false;
+      }
+      return true;
+    });
+  }
 
   public static Query<PsiElement> search(PsiElement definitionsOf) {
     return INSTANCE.createUniqueResultsQuery(new SearchParameters(definitionsOf));
@@ -76,20 +59,17 @@ public class DefinitionsScopedSearch extends ExtensibleQueryFactory<PsiElement, 
     private final PsiElement myElement;
     private final SearchScope myScope;
     private final boolean myCheckDeep;
+    private final Project myProject;
 
     public SearchParameters(@NotNull final PsiElement element) {
-      this(element, ApplicationManager.getApplication().runReadAction(new Computable<SearchScope>() {
-        @Override
-        public SearchScope compute() {
-          return element.getUseScope();
-        }
-      }), true);
+      this(element, ReadAction.compute(element::getUseScope), true);
     }
 
     public SearchParameters(@NotNull PsiElement element, @NotNull SearchScope scope, final boolean checkDeep) {
       myElement = element;
       myScope = scope;
       myCheckDeep = checkDeep;
+      myProject = PsiUtilCore.getProjectInReadAction(myElement);
     }
 
     @NotNull
@@ -104,7 +84,7 @@ public class DefinitionsScopedSearch extends ExtensibleQueryFactory<PsiElement, 
     @Nullable
     @Override
     public Project getProject() {
-      return myElement.getProject();
+      return myProject;
     }
 
     @Override
@@ -117,7 +97,7 @@ public class DefinitionsScopedSearch extends ExtensibleQueryFactory<PsiElement, 
       return ReadAction.compute(() -> {
         PsiFile file = myElement.getContainingFile();
         return myScope.intersectWith(
-          PsiSearchHelper.SERVICE.getInstance(myElement.getProject()).getUseScope(file != null ? file : myElement));
+          PsiSearchHelper.getInstance(myElement.getProject()).getUseScope(file != null ? file : myElement));
       });
     }
   }

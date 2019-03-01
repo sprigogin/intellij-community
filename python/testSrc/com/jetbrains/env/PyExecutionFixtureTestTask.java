@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.env;
 
 import com.google.common.collect.Lists;
@@ -10,9 +11,11 @@ import com.intellij.openapi.module.ModuleTypeManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.RefreshQueueImpl;
 import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.PsiTestUtil;
@@ -20,6 +23,7 @@ import com.intellij.testFramework.builders.ModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.*;
 import com.intellij.testFramework.fixtures.impl.ModuleFixtureBuilderImpl;
 import com.intellij.testFramework.fixtures.impl.ModuleFixtureImpl;
+import com.intellij.util.ui.UIUtil;
 import com.jetbrains.extensions.ModuleExtKt;
 import com.jetbrains.python.PythonModuleTypeBase;
 import com.jetbrains.python.PythonTestUtil;
@@ -35,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -88,14 +93,24 @@ public abstract class PyExecutionFixtureTestTask extends PyTestTask {
     myRelativeTestDataPath = relativeTestDataPath;
   }
 
+  /**
+   * Debug output of this classes will be captured and reported in case of test failure
+   */
+  @NotNull
+  public Iterable<Class<?>> getClassesToEnableDebug() {
+    return Collections.emptyList();
+  }
+
   public Project getProject() {
     return myFixture.getProject();
   }
 
+  @Override
   public void useNormalTimeout() {
     myTimeout = NORMAL_TIMEOUT;
   }
 
+  @Override
   public void useLongTimeout() {
     myTimeout = LONG_TIMEOUT;
   }
@@ -171,16 +186,25 @@ public abstract class PyExecutionFixtureTestTask extends PyTestTask {
     return PythonTestUtil.getTestDataPath();
   }
 
+  @Override
   public void tearDown() throws Exception {
     if (myFixture != null) {
       EdtTestUtil.runInEdtAndWait(() -> {
+        UIUtil.dispatchAllInvocationEvents();
+        while (RefreshQueueImpl.isRefreshInProgress()) {
+          UIUtil.dispatchAllInvocationEvents();
+        }
         for (Sdk sdk : ProjectJdkTable.getInstance().getSdksOfType(PythonSdkType.getInstance())) {
           WriteAction.run(() -> ProjectJdkTable.getInstance().removeJdk(sdk));
         }
       });
       // Teardown should be called on main thread because fixture teardown checks for
       // thread leaks, and blocked main thread is considered as leaked
+      final Project project = myFixture.getProject();
       myFixture.tearDown();
+      if (project != null && !project.isDisposed()) {
+        Disposer.dispose(project);
+      }
       myFixture = null;
     }
     super.tearDown();
@@ -244,13 +268,14 @@ public abstract class PyExecutionFixtureTestTask extends PyTestTask {
   /**
    * Creates SDK by its path
    *
-   * @param sdkHome         path to sdk (probably obtained by {@link #runTestOn(String)})
+   * @param sdkHome         path to sdk (probably obtained by {@link PyTestTask#runTestOn(String, Sdk)})
    * @param sdkCreationType SDK creation strategy (see {@link sdkTools.SdkCreationType} doc)
    * @return sdk
    */
   @NotNull
   protected Sdk createTempSdk(@NotNull final String sdkHome, @NotNull final SdkCreationType sdkCreationType)
     throws InvalidSdkException {
+
     final VirtualFile sdkHomeFile = LocalFileSystem.getInstance().findFileByPath(sdkHome);
     Assert.assertNotNull("Interpreter file not found: " + sdkHome, sdkHomeFile);
     final Sdk sdk = PySdkTools.createTempSdk(sdkHomeFile, sdkCreationType, myFixture.getModule());

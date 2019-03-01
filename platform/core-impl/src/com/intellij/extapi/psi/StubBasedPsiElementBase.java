@@ -34,6 +34,7 @@ import com.intellij.psi.PsiInvalidElementAccessException;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.source.PsiFileImpl;
+import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.SubstrateRef;
 import com.intellij.psi.impl.source.tree.CompositeElement;
 import com.intellij.psi.impl.source.tree.FileElement;
@@ -44,11 +45,11 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayFactory;
+import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -84,7 +85,6 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   public static final Key<String> CREATION_TRACE = Key.create("CREATION_TRACE");
   public static final boolean ourTraceStubAstBinding = "true".equals(System.getProperty("trace.stub.ast.binding", "false"));
   private volatile SubstrateRef mySubstrateRef;
-  private volatile int myStubIndex = -1;
   private final IElementType myElementType;
 
   public StubBasedPsiElementBase(@NotNull T stub, @NotNull IStubElementType nodeType) {
@@ -238,29 +238,6 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
    */
   public final void setSubstrateRef(@NotNull SubstrateRef substrateRef) {
     mySubstrateRef = substrateRef;
-    myStubIndex = -1;
-  }
-
-  /**
-   * Don't invoke this method, it's public for implementation reasons.
-   */
-  public final void setStubIndex(int stubIndex) {
-    myStubIndex = stubIndex;
-  }
-
-  /**
-   * Don't invoke this method, it's public for implementation reasons.
-   */
-  public int getStubIndex() {
-    return myStubIndex;
-  }
-
-  /**
-   * Don't invoke this method, it's public for implementation reasons.
-   */
-  @NotNull
-  public final SubstrateRef getSubstrateRef() {
-    return mySubstrateRef;
   }
 
   @NotNull
@@ -362,7 +339,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
       return stub.getParentStub().getPsi();
     }
 
-    return SharedImplUtil.getParent(getNode());
+    return SourceTreeToPsiMap.treeElementToPsi(getNode().getTreeParent());
   }
 
   @NotNull
@@ -383,7 +360,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   public T getStub() {
     ProgressIndicatorProvider.checkCanceled(); // Hope, this is called often
     //noinspection unchecked
-    return (T)mySubstrateRef.getStub(myStubIndex);
+    return (T)mySubstrateRef.getStub();
   }
 
   /**
@@ -395,7 +372,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   public final T getGreenStub() {
     ProgressIndicatorProvider.checkCanceled(); // Hope, this is called often
     //noinspection unchecked
-    return (T)mySubstrateRef.getGreenStub(myStubIndex);
+    return (T)mySubstrateRef.getGreenStub();
   }
 
   /**
@@ -427,7 +404,9 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
   @NotNull
   public <S extends StubElement, Psi extends PsiElement> Psi getRequiredStubOrPsiChild(@NotNull IStubElementType<S, Psi> elementType) {
     Psi result = getStubOrPsiChild(elementType);
-    assert result != null: "Missing required child of type " + elementType + "; tree: "+DebugUtil.psiToString(this, false);
+    if (result == null) {
+      throw new AssertionError("Missing required child of type " + elementType + "; tree: " + DebugUtil.psiToString(this, false));
+    }
     return result;
   }
 
@@ -443,8 +422,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
     }
     else {
       final ASTNode[] nodes = SharedImplUtil.getChildrenOfType(getNode(), elementType);
-      //noinspection unchecked
-      Psi[] psiElements = (Psi[])Array.newInstance(array.getClass().getComponentType(), nodes.length);
+      Psi[] psiElements = ArrayUtil.newArray(ArrayUtil.getComponentType(array), nodes.length);
       for (int i = 0; i < nodes.length; i++) {
         //noinspection unchecked
         psiElements[i] = (Psi)nodes[i].getPsi();
@@ -486,8 +464,7 @@ public class StubBasedPsiElementBase<T extends StubElement> extends ASTDelegateP
     }
     else {
       final ASTNode[] nodes = getNode().getChildren(filter);
-      //noinspection unchecked
-      Psi[] psiElements = (Psi[])Array.newInstance(array.getClass().getComponentType(), nodes.length);
+      Psi[] psiElements = ArrayUtil.newArray(ArrayUtil.getComponentType(array), nodes.length);
       for (int i = 0; i < nodes.length; i++) {
         //noinspection unchecked
         psiElements[i] = (Psi)nodes[i].getPsi();

@@ -1,41 +1,29 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.history;
 
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsRoot;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.vcs.log.VcsLogFileHistoryProvider;
-import com.intellij.vcs.log.VcsLogProperties;
-import com.intellij.vcs.log.VcsLogProvider;
+import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.VcsLogData;
-import com.intellij.vcs.log.impl.VcsLogContentUtil;
-import com.intellij.vcs.log.impl.VcsLogManager;
-import com.intellij.vcs.log.impl.VcsProjectLog;
+import com.intellij.vcs.log.impl.*;
+import com.intellij.vcs.log.ui.AbstractVcsLogUi;
+import com.intellij.vcs.log.ui.VcsLogUiImpl;
+import com.intellij.vcs.log.util.VcsLogUtil;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
+import com.intellij.vcs.log.visible.filters.VcsLogFiltersKt;
+import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Objects;
+import java.util.function.BiConsumer;
+
+import static com.intellij.util.ObjectUtils.assertNotNull;
 
 public class VcsLogFileHistoryProviderImpl implements VcsLogFileHistoryProvider {
   @NotNull
@@ -45,29 +33,135 @@ public class VcsLogFileHistoryProviderImpl implements VcsLogFileHistoryProvider 
   public boolean canShowFileHistory(@NotNull Project project, @NotNull FilePath path) {
     if (!Registry.is("vcs.new.history")) return false;
 
-    VcsRoot rootObject = ProjectLevelVcsManager.getInstance(project).getVcsRootObjectFor(path);
-    if (rootObject == null) return false;
-
-    VirtualFile root = rootObject.getPath();
-    AbstractVcs vcs = rootObject.getVcs();
-    if (vcs == null || root == null) return false;
+    VirtualFile root = VcsLogUtil.getActualRoot(project, path);
+    if (root == null) return false;
 
     VcsLogData dataManager = VcsProjectLog.getInstance(project).getDataManager();
-    if (dataManager == null || !dataManager.getRoots().contains(root) || dataManager.getIndex().getDataGetter() == null) return false;
+    if (dataManager == null) return false;
 
-    List<VcsLogProvider> allLogProviders = Arrays.asList(Extensions.getExtensions(VcsLogProvider.LOG_PROVIDER_EP, project));
-    VcsLogProvider provider = ContainerUtil.find(allLogProviders, p -> p.getSupportedVcs().equals(vcs.getKeyInstanceMethod()));
-    if (provider == null) return false;
-
-    return VcsLogProperties.get(provider, VcsLogProperties.SUPPORTS_INDEXING);
+    return dataManager.getIndex().isIndexingEnabled(root);
   }
 
   @Override
   public void showFileHistory(@NotNull Project project, @NotNull FilePath path, @Nullable String revisionNumber) {
-    if (!VcsLogContentUtil.findAndSelectContent(project, FileHistoryUi.class, ui -> ui.getPath().equals(path))) {
-      VcsLogManager logManager = VcsProjectLog.getInstance(project).getLogManager();
-      assert logManager != null;
-      VcsLogContentUtil.openLogTab(project, logManager, TAB_NAME, path.getName(), new FileHistoryUiFactory(path));
+    VirtualFile root = assertNotNull(VcsLogUtil.getActualRoot(project, path));
+    FilePath correctedPath = getCorrectedPath(project, path, root, revisionNumber);
+    Hash hash = (revisionNumber != null) ? HashImpl.build(revisionNumber) : null;
+
+    VcsLogManager logManager = assertNotNull(VcsProjectLog.getInstance(project).getLogManager());
+
+    BiConsumer<AbstractVcsLogUi, Boolean> historyUiConsumer = (ui, firstTime) -> {
+      if (hash != null) {
+        ui.jumpToNearestCommit(hash, root);
+      }
+      else if (firstTime) {
+        ui.jumpToRow(0);
+      }
+    };
+    if (path.isDirectory() && VcsLogUtil.isFolderHistoryShownInLog()) {
+      findOrOpenFolderHistory(project, logManager, root, correctedPath, hash, historyUiConsumer);
     }
+    else {
+      findOrOpenHistory(project, logManager, root, correctedPath, hash, historyUiConsumer);
+    }
+  }
+
+  private static void findOrOpenHistory(@NotNull Project project, @NotNull VcsLogManager logManager,
+                                        @NotNull VirtualFile root, @NotNull FilePath path, @Nullable Hash hash,
+                                        @NotNull BiConsumer<AbstractVcsLogUi, Boolean> consumer) {
+    FileHistoryUi fileHistoryUi = VcsLogContentUtil.findAndSelect(project, FileHistoryUi.class,
+                                                                  ui -> ui.matches(path, hash));
+    boolean firstTime = fileHistoryUi == null;
+    if (firstTime) {
+      String suffix = hash != null ? " (" + hash.toShortString() + ")" : "";
+      fileHistoryUi = VcsLogContentUtil.openLogTab(project, logManager, TAB_NAME, path.getName() + suffix,
+                                                   new FileHistoryUiFactory(path, root, hash), true);
+    }
+
+    consumer.accept(fileHistoryUi, firstTime);
+  }
+
+  private static void findOrOpenFolderHistory(@NotNull Project project, @NotNull VcsLogManager logManager,
+                                              @NotNull VirtualFile root, @NotNull FilePath path, @Nullable Hash hash,
+                                              @NotNull BiConsumer<AbstractVcsLogUi, Boolean> consumer) {
+    VcsLogUiImpl ui = VcsLogContentUtil.findAndSelect(project, VcsLogUiImpl.class, logUi -> {
+      return matches(logUi.getFilterUi().getFilters(), path, hash);
+    });
+    boolean firstTime = ui == null;
+    if (firstTime) {
+      VcsLogFilterCollection filters = createFilters(path, hash, root);
+      ui = VcsProjectLog.getInstance(project).getTabsManager().openAnotherLogTab(logManager, filters);
+      ui.getProperties().set(MainVcsLogUiProperties.SHOW_ONLY_AFFECTED_CHANGES, true);
+    }
+    consumer.accept(ui, firstTime);
+  }
+
+  @NotNull
+  private static VcsLogFilterCollection createFilters(@NotNull FilePath filePath, @Nullable Hash hash, @NotNull VirtualFile root) {
+    VcsLogFilter pathFilter;
+    if (Objects.equals(filePath.getVirtualFile(), root)) {
+      pathFilter = VcsLogFilterObject.fromRoot(root);
+    }
+    else {
+      pathFilter = VcsLogFilterObject.fromPaths(Collections.singleton(filePath));
+    }
+    if (hash == null) return VcsLogFilterObject.collection(pathFilter, VcsLogFilterObject.fromBranch(VcsLogUtil.HEAD));
+    return VcsLogFilterObject.collection(pathFilter, VcsLogFilterObject.fromCommit(new CommitId(hash, root)));
+  }
+
+  private static boolean matches(@NotNull VcsLogFilterCollection filters, @NotNull FilePath filePath, @Nullable Hash hash) {
+    VcsLogFilterCollection.FilterKey<?> hashKey = hash == null ? VcsLogFilterCollection.BRANCH_FILTER :
+                                                  VcsLogFilterCollection.REVISION_FILTER;
+    if (!VcsLogFiltersKt.matches(filters, hashKey, VcsLogFilterCollection.STRUCTURE_FILTER) &&
+        !VcsLogFiltersKt.matches(filters, hashKey, VcsLogFilterCollection.ROOT_FILTER)) {
+      return false;
+    }
+    if (!Objects.equals(getSingleFilePath(filters), filePath)) return false;
+    if (hash != null) return Objects.equals(getSingleHash(filters), hash);
+    return isFilteredByHead(filters);
+  }
+
+  private static boolean isFilteredByHead(@NotNull VcsLogFilterCollection filters) {
+    VcsLogBranchFilter branchFilter = filters.get(VcsLogFilterCollection.BRANCH_FILTER);
+    if (branchFilter == null) return false;
+    return branchFilter.getTextPresentation().equals(Collections.singletonList(VcsLogUtil.HEAD));
+  }
+
+  @Nullable
+  private static Hash getSingleHash(@NotNull VcsLogFilterCollection filters) {
+    VcsLogRevisionFilter revisionFilter = filters.get(VcsLogFilterCollection.REVISION_FILTER);
+    if (revisionFilter == null) return null;
+    Collection<CommitId> heads = revisionFilter.getHeads();
+    if (heads.size() != 1) return null;
+    return assertNotNull(ContainerUtil.getFirstItem(heads)).getHash();
+  }
+
+  @Nullable
+  private static FilePath getSingleFilePath(@NotNull VcsLogFilterCollection filters) {
+    VcsLogStructureFilter structureFilter = filters.get(VcsLogFilterCollection.STRUCTURE_FILTER);
+    if (structureFilter == null) {
+      VcsLogRootFilter rootFilter = filters.get(VcsLogFilterCollection.ROOT_FILTER);
+      if (rootFilter == null) return null;
+      Collection<VirtualFile> roots = rootFilter.getRoots();
+      if (roots.size() != 1) return null;
+      return VcsUtil.getFilePath(assertNotNull(ContainerUtil.getFirstItem(roots)));
+    }
+    Collection<FilePath> filePaths = structureFilter.getFiles();
+    if (filePaths.size() != 1) return null;
+    return ContainerUtil.getFirstItem(filePaths);
+  }
+
+  @NotNull
+  private static FilePath getCorrectedPath(@NotNull Project project, @NotNull FilePath path, @NotNull VirtualFile root,
+                                           @Nullable String revisionNumber) {
+    if (!root.equals(VcsUtil.getVcsRootFor(project, path)) && path.isDirectory()) {
+      path = VcsUtil.getFilePath(path.getPath(), false);
+    }
+
+    if (revisionNumber == null) {
+      return VcsUtil.getLastCommitPath(project, path);
+    }
+
+    return path;
   }
 }

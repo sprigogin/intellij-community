@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.imports;
 
 import com.intellij.codeInsight.hint.QuestionAction;
@@ -20,13 +6,12 @@ import com.intellij.ide.DataManager;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
@@ -37,7 +22,6 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.Consumer;
 import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.PyBundle;
@@ -58,7 +42,7 @@ import static com.jetbrains.python.psi.PyUtil.as;
  */
 public class ImportFromExistingAction implements QuestionAction {
   PsiElement myTarget;
-  List<ImportCandidateHolder> mySources; // list of <import, imported_item>
+  List<? extends ImportCandidateHolder> mySources; // list of <import, imported_item>
   String myName;
   boolean myUseQualifiedImport;
   private Runnable myOnDoneCallback;
@@ -70,7 +54,7 @@ public class ImportFromExistingAction implements QuestionAction {
    * @param name relevant name ot the target element (e.g. of identifier in an expression).
    * @param useQualified if True, use qualified "import modulename" instead of "from modulename import ...".
    */
-  public ImportFromExistingAction(@NotNull PsiElement target, @NotNull List<ImportCandidateHolder> sources, @NotNull String name,
+  public ImportFromExistingAction(@NotNull PsiElement target, @NotNull List<? extends ImportCandidateHolder> sources, @NotNull String name,
                                   boolean useQualified, boolean importLocally) {
     myTarget = target;
     mySources = sources;
@@ -89,6 +73,7 @@ public class ImportFromExistingAction implements QuestionAction {
    * Alters either target (by qualifying a name) or source (by explicitly importing the name).
    * @return true if action succeeded
    */
+  @Override
   public boolean execute() {
     // check if the tree is sane
     PsiDocumentManager.getInstance(myTarget.getProject()).commitAllDocuments();
@@ -117,23 +102,15 @@ public class ImportFromExistingAction implements QuestionAction {
 
   private void selectSourceAndDo() {
     // GUI part
-    ImportCandidateHolder[] items = mySources.toArray(new ImportCandidateHolder[mySources.size()]); // silly JList can't handle modern collections
-    final JList list = new JBList(items);
-    list.setCellRenderer(new CellRenderer(myName));
-
-    final Runnable runnable = () -> {
-      final Object selected = list.getSelectedValue();
-      if (selected instanceof ImportCandidateHolder) {
-        final ImportCandidateHolder item = (ImportCandidateHolder)selected;
+    DataManager.getInstance().getDataContextFromFocus().doWhenDone((Consumer<DataContext>)dataContext -> JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(mySources)
+      .setRenderer(new CellRenderer(myName))
+      .setTitle(myUseQualifiedImport? PyBundle.message("ACT.qualify.with.module") : PyBundle.message("ACT.from.some.module.import"))
+      .setItemChosenCallback((item) -> {
         PsiDocumentManager.getInstance(myTarget.getProject()).commitAllDocuments();
         doWriteAction(item);
-      }
-    };
-
-    DataManager.getInstance().getDataContextFromFocus().doWhenDone((Consumer<DataContext>)dataContext -> new PopupChooserBuilder(list)
-      .setTitle(myUseQualifiedImport? PyBundle.message("ACT.qualify.with.module") : PyBundle.message("ACT.from.some.module.import"))
-      .setItemChoosenCallback(runnable)
-      .setFilteringEnabled(o -> ((ImportCandidateHolder) o).getPresentableText(myName))
+      })
+      .setNamerForFiltering(o -> o.getPresentableText(myName))
       .createPopup()
       .showInBestPositionFor(dataContext));
   }
@@ -153,6 +130,9 @@ public class ImportFromExistingAction implements QuestionAction {
     final PyElementGenerator gen = PyElementGenerator.getInstance(project);
 
     final PsiFileSystemItem filesystemAnchor = ObjectUtils.chooseNotNull(as(item.getImportable(), PsiFileSystemItem.class), item.getFile());
+    if (filesystemAnchor == null) {
+      return;
+    }
     AddImportHelper.ImportPriority priority = AddImportHelper.getImportPriority(myTarget, filesystemAnchor);
     PsiFile file = myTarget.getContainingFile();
     InjectedLanguageManager manager = InjectedLanguageManager.getInstance(project);
@@ -214,12 +194,11 @@ public class ImportFromExistingAction implements QuestionAction {
 
   private void doWriteAction(final ImportCandidateHolder item) {
     PsiElement src = item.getImportable();
-    new WriteCommandAction(src.getProject(), PyBundle.message("ACT.CMD.use.import"), myTarget.getContainingFile()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        doIt(item);
-      }
-    }.execute();
+    if (src == null) {
+      return;
+    }
+    WriteCommandAction.writeCommandAction(src.getProject(), myTarget.getContainingFile()).withName(PyBundle.message("ACT.CMD.use.import"))
+                      .run(() -> doIt(item));
     if (myOnDoneCallback != null) {
       myOnDoneCallback.run();
     }
@@ -240,7 +219,7 @@ public class ImportFromExistingAction implements QuestionAction {
     private final Font FONT;
     private final String myName;
 
-    public CellRenderer(String name) {
+    CellRenderer(String name) {
       myName = name;
       EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
       FONT = new Font(scheme.getEditorFontName(), Font.PLAIN, scheme.getEditorFontSize());
@@ -248,6 +227,7 @@ public class ImportFromExistingAction implements QuestionAction {
     }
 
     // value is a QualifiedHolder
+    @Override
     public Component getListCellRendererComponent(
       JList list,
       Object value, // expected to be
@@ -259,7 +239,10 @@ public class ImportFromExistingAction implements QuestionAction {
       clear();
 
       ImportCandidateHolder item = (ImportCandidateHolder)value;
-      setIcon(item.getImportable().getIcon(0));
+      PsiElement importable = ((ImportCandidateHolder)value).getImportable();
+      if (importable != null) {
+        setIcon(importable.getIcon(0));
+      }
       String item_name = item.getPresentableText(myName);
       append(item_name, SimpleTextAttributes.REGULAR_ATTRIBUTES);
 

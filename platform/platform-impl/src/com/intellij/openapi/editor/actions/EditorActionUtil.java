@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.editor.actions;
 
@@ -18,7 +18,6 @@ import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FoldingModelImpl;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.tree.IElementType;
@@ -235,7 +234,8 @@ public class EditorActionUtil {
     IElementType rightToken = it.getTokenType();
     it.retreat();
     IElementType leftToken = it.getTokenType();
-    return !Comparing.equal(leftToken, rightToken);
+    if (leftToken == null || rightToken == null) return false;
+    return LanguageWordBoundaryFilter.INSTANCE.forLanguage(leftToken.getLanguage()).isWordBoundary(leftToken, rightToken);
   }
 
   public static boolean isWordStart(@NotNull CharSequence text, int offset, boolean isCamel) {
@@ -794,6 +794,11 @@ public class EditorActionUtil {
                                                            : editor.getScrollingModel().getVisibleArea();
   }
 
+  /**
+   * @deprecated Use {@link EditorEx#setContextMenuGroupId(String)} or
+   * {@link EditorEx#installPopupHandler(com.intellij.openapi.editor.ex.EditorPopupHandler)} instead. To be removed in version 2020.2.
+   */
+  @Deprecated
   public static EditorPopupHandler createEditorPopupHandler(@NotNull final String groupId) {
     return new EditorPopupHandler() {
       @Override
@@ -806,6 +811,11 @@ public class EditorActionUtil {
     };
   }
 
+  /**
+   * @deprecated Use {@link EditorEx#setContextMenuGroupId(String)} or
+   * {@link EditorEx#installPopupHandler(com.intellij.openapi.editor.ex.EditorPopupHandler)} instead. To be removed in version 2020.2.
+   */
+  @Deprecated
   public static EditorPopupHandler createEditorPopupHandler(@NotNull final ActionGroup group) {
     return new EditorPopupHandler() {
       @Override
@@ -856,10 +866,21 @@ public class EditorActionUtil {
    */
   public static void makePositionVisible(@NotNull final Editor editor, final int offset) {
     FoldingModel foldingModel = editor.getFoldingModel();
-    FoldRegion collapsedRegionAtOffset;
-    while ((collapsedRegionAtOffset  = foldingModel.getCollapsedRegionAtOffset(offset)) != null) {
-      final FoldRegion region = collapsedRegionAtOffset;
+    while (true) {
+      FoldRegion region = foldingModel.getCollapsedRegionAtOffset(offset);
+      if (region == null || region.shouldNeverExpand()) break;
       foldingModel.runBatchFoldingOperation(() -> region.setExpanded(true));
     }
+  }
+
+  public static void moveCaret(@NotNull Caret caret, int offset, boolean withSelection) {
+    if (withSelection) {
+      caret.setSelection(caret.getLeadSelectionOffset(), offset);
+    }
+    else {
+      caret.removeSelection();
+    }
+    caret.moveToOffset(offset);
+    EditorModificationUtil.scrollToCaret(caret.getEditor());
   }
 }

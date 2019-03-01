@@ -71,7 +71,7 @@ public class CallToSuspiciousStringMethodInspection extends BaseInspection {
         new DelegatingFix(new AddAnnotationPsiFix(AnnotationUtil.NON_NLS, annotatableArgument, PsiNameValuePair.EMPTY_ARRAY));
       result.add(fix);
     }
-    return result.toArray(new InspectionGadgetsFix[result.size()]);
+    return result.toArray(InspectionGadgetsFix.EMPTY_ARRAY);
   }
 
   private static class CallToSuspiciousStringMethodVisitor extends BaseInspectionVisitor {

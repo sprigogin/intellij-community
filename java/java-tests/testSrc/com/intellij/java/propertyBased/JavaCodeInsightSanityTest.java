@@ -1,33 +1,22 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.propertyBased;
 
 import com.intellij.java.psi.formatter.java.AbstractJavaFormatterTest;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.source.PsiEnumConstantImpl;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
 import com.intellij.testFramework.propertyBased.*;
-import jetCheck.Generator;
-import jetCheck.PropertyChecker;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jetCheck.Generator;
+import org.jetbrains.jetCheck.PropertyChecker;
 
+import java.io.File;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * @author peter
@@ -38,8 +27,15 @@ public class JavaCodeInsightSanityTest extends LightCodeInsightFixtureTestCase {
   @Override
   protected void tearDown() throws Exception {
     // remove jdk if it was created during highlighting to avoid leaks
-    JavaAwareProjectJdkTableImpl.removeInternalJdkInTests();
-    super.tearDown();
+    try {
+      JavaAwareProjectJdkTableImpl.removeInternalJdkInTests();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   @NotNull
@@ -49,36 +45,70 @@ public class JavaCodeInsightSanityTest extends LightCodeInsightFixtureTestCase {
   }
 
   public void testRandomActivity() {
+    enableInspections();
+    Function<PsiFile, Generator<? extends MadTestingAction>> fileActions =
+      file -> Generator.sampledFrom(new InvokeIntention(file, new JavaIntentionPolicy()),
+                                    new InvokeCompletion(file, new JavaCompletionPolicy()),
+                                    new StripTestDataMarkup(file),
+                                    new DeleteRange(file));
+    PropertyChecker
+      .checkScenarios(actionsOnJavaFiles(fileActions));
+  }
+
+  private void enableInspections() {
     MadTestingUtil.enableAllInspections(getProject(), getTestRootDisposable());
-    Function<PsiFile, Generator<? extends MadTestingAction>> fileActions = file ->
-      Generator.anyOf(InvokeIntention.randomIntentions(file, new JavaIntentionPolicy()),
-                      InvokeCompletion.completions(file, new JavaCompletionPolicy()),
-                      Generator.constant(new StripTestDataMarkup(file)),
-                      DeleteRange.psiRangeDeletions(file));
-    PropertyChecker.forAll(actionsOnJavaFiles(fileActions)).shouldHold(FileWithActions::runActions);
   }
 
   public void testPreserveComments() {
     boolean oldSettings = AbstractJavaFormatterTest.getJavaSettings().ENABLE_JAVADOC_FORMATTING;
     try {
       AbstractJavaFormatterTest.getJavaSettings().ENABLE_JAVADOC_FORMATTING = false;
-      MadTestingUtil.enableAllInspections(getProject(), getTestRootDisposable());
-      Function<PsiFile, Generator<? extends MadTestingAction>> fileActions = file ->
-        Generator.anyOf(InvokeIntention.randomIntentions(file, new JavaCommentingStrategy()),
-                        InsertLineComment.insertComment(file, "//simple end comment"));
-      PropertyChecker.forAll(actionsOnJavaFiles(fileActions)).shouldHold(FileWithActions::runActions);
+      enableInspections();
+      Function<PsiFile, Generator<? extends MadTestingAction>> fileActions =
+        file -> Generator.sampledFrom(new InvokeIntention(file, new JavaCommentingStrategy()),
+                                      new InsertLineComment(file, "//simple end comment\n"));
+      PropertyChecker
+        .checkScenarios(actionsOnJavaFiles(fileActions));
     }
     finally {
       AbstractJavaFormatterTest.getJavaSettings().ENABLE_JAVADOC_FORMATTING = oldSettings;
     }
   }
 
+  public void testParenthesesDontChangeIntention() {
+    enableInspections();
+    Function<PsiFile, Generator<? extends MadTestingAction>> fileActions =
+      file -> Generator.sampledFrom(new InvokeIntention(file, new JavaParenthesesPolicy()), new StripTestDataMarkup(file));
+    PropertyChecker
+      .checkScenarios(actionsOnJavaFiles(fileActions));
+  }
+
   @NotNull
-  private Generator<FileWithActions> actionsOnJavaFiles(Function<PsiFile, Generator<? extends MadTestingAction>> fileActions) {
+  private Supplier<MadTestingAction> actionsOnJavaFiles(Function<PsiFile, Generator<? extends MadTestingAction>> fileActions) {
     return MadTestingUtil.actionsOnFileContents(myFixture, PathManager.getHomePath(), f -> f.getName().endsWith(".java"), fileActions);
   }
 
+  public void _testGenerator() {
+    MadTestingUtil.testFileGenerator(new File(PathManager.getHomePath()), f -> f.getName().endsWith(".java"), 10000, System.out);
+  }
+
   public void testReparse() {
-    PropertyChecker.forAll(actionsOnJavaFiles(MadTestingUtil::randomEditsWithReparseChecks)).shouldHold(FileWithActions::runActions);
+    PropertyChecker
+      .checkScenarios(actionsOnJavaFiles(MadTestingUtil::randomEditsWithReparseChecks));
+  }
+
+  public void testIncrementalHighlighterUpdate() {
+    PropertyChecker
+      .checkScenarios(actionsOnJavaFiles(CheckHighlighterConsistency.randomEditsWithHighlighterChecks));
+  }
+
+  public void testPsiAccessors() {
+    PropertyChecker.checkScenarios(actionsOnJavaFiles(
+      MadTestingUtil.randomEditsWithPsiAccessorChecks(
+        method ->
+          //method.getName().equals("getReferences") && method.getDeclaringClass().equals(PsiLiteralExpressionImpl.class) ||
+          method.getName().equals("getOrCreateInitializingClass") && method.getDeclaringClass().equals(PsiEnumConstantImpl.class)
+      )
+    ));
   }
 }

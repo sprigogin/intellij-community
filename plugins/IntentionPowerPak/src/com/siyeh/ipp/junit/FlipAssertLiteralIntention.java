@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
  */
 package com.siyeh.ipp.junit;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
 import com.siyeh.ig.psiutils.CommentTracker;
@@ -35,16 +35,13 @@ public class FlipAssertLiteralIntention extends MutablyNamedIntention {
     final PsiMethodCallExpression call = (PsiMethodCallExpression)element;
     final PsiReferenceExpression methodExpression = call.getMethodExpression();
     @NonNls final String fromMethodName = methodExpression.getReferenceName();
-    @NonNls final String toMethodName;
-    if ("assertTrue".equals(fromMethodName)) {
-      toMethodName = "assertFalse";
-    }
-    else {
-      toMethodName = "assertTrue";
-    }
-    return IntentionPowerPackBundle.message(
-      "flip.assert.literal.intention.name",
-      fromMethodName, toMethodName);
+    @NonNls final String toMethodName = getOppositeAssertMethodName(fromMethodName);
+    return CommonQuickFixBundle.message("fix.replace.x.with.y", fromMethodName + "()", toMethodName + "()");
+  }
+
+  @NotNull
+  private static String getOppositeAssertMethodName(String fromMethodName) {
+    return "assertTrue".equals(fromMethodName) ? "assertFalse" : "assertTrue";
   }
 
   @Override
@@ -58,13 +55,7 @@ public class FlipAssertLiteralIntention extends MutablyNamedIntention {
     final PsiMethodCallExpression call = (PsiMethodCallExpression)element;
     final PsiReferenceExpression methodExpression = call.getMethodExpression();
     @NonNls final String fromMethodName = methodExpression.getReferenceName();
-    @NonNls final String toMethodName;
-    if ("assertTrue".equals(fromMethodName)) {
-      toMethodName = "assertFalse";
-    }
-    else {
-      toMethodName = "assertTrue";
-    }
+    @NonNls final String toMethodName = getOppositeAssertMethodName(fromMethodName);
     CommentTracker tracker = new CommentTracker();
     @NonNls final StringBuilder newCall = new StringBuilder();
     final PsiElement qualifier = methodExpression.getQualifier();
@@ -76,7 +67,7 @@ public class FlipAssertLiteralIntention extends MutablyNamedIntention {
       }
     }
     else {
-      newCall.append(tracker.markUnchanged(qualifier).getText()).append('.');
+      newCall.append(tracker.text(qualifier)).append('.');
     }
     newCall.append(toMethodName).append('(');
     final PsiExpressionList argumentList = call.getArgumentList();
@@ -86,7 +77,7 @@ public class FlipAssertLiteralIntention extends MutablyNamedIntention {
       newCall.append(BoolUtils.getNegatedExpressionText(arguments[0], tracker));
     }
     else {
-      newCall.append(tracker.markUnchanged(arguments[0]).getText()).append(',');
+      newCall.append(tracker.text(arguments[0])).append(',');
       newCall.append(BoolUtils.getNegatedExpressionText(arguments[1], tracker));
     }
     newCall.append(')');

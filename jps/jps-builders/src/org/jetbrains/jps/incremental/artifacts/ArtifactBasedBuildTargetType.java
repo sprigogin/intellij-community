@@ -26,8 +26,8 @@ import org.jetbrains.jps.model.artifact.JpsArtifact;
 import java.util.*;
 
 public abstract class ArtifactBasedBuildTargetType<T extends ArtifactBasedBuildTarget> extends BuildTargetType<T> {
-  protected ArtifactBasedBuildTargetType(String typeId, boolean based) {
-    super(typeId, based);
+  protected ArtifactBasedBuildTargetType(String typeId, boolean fileBased) {
+    super(typeId, fileBased);
   }
 
   @NotNull
@@ -54,7 +54,7 @@ public abstract class ArtifactBasedBuildTargetType<T extends ArtifactBasedBuildT
   private class Loader extends BuildTargetLoader<T> {
     private final Map<String, JpsArtifact> myArtifacts;
 
-    public Loader(JpsModel model) {
+    Loader(JpsModel model) {
       myArtifacts = new HashMap<>();
       for (JpsArtifact artifact : JpsBuilderArtifactService.getInstance().getArtifacts(model, true)) {
         myArtifacts.put(artifact.getName(), artifact);

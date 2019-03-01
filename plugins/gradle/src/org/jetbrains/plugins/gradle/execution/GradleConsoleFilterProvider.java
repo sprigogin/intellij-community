@@ -38,11 +38,11 @@ public class GradleConsoleFilterProvider implements ConsoleFilterProvider {
     return new Filter[]{
       new GradleConsoleFilter(project),
       new RegexpFilter(project, RegexpFilter.FILE_PATH_MACROS + ":" + RegexpFilter.LINE_MACROS) {
-        private CachedValue<Boolean> myIsGradleProject = new CachedValueImpl<>(
+        private final CachedValue<Boolean> myIsGradleProject = new CachedValueImpl<>(
           () -> CachedValueProvider.Result.create(isGradleProject(), ProjectRootModificationTracker.getInstance(project)));
 
         @Override
-        public Result applyFilter(String line, int entireLength) {
+        public Result applyFilter(@NotNull String line, int entireLength) {
           if (line == null || !FileUtil.isAbsolutePlatformIndependent(line)) return null;
           if (Boolean.FALSE.equals(myIsGradleProject.getValue())) return null;
           Result result = super.applyFilter(line, entireLength);

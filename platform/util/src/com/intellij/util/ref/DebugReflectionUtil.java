@@ -42,7 +42,7 @@ import java.util.List;
 import java.util.Map;
 
 public class DebugReflectionUtil {
-  private static final Map<Class, Field[]> allFields = new THashMap<Class, Field[]>(new TObjectHashingStrategy<Class>() {
+  private static final Map<Class, Field[]> allFields = new THashMap<>(new TObjectHashingStrategy<Class>() {
     // default strategy seems to be too slow
     @Override
     public int computeHashCode(Class aClass) {
@@ -63,7 +63,7 @@ public class DebugReflectionUtil {
     if (cached == null) {
       try {
         Field[] declaredFields = aClass.getDeclaredFields();
-        List<Field> fields = new ArrayList<Field>(declaredFields.length + 5);
+        List<Field> fields = new ArrayList<>(declaredFields.length + 5);
         for (Field declaredField : declaredFields) {
           declaredField.setAccessible(true);
           Class<?> type = declaredField.getType();
@@ -78,17 +78,11 @@ public class DebugReflectionUtil {
             }
           }
         }
-        cached = fields.isEmpty() ? EMPTY_FIELD_ARRAY : fields.toArray(new Field[fields.size()]);
+        cached = fields.isEmpty() ? EMPTY_FIELD_ARRAY : fields.toArray(new Field[0]);
       }
-      catch (IncompatibleClassChangeError e) {
+      catch (IncompatibleClassChangeError | NoClassDefFoundError | SecurityException e) {
         //this exception may be thrown because there are two different versions of org.objectweb.asm.tree.ClassNode from different plugins
         //I don't see any sane way to fix it until we load all the plugins by the same classloader in tests
-        cached = EMPTY_FIELD_ARRAY;
-      }
-      catch (SecurityException e) {
-        cached = EMPTY_FIELD_ARRAY;
-      }
-      catch (NoClassDefFoundError e) {
         cached = EMPTY_FIELD_ARRAY;
       }
       catch (@ReviseWhenPortedToJDK("9") RuntimeException e) {
@@ -125,15 +119,23 @@ public class DebugReflectionUtil {
   private static final Key<Boolean> REPORTED_LEAKED = Key.create("REPORTED_LEAKED");
 
   public static boolean walkObjects(int maxDepth,
-                                    @NotNull Collection<Object> startRoots,
+                                    @NotNull Map<Object, String> startRoots,
                                     @NotNull final Class<?> lookFor,
                                     @NotNull Condition<Object> shouldExamineValue,
-                                    @NotNull final PairProcessor<Object, BackLink> leakProcessor) {
-    TIntHashSet visited = new TIntHashSet((int)(10000000 * 0.8));
-    final Queue<BackLink> toVisit = new Queue<BackLink>(1000000);
+                                    @NotNull final PairProcessor<Object, ? super BackLink> leakProcessor) {
+    TIntHashSet visited = new TIntHashSet(100);
+    Queue<BackLink> toVisit = new Queue<>(100);
 
-    for (Object startRoot : startRoots) {
-      toVisit.addLast(new BackLink(startRoot, null, null));
+    for (Map.Entry<Object, String> entry : startRoots.entrySet()) {
+      Object startRoot = entry.getKey();
+      final String description = entry.getValue();
+      toVisit.addLast(new BackLink(startRoot, null, null){
+        @NotNull
+        @Override
+        String print() {
+          return super.print() +" (from "+description+")";
+        }
+      });
     }
 
     while (true) {
@@ -149,7 +151,7 @@ public class DebugReflectionUtil {
     }
   }
 
-  private static void queueStronglyReferencedValues(Queue<BackLink> queue,
+  private static void queueStronglyReferencedValues(@NotNull Queue<? super BackLink> queue,
                                                     @NotNull Object root,
                                                     @NotNull Condition<Object> shouldExamineValue,
                                                     @NotNull BackLink backLink) {
@@ -161,10 +163,7 @@ public class DebugReflectionUtil {
       try {
         value = field.get(root);
       }
-      catch (IllegalArgumentException e) {
-        throw new RuntimeException(e);
-      }
-      catch (IllegalAccessException e) {
+      catch (IllegalArgumentException | IllegalAccessException e) {
         throw new RuntimeException(e);
       }
 
@@ -172,7 +171,6 @@ public class DebugReflectionUtil {
     }
     if (rootClass.isArray()) {
       try {
-        //noinspection ConstantConditions
         for (Object value : (Object[])root) {
           queue(value, null, backLink, queue, shouldExamineValue);
         }
@@ -194,7 +192,7 @@ public class DebugReflectionUtil {
     }
   }
 
-  private static void queue(Object value, Field field, @NotNull BackLink backLink, Queue<BackLink> queue,
+  private static void queue(Object value, Field field, @NotNull BackLink backLink, @NotNull Queue<? super BackLink> queue,
                             @NotNull Condition<Object> shouldExamineValue) {
     if (value == null || isTrivial(value.getClass())) return;
     if (shouldExamineValue.value(value)) {
@@ -225,24 +223,30 @@ public class DebugReflectionUtil {
       String result = "";
       BackLink backLink = this;
       while (backLink != null) {
-        String valueStr;
-        Object value = backLink.value;
-        try {
-          valueStr = value instanceof FList
-                     ? "FList (size=" + ((FList)value).size() + ")" :
-                     value instanceof Collection ? "Collection (size=" + ((Collection)value).size() + ")" :
-                     String.valueOf(value);
-          valueStr = StringUtil.first(StringUtil.convertLineSeparators(valueStr, "\\n"), 200, true);
-        }
-        catch (Throwable e) {
-          valueStr = "(" + e.getMessage() + " while computing .toString())";
-        }
-        Field field = backLink.field;
-        String fieldName = field == null ? "?" : field.getDeclaringClass().getName() + "." + field.getName();
-        result += "via '" + fieldName + "'; Value: '" + valueStr + "' of " + value.getClass() + "\n";
+        String s = backLink.print();
+        result += s;
         backLink = backLink.backLink;
       }
       return result;
+    }
+
+    @NotNull
+    String print() {
+      String valueStr;
+      Object value = this.value;
+      try {
+        valueStr = value instanceof FList
+                   ? "FList (size=" + ((FList)value).size() + ")" :
+                   value instanceof Collection ? "Collection (size=" + ((Collection)value).size() + ")" :
+                   String.valueOf(value);
+        valueStr = StringUtil.first(StringUtil.convertLineSeparators(valueStr, "\\n"), 200, true);
+      }
+      catch (Throwable e) {
+        valueStr = "(" + e.getMessage() + " while computing .toString())";
+      }
+      Field field = this.field;
+      String fieldName = field == null ? "?" : field.getDeclaringClass().getName() + "." + field.getName();
+      return "via '" + fieldName + "'; Value: '" + valueStr + "' of " + value.getClass() + "\n";
     }
   }
 }

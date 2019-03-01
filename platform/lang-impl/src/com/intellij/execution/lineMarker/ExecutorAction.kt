@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.lineMarker
 
 import com.intellij.execution.Executor
@@ -35,7 +21,7 @@ private val CONFIGURATION_CACHE = Key.create<List<ConfigurationFromContext>>("Co
 /**
  * @author Dmitry Avdeev
  */
-class ExecutorAction private constructor(private val origin: AnAction,
+class ExecutorAction private constructor(val origin: AnAction,
                                          private val executor: Executor,
                                          private val order: Int) : ActionGroup() {
   init {
@@ -51,9 +37,11 @@ class ExecutorAction private constructor(private val origin: AnAction,
     @JvmOverloads
     fun getActionList(order: Int = 0): List<AnAction> {
       val actionManager = ActionManager.getInstance()
-      return ExecutorRegistry.getInstance().registeredExecutors.mapSmart {
-        ExecutorAction(actionManager.getAction(it.contextActionId), it, order)
-      }
+      return ExecutorRegistry.getInstance().registeredExecutors
+        .mapNotNull { executor ->
+          val action = actionManager.getAction(executor.contextActionId) ?: return@mapNotNull null
+          ExecutorAction(action, executor, order)
+        }
     }
 
     private fun getConfigurations(dataContext: DataContext): List<ConfigurationFromContext> {
@@ -66,45 +54,49 @@ class ExecutorAction private constructor(private val origin: AnAction,
     }
 
     private fun computeConfigurations(dataContext: DataContext): List<ConfigurationFromContext> {
-      val context = ConfigurationContext.getFromContext(dataContext)
-      if (context.location == null) {
-        return emptyList()
-      }
+      val originalContext = ConfigurationContext.getFromContext(dataContext)
+      val location = originalContext.location ?: return emptyList()
 
-      return RunConfigurationProducer.getProducers(context.project).mapSmartNotNull {
-        LOG.runAndLogException {
-          val configuration = it.createLightConfiguration(context) ?: return@mapSmartNotNull null
-          val settings = RunnerAndConfigurationSettingsImpl(RunManagerImpl.getInstanceImpl(context.project), configuration, false)
-          ConfigurationFromContextImpl(it, settings, context.psiLocation)
+      val alternativeLocations = MultipleRunLocationsProvider.findAlternativeLocations(location)?.alternativeLocations
+      val contexts = alternativeLocations?.mapSmart { ConfigurationContext.createEmptyContextForLocation(it) } ?: listOf(originalContext)
+      return contexts.flatMap { context ->
+        RunConfigurationProducer.getProducers(context.project).mapSmartNotNull {
+          LOG.runAndLogException {
+            val configuration = it.createLightConfiguration(context) ?: return@mapSmartNotNull null
+            val settings = RunnerAndConfigurationSettingsImpl(RunManagerImpl.getInstanceImpl(context.project), configuration, false)
+            ConfigurationFromContextImpl(it, settings, context.psiLocation)
+          }
         }
       }
     }
   }
 
   override fun update(e: AnActionEvent) {
-    val name = getActionName(e.dataContext, executor)
+    val name = getActionName(e.dataContext)
     e.presentation.isEnabledAndVisible = name != null
     origin.update(e)
-    e.presentation.text = name
+    if (name != null) {
+      e.presentation.text = name
+    }
   }
 
   override fun actionPerformed(e: AnActionEvent) {
     origin.actionPerformed(e)
   }
 
-  override fun canBePerformed(context: DataContext): Boolean = origin !is ActionGroup || origin.canBePerformed(context)
+  override fun canBePerformed(context: DataContext) = origin !is ActionGroup || origin.canBePerformed(context)
 
-  override fun getChildren(e: AnActionEvent?): Array<AnAction> = (origin as? ActionGroup)?.getChildren(e) ?: AnAction.EMPTY_ARRAY
+  override fun getChildren(e: AnActionEvent?) = (origin as? ActionGroup)?.getChildren(e) ?: AnAction.EMPTY_ARRAY
 
-  override fun isDumbAware(): Boolean = origin.isDumbAware
+  override fun isDumbAware() = origin.isDumbAware
 
-  override fun isPopup(): Boolean = origin !is ActionGroup || origin.isPopup
+  override fun isPopup() = origin !is ActionGroup || origin.isPopup
 
-  override fun hideIfNoVisibleChildren(): Boolean = origin is ActionGroup && origin.hideIfNoVisibleChildren()
+  override fun hideIfNoVisibleChildren() = origin is ActionGroup && origin.hideIfNoVisibleChildren()
 
-  override fun disableIfNoVisibleChildren(): Boolean = origin !is ActionGroup || origin.disableIfNoVisibleChildren()
+  override fun disableIfNoVisibleChildren() = origin !is ActionGroup || origin.disableIfNoVisibleChildren()
 
-  private fun getActionName(dataContext: DataContext, executor: Executor): String? {
+  fun getActionName(dataContext: DataContext): String? {
     val list = getConfigurations(dataContext)
     if (list.isEmpty()) {
       return null

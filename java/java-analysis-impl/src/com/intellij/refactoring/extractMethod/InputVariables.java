@@ -17,7 +17,6 @@
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
@@ -45,7 +44,7 @@ public class InputVariables {
   private ParametersFolder myFolding;
   private boolean myFoldingAvailable;
 
-  private Set<PsiField> myUsedInstanceFields;
+  private Set<? extends PsiField> myUsedInstanceFields;
   private boolean       myPassFields;
 
   public InputVariables(final List<? extends PsiVariable> inputVariables,
@@ -63,9 +62,9 @@ public class InputVariables {
   /**
    * copy use only
    */
-  private InputVariables(List<VariableData> inputVariables,
-                        Project project,
-                        LocalSearchScope scope) {
+  private InputVariables(List<? extends VariableData> inputVariables,
+                         Project project,
+                         LocalSearchScope scope) {
     myProject = project;
     myScope = scope;
     myInputVariables = new ArrayList<>(inputVariables);
@@ -75,7 +74,7 @@ public class InputVariables {
     return myFolding.isFoldable();
   }
 
-  public void setUsedInstanceFields(Set<PsiField> usedInstanceFields) {
+  public void setUsedInstanceFields(Set<? extends PsiField> usedInstanceFields) {
     myUsedInstanceFields = usedInstanceFields;
   }
 
@@ -100,9 +99,6 @@ public class InputVariables {
       final String defaultName = getParameterName(var);
       String name = nameGenerator.generateUniqueName(defaultName);
       PsiType type = GenericsUtil.getVariableTypeByExpressionType(var.getType());
-      if (type instanceof PsiEllipsisType) {
-        type = ((PsiEllipsisType)type).toArrayType();
-      }
       final Map<PsiCodeBlock, PsiType> casts = new HashMap<>();
       for (PsiReference reference : ReferencesSearch.search(var, myScope)) {
         final PsiElement element = reference.getElement();
@@ -253,7 +249,7 @@ public class InputVariables {
   }
 
   public void removeParametersUsedInExitsOnly(PsiElement codeFragment,
-                                              Collection<PsiStatement> exitStatements,
+                                              Collection<? extends PsiStatement> exitStatements,
                                               ControlFlow controlFlow,
                                               int startOffset,
                                               int endOffset) {
@@ -272,7 +268,7 @@ public class InputVariables {
     }
   }
 
-  private static boolean isInExitStatements(PsiElement element, Collection<PsiStatement> exitStatements) {
+  private static boolean isInExitStatements(PsiElement element, Collection<? extends PsiStatement> exitStatements) {
     for (PsiStatement exitStatement : exitStatements) {
       if (PsiTreeUtil.isAncestor(exitStatement, element, false)) return true;
     }
@@ -288,6 +284,10 @@ public class InputVariables {
     return inputVariables;
   }
 
+  @NotNull
+  public InputVariables copyWithoutFolding() {
+    return new InputVariables(myInitialParameters, myProject, myScope, false);
+  }
 
   public void appendCallArguments(VariableData data, StringBuilder buffer) {
     if (myFoldingAvailable) {
@@ -313,8 +313,9 @@ public class InputVariables {
   }
 
   public void annotateWithParameter(PsiJavaCodeReferenceElement reference) {
+    if (myInputVariables.isEmpty()) return;
+    final PsiElement element = reference.resolve();
     for (VariableData data : myInputVariables) {
-      final PsiElement element = reference.resolve();
       if (data.variable.equals(element)) {
         PsiType type = data.variable.getType();
         final PsiMethodCallExpression methodCallExpression = PsiTreeUtil.getParentOfType(reference, PsiMethodCallExpression.class);
@@ -337,7 +338,7 @@ public class InputVariables {
           }
         }
         if (!myFoldingAvailable || !myFolding.annotateWithParameter(data, reference)) {
-          reference.putUserData(DuplicatesFinder.PARAMETER, Pair.create(data.variable, type));
+          reference.putUserData(DuplicatesFinder.PARAMETER, new DuplicatesFinder.Parameter(data.variable, type));
         }
       }
     }

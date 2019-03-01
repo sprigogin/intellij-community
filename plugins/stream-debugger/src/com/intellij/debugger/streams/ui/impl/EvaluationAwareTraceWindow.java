@@ -22,6 +22,8 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ui.JBDimension;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebugSessionListener;
+import icons.JavaDebuggerStreamsIcons;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,7 +33,6 @@ import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * @author Vitaliy.Bibaev
@@ -70,14 +71,14 @@ public class EvaluationAwareTraceWindow extends DialogWrapper {
     final QualifierExpression qualifierExpression = chain.getQualifierExpression();
     final MyPlaceholder firstTab = new MyPlaceholder();
     myTabsPane.insertTab(TraceUtil.formatQualifierExpression(qualifierExpression.getText(), 30),
-                         AllIcons.Debugger.StreamDebugger.Tab, firstTab, qualifierExpression.getText(), 0);
+                         JavaDebuggerStreamsIcons.Tab, firstTab, qualifierExpression.getText(), 0);
     myTabContents.add(firstTab);
 
     for (int i = 0, chainLength = chain.length(); i < chainLength; i++) {
       final StreamCall call = chain.getCall(i);
       final MyPlaceholder tab = new MyPlaceholder();
       final String callName = call.getName().replace(" ", "");
-      myTabsPane.insertTab(callName, AllIcons.Debugger.StreamDebugger.Tab, tab, TraceUtil.formatWithArguments(call), i + 1);
+      myTabsPane.insertTab(callName, JavaDebuggerStreamsIcons.Tab, tab, TraceUtil.formatWithArguments(call), i + 1);
       myTabContents.add(tab);
     }
 
@@ -155,8 +156,8 @@ public class EvaluationAwareTraceWindow extends DialogWrapper {
   }
 
   public void setFailMessage(@NotNull String reason) {
-    Stream.concat(Stream.of(myFlatContent), myTabContents.stream())
-      .forEach(x -> x.setContent(new JBLabel(reason, SwingConstants.CENTER), BorderLayout.CENTER));
+    StreamEx.of(myTabContents).prepend(myFlatContent)
+            .forEach(x -> x.setContent(new JBLabel(reason, SwingConstants.CENTER), BorderLayout.CENTER));
   }
 
   @NotNull

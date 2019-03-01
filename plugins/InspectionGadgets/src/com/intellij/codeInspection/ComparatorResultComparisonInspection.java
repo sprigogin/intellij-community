@@ -37,8 +37,9 @@ public class ComparatorResultComparisonInspection extends AbstractBaseJavaLocalI
         if (parent instanceof PsiLocalVariable) {
           PsiLocalVariable var = (PsiLocalVariable)parent;
           PsiCodeBlock block = PsiTreeUtil.getParentOfType(var, PsiCodeBlock.class);
-          if (block != null) {
-            for (PsiElement element : DefUseUtil.getRefs(block, var, var.getInitializer())) {
+          PsiExpression initializer = var.getInitializer();
+          if (block != null && initializer != null) {
+            for (PsiElement element : DefUseUtil.getRefs(block, var, initializer)) {
               checkComparison(element);
             }
           }
@@ -89,7 +90,7 @@ public class ComparatorResultComparisonInspection extends AbstractBaseJavaLocalI
     private final boolean myYodaCondition;
     private final RelationType myRelation;
 
-    public ComparatorComparisonFix(boolean yodaCondition, RelationType relation) {
+    ComparatorComparisonFix(boolean yodaCondition, RelationType relation) {
       myYodaCondition = yodaCondition;
       myRelation = relation;
     }
@@ -98,7 +99,7 @@ public class ComparatorResultComparisonInspection extends AbstractBaseJavaLocalI
     @NotNull
     @Override
     public String getName() {
-      return InspectionGadgetsBundle.message("replace.with", getReplacement());
+      return CommonQuickFixBundle.message("fix.replace.with.x", getReplacement());
     }
 
     @NotNull

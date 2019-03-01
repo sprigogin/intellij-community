@@ -1,7 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.lang.ASTNode;
@@ -10,11 +7,15 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.GeneratedMarkerVisitor;
+import com.intellij.psi.impl.source.DummyHolder;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,7 +29,8 @@ import org.jetbrains.plugins.groovy.lang.psi.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
-import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrClosureSignature;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationNameValuePair;
+import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrSignature;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrNamedArgument;
@@ -44,7 +46,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEn
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.GrTopStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.types.GrClassTypeElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrClosureParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeElement;
@@ -56,6 +57,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.*;
+
 /**
  * @author ven
  */
@@ -64,16 +67,18 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
   private static final Logger LOG = Logger.getInstance(GroovyPsiElementFactoryImpl.class);
 
   private final Project myProject;
+  private final PsiManager myManager;
 
-  public GroovyPsiElementFactoryImpl(Project project) {
+  public GroovyPsiElementFactoryImpl(Project project, PsiManager manager) {
     myProject = project;
+    myManager = manager;
   }
 
   @Override
   @NotNull
   public PsiElement createReferenceNameFromText(@NotNull String refName) {
-    PsiFile file = createGroovyFileChecked("a." + refName);
-    GrTopStatement statement = ((GroovyFileBase) file).getTopStatements()[0];
+    GroovyFileBase file = createGroovyFileChecked("a." + refName);
+    GrTopStatement statement = file.getTopStatements()[0];
     if (!(statement instanceof GrReferenceExpression)) {
       throw new IncorrectOperationException("Incorrect reference name: " + refName);
     }
@@ -116,17 +121,15 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
 
   @NotNull
   @Override
-  public GrCodeReferenceElement createReferenceElementFromText(@NotNull String refName, final PsiElement context) {
-    GroovyFile file = createGroovyFileChecked("(" + refName + ")foo", false, context);
-    GrTypeElement typeElement = ((GrTypeCastExpression) file.getTopStatements()[0]).getCastTypeElement();
-    return ((GrClassTypeElement) typeElement).getReferenceElement();
+  public GrCodeReferenceElement createCodeReference(@NotNull String text, @Nullable PsiElement context) {
+    return createElementFromText(text, context, CODE_REFERENCE, GrCodeReferenceElement.class);
   }
 
   @NotNull
   @Override
   public GrReferenceExpression createReferenceExpressionFromText(@NotNull String idText) {
-    PsiFile file = createGroovyFileChecked(idText);
-    final GrTopStatement[] statements = ((GroovyFileBase)file).getTopStatements();
+    GroovyFileBase file = createGroovyFileChecked(idText);
+    final GrTopStatement[] statements = file.getTopStatements();
     if (!(statements.length == 1 && statements[0] instanceof GrReferenceExpression)) throw new IncorrectOperationException(idText);
     return (GrReferenceExpression) statements[0];
   }
@@ -180,7 +183,7 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
     final PsiClassType.ClassResolveResult resolveResult = type.resolveGenerics();
     final PsiClass refClass = resolveResult.getElement();
     assert refClass != null : type;
-    return createCodeReferenceElementFromText(type.getCanonicalText());
+    return createCodeReference(type.getCanonicalText());
   }
 
   @NotNull
@@ -255,11 +258,8 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
     if (identifiers.length > 1 && initializer != null) {
       text.append('(');
     }
-    for (int i = 0; i < identifiers.length; i++) {
-      if (i > 0) text.append(", ");
-      String identifier = identifiers[i];
-      text.append(identifier);
-    }
+
+    text.append(String.join(", ", identifiers));
 
     if (identifiers.length > 1 && initializer != null) {
       text.append(')');
@@ -427,19 +427,7 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
   @Override
   @NotNull
   public GrTypeElement createTypeElement(@NotNull String typeText, @Nullable final PsiElement context) throws IncorrectOperationException {
-    final GroovyFile file = createGroovyFileChecked("def " + typeText + " someVar", false, context);
-
-    GrTopStatement[] topStatements = file.getTopStatements();
-
-    if (topStatements == null || topStatements.length == 0) throw new IncorrectOperationException("can't create type element from:" + typeText);
-    GrTopStatement statement = topStatements[0];
-
-    if (!(statement instanceof GrVariableDeclaration)) throw new IncorrectOperationException("can't create type element from:" + typeText);
-    GrVariableDeclaration decl = (GrVariableDeclaration) statement;
-    final GrTypeElement element = decl.getTypeElementGroovy();
-    if (element == null) throw new IncorrectOperationException("can't create type element from:" + typeText);
-
-    return element;
+    return createElementFromText(typeText, context, TYPE_ELEMENT, GrTypeElement.class);
   }
 
   @NotNull
@@ -555,13 +543,19 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
 
   @NotNull
   @Override
-  public GrAnnotation createAnnotationFromText(@NotNull @NonNls String annotationText, @Nullable PsiElement context) throws IncorrectOperationException {
-    return createMethodFromText(annotationText + " void ___shdjklf_pqweirupncp_foo() {}", context).getModifierList().getRawAnnotations()[0];
+  public GrAnnotation createAnnotationFromText(@NotNull @NonNls String annotationText, @Nullable PsiElement context) {
+    return createElementFromText(annotationText, context, ANNOTATION, GrAnnotation.class);
   }
 
   @NotNull
   @Override
-  public GrMethod createMethodFromSignature(@NotNull String name, @NotNull GrClosureSignature signature) {
+  public GrAnnotationNameValuePair createAnnotationAttribute(@NotNull String text, @Nullable PsiElement context) {
+    return createElementFromText(text, context, ANNOTATION_MEMBER_VALUE_PAIR, GrAnnotationNameValuePair.class);
+  }
+
+  @NotNull
+  @Override
+  public GrMethod createMethodFromSignature(@NotNull String name, @NotNull GrSignature signature) {
     StringBuilder builder = new StringBuilder("public");
     final PsiType returnType = signature.getReturnType();
     if (returnType != null && returnType != PsiType.NULL) {
@@ -727,25 +721,11 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
   @NotNull
   @Override
   public GrCodeReferenceElement createCodeReferenceElementFromClass(@NotNull PsiClass aClass) {
-    if (aClass instanceof PsiAnonymousClass) {
-      throw new IncorrectOperationException("cannot create code reference element for anonymous class " + aClass.getText());
+    String qualifiedName = aClass.getQualifiedName();
+    if (qualifiedName == null) {
+      throw new IncorrectOperationException("cannot create code reference element for class " + aClass.getText());
     }
-
-    return createCodeReferenceElementFromText(aClass.getQualifiedName());
-
-  }
-
-  @NotNull
-  @Override
-  public GrCodeReferenceElement createCodeReferenceElementFromText(@NotNull String text) {
-    GroovyFile file = createGroovyFileChecked("class X extends " + text + "{}");
-    PsiClass[] classes = file.getClasses();
-    if (classes.length != 1) throw new IncorrectOperationException("cannot create code reference element for class" + text);
-    GrExtendsClause extendsClause = ((GrTypeDefinition)classes[0]).getExtendsClause();
-    if (extendsClause == null) throw new IncorrectOperationException("cannot create code reference element for class" + text);
-    GrCodeReferenceElement[] refElements = extendsClause.getReferenceElementsGroovy();
-    if (refElements.length != 1) throw new IncorrectOperationException("cannot create code reference element for class" + text);
-    return refElements[0];
+    return createCodeReference(qualifiedName);
   }
 
   @NotNull
@@ -1235,5 +1215,21 @@ public class GroovyPsiElementFactoryImpl extends GroovyPsiElementFactory {
   @Override
   public boolean isValidLocalVariableName(@NotNull String name) {
     return GroovyNamesUtil.isIdentifier(name);
+  }
+
+  @NotNull
+  private <T extends PsiElement> T createElementFromText(@NotNull String text,
+                                                         @Nullable PsiElement context,
+                                                         @NotNull IElementType elementType,
+                                                         @NotNull Class<T> elementClass) {
+    final GroovyDummyElement dummyElement = new GroovyDummyElement(elementType, text);
+    final DummyHolder holder = new DummyHolder(myManager, dummyElement, context);
+    final PsiElement element = holder.getFirstChild();
+    final T result = ObjectUtils.tryCast(element, elementClass);
+    if (result == null) {
+      throw new IncorrectOperationException("Cannot create '" + elementClass.getName() + "' from text '" + text + "'");
+    }
+    GeneratedMarkerVisitor.markGenerated(result);
+    return result;
   }
 }

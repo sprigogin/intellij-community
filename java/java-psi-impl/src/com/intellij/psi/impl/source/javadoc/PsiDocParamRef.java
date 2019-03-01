@@ -86,7 +86,7 @@ public class PsiDocParamRef extends CompositePsiElement implements PsiDocTagValu
       }
 
       @Override
-      public PsiElement handleElementRename(String newElementName) {
+      public PsiElement handleElementRename(@NotNull String newElementName) {
         final CharTable charTableByTree = SharedImplUtil.findCharTableByTree(getNode());
         LeafElement newElement = Factory.createSingleLeafElement(JavaDocTokenType.DOC_TAG_VALUE_TOKEN, newElementName, charTableByTree, getManager());
         replaceChild(valueToken, newElement);
@@ -103,7 +103,7 @@ public class PsiDocParamRef extends CompositePsiElement implements PsiDocTagValu
       }
 
       @Override
-      public boolean isReferenceTo(PsiElement element) {
+      public boolean isReferenceTo(@NotNull PsiElement element) {
         if (!(element instanceof PsiNamedElement)) return false;
         PsiNamedElement namedElement = (PsiNamedElement)element;
         if (!getCanonicalText().equals(namedElement.getName())) return false;
@@ -137,7 +137,7 @@ public class PsiDocParamRef extends CompositePsiElement implements PsiDocTagValu
             filtered.add(namedElement);
           }
         }
-        return filtered.toArray(new PsiElement[filtered.size()]);
+        return filtered.toArray(PsiElement.EMPTY_ARRAY);
       }
 
       @Override
@@ -145,12 +145,14 @@ public class PsiDocParamRef extends CompositePsiElement implements PsiDocTagValu
         return false;
       }
 
+      @NotNull
       @Override
       public TextRange getRangeInElement() {
         final int startOffsetInParent = valueToken.getPsi().getStartOffsetInParent();
         return new TextRange(startOffsetInParent, startOffsetInParent + valueToken.getTextLength());
       }
 
+      @NotNull
       @Override
       public PsiElement getElement() {
         return PsiDocParamRef.this;

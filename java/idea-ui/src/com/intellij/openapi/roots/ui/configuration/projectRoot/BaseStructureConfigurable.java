@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
@@ -52,7 +40,6 @@ import java.util.*;
 import java.util.List;
 
 public abstract class BaseStructureConfigurable extends MasterDetailsComponent implements SearchableConfigurable, Disposable, Place.Navigator {
-
   protected StructureConfigurableContext myContext;
 
   protected final Project myProject;
@@ -68,7 +55,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     myProject = project;
   }
 
-  protected BaseStructureConfigurable(final Project project) {
+  protected BaseStructureConfigurable(@NotNull Project project) {
     myProject = project;
   }
 
@@ -139,9 +126,14 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     myWasTreeInitialized = true;
 
     super.initTree();
-    new TreeSpeedSearch(myTree, treePath -> ((MyNode)treePath.getLastPathComponent()).getDisplayName(), true);
+    new TreeSpeedSearch(myTree, treePath -> getTextForSpeedSearch((MyNode)treePath.getLastPathComponent()), true);
     ToolTipManager.sharedInstance().registerComponent(myTree);
     myTree.setCellRenderer(new ProjectStructureElementRenderer(myContext));
+  }
+
+  @NotNull
+  protected String getTextForSpeedSearch(MyNode node) {
+    return node.getDisplayName();
   }
 
   @Override
@@ -162,7 +154,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
   public void checkCanApply() throws ConfigurationException {
   }
 
-  protected void addCollapseExpandActions(final List<AnAction> result) {
+  protected void addCollapseExpandActions(final List<? super AnAction> result) {
     final TreeExpander expander = new TreeExpander() {
       @Override
       public void expandAll() {
@@ -204,7 +196,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
 
   private class MyFindUsagesAction extends FindUsagesInProjectStructureActionBase {
 
-    public MyFindUsagesAction(JComponent parentComponent) {
+    MyFindUsagesAction(JComponent parentComponent) {
       super(parentComponent, myProject);
     }
 
@@ -239,7 +231,6 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     }
   }
 
-
   @Override
   public void reset() {
     myUiDisposed = false;
@@ -247,17 +238,26 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     if (!myWasTreeInitialized) {
       initTree();
       myTree.setShowsRootHandles(false);
-      loadTree();
-    } else {
-      super.disposeUIResources();
-      myTree.setShowsRootHandles(false);
-      loadTree();
+      loadTreeNodes();
     }
-    for (ProjectStructureElement element : getProjectStructureElements()) {
-      myContext.getDaemonAnalyzer().queueUpdate(element);
+    else {
+      reloadTreeNodes();
     }
 
     super.reset();
+  }
+
+  private void loadTreeNodes() {
+    loadTree();
+    for (ProjectStructureElement element : getProjectStructureElements()) {
+      myContext.getDaemonAnalyzer().queueUpdate(element);
+    }
+  }
+
+  protected final void reloadTreeNodes() {
+    super.disposeUIResources();
+    myTree.setShowsRootHandles(false);
+    loadTreeNodes();
   }
 
   @NotNull
@@ -286,7 +286,6 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
       result.add(new MyFindUsagesAction(myTree));
     }
 
-
     return result;
   }
 
@@ -309,7 +308,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
   }
 
   @NotNull
-  private MultiMap<RemoveConfigurableHandler, MyNode> groupNodes(List<MyNode> nodes) {
+  private MultiMap<RemoveConfigurableHandler, MyNode> groupNodes(List<? extends MyNode> nodes) {
     List<? extends RemoveConfigurableHandler<?>> handlers = getRemoveHandlers();
     MultiMap<RemoveConfigurableHandler, MyNode> grouped = new LinkedMultiMap<>();
     for (MyNode node : nodes) {
@@ -357,7 +356,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final TreePath[] paths = myTree.getSelectionPaths();
       if (paths == null) return;
 
@@ -384,7 +383,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     }
   }
 
-  private static List<?> getEditableObjects(Collection<MyNode> value) {
+  private static List<?> getEditableObjects(Collection<? extends MyNode> value) {
     List<Object> objects = new ArrayList<>();
     for (MyNode node : value) {
       objects.add(node.getConfigurable().getEditableObject());
@@ -392,8 +391,7 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     return objects;
   }
 
-
-  protected void removeFacetNodes(@NotNull List<Facet> facets) {
+  protected void removeFacetNodes(@NotNull List<? extends Facet> facets) {
     for (Facet facet : facets) {
       MyNode node = findNodeByObject(myRoot, facet);
       if (node != null) {
@@ -403,7 +401,6 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
   }
 
   protected abstract static class AbstractAddGroup extends ActionGroup implements ActionGroupWithPreselection {
-
     protected AbstractAddGroup(String text, Icon icon) {
       super(text, true);
 
@@ -425,10 +422,5 @@ public abstract class BaseStructureConfigurable extends MasterDetailsComponent i
     public ActionGroup getActionGroup() {
       return this;
     }
-
-    @Override
-    public int getDefaultIndex() {
-        return 0;
-      }
   }
 }

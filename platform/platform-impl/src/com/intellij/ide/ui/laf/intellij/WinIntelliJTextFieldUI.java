@@ -17,9 +17,7 @@ package com.intellij.ide.ui.laf.intellij;
 
 import com.intellij.ide.ui.laf.darcula.DarculaUIUtil;
 import com.intellij.ide.ui.laf.darcula.ui.DarculaEditorTextFieldBorder;
-import com.intellij.ide.ui.laf.darcula.ui.DarculaTextFieldUI;
 import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI;
-import com.intellij.openapi.util.IconLoader;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
@@ -30,6 +28,10 @@ import javax.swing.plaf.ComponentUI;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.MouseListener;
+
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.isCompact;
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.isTableCellEditor;
+import static com.intellij.ide.ui.laf.intellij.WinIntelliJTextBorder.MINIMUM_HEIGHT;
 
 /**
  * @author Konstantin Bulenkov
@@ -62,8 +64,7 @@ public class WinIntelliJTextFieldUI extends TextFieldWithPopupHandlerUI {
   @Override
   protected void paintBackground(Graphics g) {
     JTextComponent c = getComponent();
-    if (UIUtil.getParentOfType(JComboBox.class, c) != null ||
-        UIUtil.getParentOfType(JSpinner.class, c) != null) return;
+    if (UIUtil.getParentOfType(JComboBox.class, c) != null) return;
 
     Graphics2D g2 = (Graphics2D)g.create();
     try {
@@ -76,7 +77,11 @@ public class WinIntelliJTextFieldUI extends TextFieldWithPopupHandlerUI {
         g2.fillRect(0, 0, c.getWidth(), c.getHeight());
       }
 
-      paintTextFieldBackground(c, g2);
+      if (c.getBorder() instanceof WinIntelliJTextBorder) {
+        paintTextFieldBackground(c, g2);
+      } else if (c.isOpaque()) {
+        super.paintBackground(g);
+      }
     } finally {
       g2.dispose();
     }
@@ -107,32 +112,11 @@ public class WinIntelliJTextFieldUI extends TextFieldWithPopupHandlerUI {
   }
 
   @Override
-  protected int getMinimumHeight() {
-    return JBUI.scale(DarculaEditorTextFieldBorder.isComboBoxEditor(getComponent()) ? 18 : 24);
-  }
-
-  @Override
-  protected Icon getSearchIcon(boolean hovered, boolean clickable) {
-    Icon icon = UIManager.getIcon(clickable ? "TextField.darcula.searchWithHistory.icon" : "TextField.darcula.search.icon");
-    if (icon != null && clickable) {
-      return new Icon() {
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-          icon.paintIcon(c, g, x, y + JBUI.scale(1));
-        }
-
-        @Override
-        public int getIconWidth() {
-          return icon.getIconWidth() + JBUI.scale(4);
-        }
-
-        @Override
-        public int getIconHeight() {
-          return icon.getIconHeight();
-        }
-      };
-    }
-    return icon != null ? icon : IconLoader.findIcon("/com/intellij/ide/ui/laf/icons/search.png", DarculaTextFieldUI.class, true);
+  protected int getMinimumHeight(int textHeight) {
+    JComponent c = getComponent();
+    Insets i = c.getInsets();
+    return DarculaEditorTextFieldBorder.isComboBoxEditor(c) || UIUtil.getParentOfType(JSpinner.class, c) != null ?
+           textHeight : MINIMUM_HEIGHT.get() + i.top + i.bottom;
   }
 
   @Override
@@ -141,10 +125,9 @@ public class WinIntelliJTextFieldUI extends TextFieldWithPopupHandlerUI {
   }
 
   @Override
-  protected Icon getClearIcon(boolean hovered, boolean clickable) {
-    if (!clickable) return null;
-    Icon icon = UIManager.getIcon("TextField.darcula.clear.icon");
-    return icon != null ? icon : IconLoader.findIcon("/com/intellij/ide/ui/laf/icons/clear.png", DarculaTextFieldUI.class, true);
+  protected Insets getDefaultMargins() {
+    Component c = getComponent();
+    return isCompact(c) || isTableCellEditor(c) ? JBUI.insets(0, 3) : JBUI.insets(2, 5);
   }
 
   @Override

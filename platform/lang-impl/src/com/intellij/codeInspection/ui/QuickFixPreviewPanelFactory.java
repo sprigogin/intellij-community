@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ui;
 
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
@@ -47,12 +45,12 @@ public class QuickFixPreviewPanelFactory {
     private final InspectionToolWrapper myWrapper;
     private final boolean myEmpty;
 
-    public QuickFixReadyPanel(@NotNull InspectionResultsView view) {
+    QuickFixReadyPanel(@NotNull InspectionResultsView view) {
       myView = view;
       myWrapper = view.getTree().getSelectedToolWrapper(true);
       LOG.assertTrue(myWrapper != null);
       QuickFixAction[] commonFixes = view.getProvider().getCommonQuickFixes(myWrapper, view.getTree());
-      boolean multipleDescriptors = myView.getTree().getSelectedDescriptors(false, null, false, true).length > 1;
+      boolean multipleDescriptors = myView.getTree().getSelectedDescriptors().length > 1;
       QuickFixAction[] partialFixes = QuickFixAction.EMPTY;
       if (multipleDescriptors && commonFixes.length == 0) {
         partialFixes = view.getProvider().getPartialQuickFixes(myWrapper, view.getTree());
@@ -72,10 +70,16 @@ public class QuickFixPreviewPanelFactory {
       setLayout(new BoxLayout(this, BoxLayout.LINE_AXIS));
       boolean hasComponents = false;
 
-      final int actualProblemCount = myView.getTree().getContext().getPresentation(myWrapper).getProblemsCount(myView.getTree());
-      if (actualProblemCount > 1 || (actualProblemCount == 1 && multipleDescriptors)) {
-        add(getLabel(actualProblemCount));
-        hasComponents = true;
+      InspectionTree tree = myView.getTree();
+      InspectionToolPresentation presentation = tree.getContext().getPresentation(myWrapper);
+      final boolean showProblemCount = presentation.showProblemCount();
+
+      if (showProblemCount) {
+        final int actualProblemCount = tree.getSelectedProblemCount();
+        if (actualProblemCount > 1 || (actualProblemCount == 1 && multipleDescriptors)) {
+          add(getLabel(actualProblemCount));
+          hasComponents = true;
+        }
       }
 
       final DefaultActionGroup actions = new DefaultActionGroup();
@@ -167,7 +171,7 @@ public class QuickFixPreviewPanelFactory {
         final ComboBoxAction fixComboBox = new ComboBoxAction() {
           {
             getTemplatePresentation().setText("Apply quick fixes" + (multipleDescriptors ? " to all the problems" : ""));
-            getTemplatePresentation().setIcon(AllIcons.Actions.CreateFromUsage);
+            getTemplatePresentation().setIcon(AllIcons.Actions.IntentionBulb);
             setSmallVariant(false);
           }
 
@@ -191,7 +195,7 @@ public class QuickFixPreviewPanelFactory {
 
   private static class LoadingInProgressPreview extends JPanel implements InspectionTreeLoadingProgressAware {
     private final InspectionResultsView myView;
-    private SimpleColoredComponent myWaitingLabel;
+    private final SimpleColoredComponent myWaitingLabel;
 
     private LoadingInProgressPreview(InspectionResultsView view) {
       myView = view;
@@ -199,7 +203,7 @@ public class QuickFixPreviewPanelFactory {
       setBorder(JBUI.Borders.empty(16, 9, 13, 0));
       AsyncProcessIcon waitingIcon = new AsyncProcessIcon("Inspection preview panel updating...");
       Disposer.register(this, waitingIcon);
-      myWaitingLabel = getLabel(myView.getTree().getSelectedProblemCount(false));
+      myWaitingLabel = getLabel(myView.getTree() .getSelectedProblemCount());
       add(myWaitingLabel);
       add(waitingIcon);
     }
@@ -209,7 +213,7 @@ public class QuickFixPreviewPanelFactory {
       if (myWaitingLabel != null) {
         myWaitingLabel.clear();
         final InspectionTree tree = myView.getTree();
-        appendTextToLabel(myWaitingLabel, tree.getSelectedProblemCount(false));
+        appendTextToLabel(myWaitingLabel, tree.getSelectedProblemCount());
       }
     }
 
@@ -221,17 +225,13 @@ public class QuickFixPreviewPanelFactory {
         }
       });
     }
-
-    @Override
-    public void dispose() {
-    }
   }
 
   @NotNull
   private static SimpleColoredComponent getLabel(int problemsCount) {
     SimpleColoredComponent label = new SimpleColoredComponent();
     appendTextToLabel(label, problemsCount);
-    label.setBorder(JBUI.Borders.empty(0, 0, 0, 2));
+    label.setBorder(JBUI.Borders.emptyRight(2));
     return label;
   }
 

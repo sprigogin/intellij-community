@@ -1,16 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.execution.configurations.*;
@@ -24,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
  * settings.
  *
  * @author anna
- * @see RunManager#createRunConfiguration(String, com.intellij.execution.configurations.ConfigurationFactory)
+ * @see RunManager#createConfiguration(String, ConfigurationFactory)
  */
 public interface RunnerAndConfigurationSettings {
   /**
@@ -94,6 +82,7 @@ public interface RunnerAndConfigurationSettings {
   @NotNull
   String getName();
 
+  @NotNull
   String getUniqueID();
 
   /**
@@ -139,17 +128,19 @@ public interface RunnerAndConfigurationSettings {
   void checkSettings(@Nullable Executor executor) throws RuntimeConfigurationException;
 
   /**
-   * @deprecated 
-   * @see ExecutionTargetManager#canRun(com.intellij.execution.RunnerAndConfigurationSettings, com.intellij.execution.ExecutionTarget)
+   * @deprecated
+   * @see ExecutionTargetManager#canRun(RunnerAndConfigurationSettings, ExecutionTarget)
    */
-  @SuppressWarnings({"DeprecatedIsStillUsed", "unused"})
-  default boolean canRunOn(@NotNull ExecutionTarget target) { return true; }  
+  @Deprecated
+  @SuppressWarnings({"unused"})
+  default boolean canRunOn(@NotNull ExecutionTarget target) { return true; }
 
   /**
    * Returns a factory object which can be used to create a copy of this configuration.
    *
    * @return copying factory instance
    */
+  @NotNull
   Factory<RunnerAndConfigurationSettings> createFactory();
 
   /**
@@ -181,18 +172,20 @@ public interface RunnerAndConfigurationSettings {
   boolean isActivateToolWindowBeforeRun();
 
   /**
-   * Sets the "Single instance only" flag (meaning that only one instance of this run configuration can be run at the same time).
-   *
-   * @param singleton the "Single instance" flag.
+   * @deprecated Use {@link RunConfiguration#isAllowRunningInParallel()}
    */
-  void setSingleton(boolean singleton);
+  @Deprecated
+  default boolean isSingleton() {
+    return !getConfiguration().isAllowRunningInParallel();
+  }
 
   /**
-   * Returns the "Single instance only" flag (meaning that only one instance of this run configuration can be run at the same time).
-   *
-   * @return the "Single instance" flag.
+   * @deprecated Use {@link RunConfiguration#setAllowRunningInParallel(boolean)}}
    */
-  boolean isSingleton();
+  @Deprecated
+  default void setSingleton(boolean value) {
+    getConfiguration().setAllowRunningInParallel(!value);
+  }
 
   /**
    * Sets the name of the folder under which the configuration is displayed in the "Run/Debug Configurations" dialog.

@@ -1,10 +1,7 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiPolyVariantReference;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.ResolveResult;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.UsefulTestCase;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
@@ -12,8 +9,11 @@ import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.fixtures.PyResolveTestCase;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.ImportedResolveResult;
+import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.types.PyClassTypeImpl;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 
 public class PyResolveTest extends PyResolveTestCase {
@@ -73,20 +73,12 @@ public class PyResolveTest extends PyResolveTestCase {
 
   public void testToConstructorInherited() {
     ResolveResult[] targets = multiResolve();
-    assertEquals(2, targets.length); // to class, to init
+    assertEquals(1, targets.length); // to class, to init
     PsiElement elt;
     // class
     elt = targets[0].getElement();
     assertTrue(elt instanceof PyClass);
     assertEquals("Bar", ((PyClass)elt).getName());
-    // init
-    elt = targets[1].getElement();
-    assertTrue(elt instanceof PyFunction);
-    PyFunction fun = (PyFunction)elt;
-    assertEquals(PyNames.INIT, fun.getName());
-    PyClass cls = fun.getContainingClass();
-    assertNotNull(cls);
-    assertEquals("Foo", cls.getName());
   }
 
   // NOTE: maybe this test does not belong exactly here; still it's the best place currently.
@@ -241,7 +233,7 @@ public class PyResolveTest extends PyResolveTestCase {
   public void testTupleInExcept() {
     PsiElement targetElement = resolve();
     assertTrue(targetElement instanceof PyTargetExpression);
-    assertTrue(PsiTreeUtil.getParentOfType(targetElement, PyExceptPart.class) != null);
+    assertNotNull(PsiTreeUtil.getParentOfType(targetElement, PyExceptPart.class));
   }
 
 
@@ -286,7 +278,7 @@ public class PyResolveTest extends PyResolveTestCase {
 
   public void testSuperPy3k() {  // PY-1330
     runWithLanguageLevel(
-      LanguageLevel.PYTHON30,
+      LanguageLevel.PYTHON34,
       () -> {
         final PyFunction pyFunction = assertResolvesTo(PyFunction.class, "foo");
         assertEquals("A", pyFunction.getContainingClass().getName());
@@ -377,6 +369,12 @@ public class PyResolveTest extends PyResolveTestCase {
     assertResolvesTo(PyFunction.class, "foo");
   }
 
+  //PY-28562
+  public void testSuperMetaClassInheritsObject() {
+    assertResolvesTo(PyFunction.class, "__getattribute__");
+  }
+
+
   public void testSuperDunderClass() {  // PY-1190
     assertResolvesTo(PyFunction.class, "foo");
   }
@@ -398,11 +396,11 @@ public class PyResolveTest extends PyResolveTestCase {
   }
 
   public void testStarUnpacking() {  // PY-1459
-    assertResolvesTo(LanguageLevel.PYTHON30, PyTargetExpression.class, "heads");
+    assertResolvesTo(LanguageLevel.PYTHON34, PyTargetExpression.class, "heads");
   }
 
   public void testStarUnpackingInLoop() {  // PY-1525
-    assertResolvesTo(LanguageLevel.PYTHON30, PyTargetExpression.class, "bbb");
+    assertResolvesTo(LanguageLevel.PYTHON34, PyTargetExpression.class, "bbb");
   }
 
   public void testBuiltinVsClassMember() {  // PY-1654
@@ -526,13 +524,17 @@ public class PyResolveTest extends PyResolveTestCase {
     runWithDocStringFormat(DocStringFormat.GOOGLE, () -> assertResolvesTo(PyTargetExpression.class, "module_level_variable1"));
   }
 
+  public void testEpyDocTypeReferenceForInstanceAttributeInClassLevelDocstring() {
+    runWithDocStringFormat(DocStringFormat.EPYTEXT, () -> assertResolvesTo(PyTargetExpression.class, "attr"));
+  }
+
   // PY-7541
   public void testLoopToUpperReassignment() {
     final PsiReference ref = findReferenceByMarker();
     final PsiElement source = ref.getElement();
     final PsiElement target = ref.resolve();
     assertNotNull(target);
-    assertTrue(source != target);
+    assertNotSame(source, target);
     assertTrue(PyPsiUtils.isBefore(target, source));
   }
 
@@ -542,7 +544,7 @@ public class PyResolveTest extends PyResolveTestCase {
     final PsiElement source = ref.getElement();
     final PsiElement target = ref.resolve();
     assertNotNull(target);
-    assertTrue(source == target);
+    assertSame(source, target);
   }
 
   // PY-7970
@@ -603,7 +605,7 @@ public class PyResolveTest extends PyResolveTestCase {
   public void testFormatStringKWArgs() {
     PsiElement target = resolve();
     assertTrue(target instanceof  PyNumericLiteralExpression);
-    assertTrue(12 == ((PyNumericLiteralExpression)target).getLongValue());
+    assertEquals(12, (long)((PyNumericLiteralExpression)target).getLongValue());
   }
 
   //PY-2748
@@ -1235,5 +1237,106 @@ public class PyResolveTest extends PyResolveTestCase {
   public void testSOEDecoratingFunctionWithSameNameDecorator() {
     final PyFunction function = assertInstanceOf(doResolve(), PyFunction.class);
     assertEquals(4, function.getTextOffset());
+  }
+
+  // PY-23259
+  public void testTypingListInheritor() {
+    assertResolvesTo(PyFunction.class, "append");
+  }
+
+  // PY-23259
+  public void testImportedTypingListInheritor() {
+    myFixture.copyDirectoryToProject("resolve/" + getTestName(false), "");
+    assertResolvesTo(PyFunction.class, "append");
+  }
+
+  // PY-27863
+  public void testAttributeClassLevelAnnotation() {
+    myFixture.copyDirectoryToProject("resolve/" + getTestName(false), "");
+
+    final PyTargetExpression target = assertResolvesTo(PyTargetExpression.class, "some_attr");
+
+    final PsiFile file = myFixture.getFile();
+    final TypeEvalContext context = TypeEvalContext.codeAnalysis(myFixture.getProject(), file);
+    final PyResolveContext resolveContext = PyResolveContext.noImplicits().withTypeEvalContext(context);
+
+    // It's like an attempt to find type annotation for attribute on the class level.
+    final PyClassTypeImpl classType = new PyClassTypeImpl(target.getContainingClass(), true);
+    assertEmpty(classType.resolveMember(target.getReferencedName(), target, AccessDirection.READ, resolveContext, true));
+
+    assertProjectFilesNotParsed(file);
+    assertSdkRootsNotParsed(file);
+  }
+
+  // PY-28228
+  public void testReturnAnnotationForwardReference() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> assertResolvesTo(PyClass.class, "A")
+    );
+  }
+
+  // PY-28228
+  public void testParameterAnnotationForwardReference() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON37,
+      () -> assertResolvesTo(PyClass.class, "A")
+    );
+  }
+
+  // PY-19890
+  public void testUnboundVariableOnClassLevelDeclaredBelowAsTarget() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
+  // PY-19890
+  public void testUnboundVariableOnClassLevelDeclaredBelowAsMethod() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
+  // PY-19890
+  public void testUnboundVariableOnClassLevelDeclaredBelowAsClass() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
+  // PY-19890
+  public void testUnboundVariableOnClassLevelDeclaredBelowAsImport() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
+  // PY-19890
+  public void testUnboundVariableOnClassLevelDeclaredBelowAsImportWithAs() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
+  // PY-29975
+  public void testUnboundVariableOnClassLevelNotDeclaredBelow() {
+    assertResolvesTo(PyNamedParameter.class, "foo");
+  }
+
+  // PY-30512
+  public void testDunderBuiltins() {
+    final PsiElement element = doResolve();
+    assertEquals(PyBuiltinCache.getInstance(myFixture.getFile()).getBuiltinsFile(), element);
   }
 }

@@ -40,7 +40,7 @@ public class ApplyPatchMergeRequest extends MergeRequest implements ApplyPatchRe
   @NotNull private final String myResultTitle;
   @NotNull private final String myPatchTitle;
 
-  @Nullable private final Consumer<MergeResult> myCallback;
+  @Nullable private final Consumer<? super MergeResult> myCallback;
 
   public ApplyPatchMergeRequest(@Nullable Project project,
                                 @NotNull DocumentContent resultContent,
@@ -50,7 +50,7 @@ public class ApplyPatchMergeRequest extends MergeRequest implements ApplyPatchRe
                                 @NotNull String localTitle,
                                 @NotNull String resultTitle,
                                 @NotNull String patchTitle,
-                                @Nullable Consumer<MergeResult> callback) {
+                                @Nullable Consumer<? super MergeResult> callback) {
     myProject = project;
     myResultContent = resultContent;
     myAppliedPatch = appliedPatch;
@@ -133,12 +133,7 @@ public class ApplyPatchMergeRequest extends MergeRequest implements ApplyPatchRe
     }
 
     if (applyContent != null) {
-      new WriteCommandAction.Simple(myProject) {
-        @Override
-        protected void run() {
-          myResultContent.getDocument().setText(applyContent);
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(myProject).run(() -> myResultContent.getDocument().setText(applyContent));
     }
 
     if (myCallback != null) myCallback.consume(result);

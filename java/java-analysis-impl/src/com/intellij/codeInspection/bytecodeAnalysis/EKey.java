@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
 import org.jetbrains.annotations.NotNull;
@@ -23,22 +9,21 @@ import java.security.MessageDigest;
  * Equation key (or variable)
  */
 public final class EKey {
-  @NotNull
-  final MethodDescriptor method;
+  final @NotNull MemberDescriptor member;
   final int dirKey;
   final boolean stable;
   final boolean negated;
 
-  public EKey(@NotNull MethodDescriptor method, Direction direction, boolean stable) {
-    this(method, direction, stable, false);
+  public EKey(@NotNull MemberDescriptor member, Direction direction, boolean stable) {
+    this(member, direction, stable, false);
   }
 
-  EKey(@NotNull MethodDescriptor method, Direction direction, boolean stable, boolean negated) {
-    this(method, direction.asInt(), stable, negated);
+  EKey(@NotNull MemberDescriptor member, Direction direction, boolean stable, boolean negated) {
+    this(member, direction.asInt(), stable, negated);
   }
 
-  EKey(@NotNull MethodDescriptor method, int dirKey, boolean stable, boolean negated) {
-    this.method = method;
+  EKey(@NotNull MemberDescriptor member, int dirKey, boolean stable, boolean negated) {
+    this.member = member;
     this.dirKey = dirKey;
     this.stable = stable;
     this.negated = negated;
@@ -54,13 +39,13 @@ public final class EKey {
     if (stable != key.stable) return false;
     if (negated != key.negated) return false;
     if (dirKey != key.dirKey) return false;
-    if (!method.equals(key.method)) return false;
+    if (!member.equals(key.member)) return false;
     return true;
   }
 
   @Override
   public int hashCode() {
-    int result = method.hashCode();
+    int result = member.hashCode();
     result = 31 * result + dirKey;
     result = 31 * result + (stable ? 1 : 0);
     result = 31 * result + (negated ? 1 : 0);
@@ -68,15 +53,15 @@ public final class EKey {
   }
 
   EKey invertStability() {
-    return new EKey(method, dirKey, !stable, negated);
+    return new EKey(member, dirKey, !stable, negated);
   }
 
   EKey mkStable() {
-    return stable ? this : new EKey(method, dirKey, true, negated);
+    return stable ? this : new EKey(member, dirKey, true, negated);
   }
 
   EKey mkUnstable() {
-    return stable ? new EKey(method, dirKey, false, negated) : this;
+    return stable ? new EKey(member, dirKey, false, negated) : this;
   }
 
   public EKey mkBase() {
@@ -84,16 +69,16 @@ public final class EKey {
   }
 
   EKey withDirection(Direction dir) {
-    return dirKey == dir.asInt() ? this : new EKey(method, dir, stable, false);
+    return dirKey == dir.asInt() ? this : new EKey(member, dir, stable, false);
   }
 
   EKey negate() {
-    return new EKey(method, dirKey, stable, true);
+    return new EKey(member, dirKey, stable, true);
   }
 
   public EKey hashed(MessageDigest md) {
-    HMethod hmethod = method.hashed(md);
-    return hmethod == method ? this : new EKey(hmethod, dirKey, stable, negated);
+    HMember hMember = member.hashed(md);
+    return hMember == member ? this : new EKey(hMember, dirKey, stable, negated);
   }
 
   public Direction getDirection() {
@@ -102,6 +87,6 @@ public final class EKey {
 
   @Override
   public String toString() {
-    return "Key [" + method + "|" + (stable ? "S" : "-") + (negated ? "N" : "-") + "|" + Direction.fromInt(dirKey) + "]";
+    return "Key [" + member + "|" + (stable ? "S" : "-") + (negated ? "N" : "-") + "|" + Direction.fromInt(dirKey) + "]";
   }
 }

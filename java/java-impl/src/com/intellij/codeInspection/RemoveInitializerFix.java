@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInspection;
 
+import com.intellij.codeInsight.BlockUtils;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.quickfix.RemoveUnusedVariableFix;
 import com.intellij.codeInsight.daemon.impl.quickfix.RemoveUnusedVariableUtil;
@@ -25,7 +26,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiExpressionTrimRenderer;
 import com.intellij.psi.util.PsiUtil;
-import com.siyeh.ig.psiutils.BlockUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -59,22 +59,35 @@ public class RemoveInitializerFix implements LocalQuickFix {
                                            PsiExpression psiInitializer,
                                            PsiElement elementToDelete,
                                            PsiVariable variable) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(elementToDelete.getContainingFile())) return;
+    PsiTypeElement typeElement = variable.getTypeElement();
+    sideEffectAwareRemove(project, psiInitializer, elementToDelete, variable,
+                          (typeElement != null ? typeElement.getText() + " " + variable.getName() + ";<br>" : "") +
+                          PsiExpressionTrimRenderer.render(psiInitializer));
+  }
 
-    final PsiElement declaration = variable.getParent();
+  /**
+   * Remove an element. Ask user what to do if the element has a side effect: keep the side effect, ignore it, or cancel removal.
+   * @return <code>true</code> if the element was actually removed, <code>false</code> if removal was cancelled or is not possible.
+   * */
+  public static boolean sideEffectAwareRemove(Project project,
+                                              PsiExpression psiInitializer,
+                                              PsiElement elementToDelete,
+                                              PsiVariable variable,
+                                              String afterText) {
+    if (!FileModificationService.getInstance().prepareFileForWrite(elementToDelete.getContainingFile())) return false;
+
     final List<PsiElement> sideEffects = new ArrayList<>();
     boolean hasSideEffects = RemoveUnusedVariableUtil.checkSideEffects(psiInitializer, variable, sideEffects);
+    final PsiElement declaration = variable.getParent();
     RemoveUnusedVariableUtil.RemoveMode res;
     if (hasSideEffects) {
       hasSideEffects = PsiUtil.isStatement(psiInitializer);
-      PsiTypeElement typeElement = variable.getTypeElement();
       res = RemoveUnusedVariableFix.showSideEffectsWarning(sideEffects, variable,
                                                            FileEditorManager.getInstance(project).getSelectedTextEditor(),
-                                                           hasSideEffects, sideEffects.get(0).getText(),
-                                                           (typeElement != null ? typeElement.getText() + " " + variable.getName() + ";<br>"
-                                                                                : "") +
-                                                           PsiExpressionTrimRenderer.render(psiInitializer)
-      );
+                                                           hasSideEffects, sideEffects.get(0).getText(), afterText);
+      if (res == RemoveUnusedVariableUtil.RemoveMode.CANCEL) {
+        return false;
+      }
     }
     else {
       res = RemoveUnusedVariableUtil.RemoveMode.DELETE_ALL;
@@ -84,7 +97,7 @@ public class RemoveInitializerFix implements LocalQuickFix {
         elementToDelete.delete();
       }
       else if (res == RemoveUnusedVariableUtil.RemoveMode.MAKE_STATEMENT) {
-        final PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
         final PsiStatement statementFromText = factory.createStatementFromText(psiInitializer.getText() + ";", null);
         final PsiElement parent = elementToDelete.getParent();
         if (parent instanceof PsiExpressionStatement) {
@@ -103,5 +116,6 @@ public class RemoveInitializerFix implements LocalQuickFix {
         }
       }
     });
+    return true;
   }
 }

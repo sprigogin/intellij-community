@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement;
 
 import com.google.common.collect.ImmutableMap;
@@ -30,7 +16,6 @@ import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.fileTypes.FileTypeFactory;
-import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
@@ -45,12 +30,14 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.util.PlatformUtils;
+import com.intellij.util.Url;
+import com.intellij.util.Urls;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.io.HttpRequests;
 import com.intellij.util.xmlb.XmlSerializer;
-import com.intellij.util.xmlb.annotations.MapAnnotation;
+import com.intellij.util.xmlb.annotations.OptionTag;
 import com.intellij.util.xmlb.annotations.Tag;
-import org.apache.http.client.utils.URIBuilder;
+import com.intellij.util.xmlb.annotations.XMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -58,7 +45,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.event.HyperlinkEvent;
 import java.io.File;
 import java.io.IOException;
-import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.*;
 
 public class PluginsAdvertiser implements StartupActivity {
@@ -104,7 +91,7 @@ public class PluginsAdvertiser implements StartupActivity {
   }
 
   @Nullable
-  private static Map<String, Set<Plugin>> loadSupportedExtensions(@NotNull List<IdeaPluginDescriptor> allPlugins) {
+  private static Map<String, Set<Plugin>> loadSupportedExtensions(@NotNull List<? extends IdeaPluginDescriptor> allPlugins) {
     final Map<String, IdeaPluginDescriptor> availableIds = new HashMap<>();
     for (IdeaPluginDescriptor plugin : allPlugins) {
       availableIds.put(plugin.getPluginId().getIdString(), plugin);
@@ -156,20 +143,17 @@ public class PluginsAdvertiser implements StartupActivity {
                                              HttpRequests.RequestProcessor<K> requestProcessor,
                                              K errorValue,
                                              Logger log) {
-    URIBuilder uriBuilder;
-
     String baseUrl = ApplicationInfoImpl.getShadowInstance().getPluginManagerUrl() + "/feature/getImplementations?";
-    try {
-      uriBuilder = new URIBuilder(baseUrl);
-    }
-    catch (URISyntaxException e) {
-      log.error(baseUrl, e);
+    Url url = Urls.parseEncoded(baseUrl);
+    if (url == null) {
+      log.error("Cannot parse URL: " + baseUrl);
       return errorValue;
     }
-    params.forEach((key, value) -> uriBuilder.addParameter(key, value));
 
-    boolean forceHttps = IdeaApplication.isLoaded() && UpdateSettings.getInstance().canUseSecureConnection();
-    return HttpRequests.request(uriBuilder.toString()).forceHttps(forceHttps).productNameAsUserAgent().connect(requestProcessor, errorValue, LOG);
+    return HttpRequests.request(url.addParameters(params))
+                       .forceHttps(IdeaApplication.isLoaded() && UpdateSettings.getInstance().canUseSecureConnection())
+                       .productNameAsUserAgent()
+                       .connect(requestProcessor, errorValue, LOG);
   }
 
   public static void ensureDeleted() {
@@ -210,19 +194,11 @@ public class PluginsAdvertiser implements StartupActivity {
   }
 
   static void enablePlugins(Project project, final Collection<IdeaPluginDescriptor> disabledPlugins) {
-    final PluginManagerConfigurable managerConfigurable = new PluginManagerConfigurable(PluginManagerUISettings.getInstance());
-    final PluginManagerMain createPanel = managerConfigurable.getOrCreatePanel();
-    ShowSettingsUtil.getInstance()
-      .editConfigurable(project, managerConfigurable, () -> {
-        final InstalledPluginsTableModel pluginsModel = (InstalledPluginsTableModel)createPanel.getPluginsModel();
-        final IdeaPluginDescriptor[] descriptors = disabledPlugins.toArray(new IdeaPluginDescriptor[disabledPlugins.size()]);
-        pluginsModel.enableRows(descriptors, Boolean.TRUE);
-        createPanel.getPluginTable().select(descriptors);
-      });
+    PluginManagerConfigurableProxy.showPluginConfigurableAndEnable(project, disabledPlugins.toArray(new IdeaPluginDescriptor[0]));
   }
 
   @Nullable
-  static IdeaPluginDescriptor getDisabledPlugin(Set<Plugin> plugins) {
+  static IdeaPluginDescriptor getDisabledPlugin(Set<? extends Plugin> plugins) {
     final List<String> disabledPlugins = PluginManagerCore.getDisabledPlugins();
     for (Plugin plugin : plugins) {
       if (disabledPlugins.contains(plugin.myPluginId)) return PluginManager.getPlugin(PluginId.getId(plugin.myPluginId));
@@ -230,7 +206,7 @@ public class PluginsAdvertiser implements StartupActivity {
     return null;
   }
 
-  static List<String> hasBundledPluginToInstall(Collection<Plugin> plugins) {
+  static List<String> hasBundledPluginToInstall(Collection<? extends Plugin> plugins) {
     if (PlatformUtils.isIdeaUltimate()) return null;
     final List<String> bundled = new ArrayList<>();
     for (Plugin plugin : plugins) {
@@ -271,7 +247,7 @@ public class PluginsAdvertiser implements StartupActivity {
         if (myAllPlugins != null) {
           final PluginsAdvertiserDialog advertiserDialog =
             new PluginsAdvertiserDialog(null,
-                                        myPlugins.toArray(new PluginDownloader[myPlugins.size()]),
+                                        myPlugins.toArray(new PluginDownloader[0]),
                                         myAllPlugins);
           if (advertiserDialog.showAndGet()) {
             onSuccess.run();
@@ -360,6 +336,9 @@ public class PluginsAdvertiser implements StartupActivity {
 
           ApplicationManager.getApplication().invokeLater(this::onSuccess, ModalityState.NON_MODAL);
         }
+        catch (UnknownHostException e) {
+          LOG.warn("Host name could not be resolved: " + e.getMessage());
+        }
         catch (Exception e) {
           LOG.info(e);
         }
@@ -418,7 +397,8 @@ public class PluginsAdvertiser implements StartupActivity {
 
   @Tag("exts")
   public static class KnownExtensions {
-    @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false)
+    @OptionTag
+    @XMap
     public Map<String, PluginSet> myExtensions = new HashMap<>();
 
     @SuppressWarnings("unused")
@@ -448,10 +428,8 @@ public class PluginsAdvertiser implements StartupActivity {
     public PluginSet() {
     }
 
-    public PluginSet(Set<Plugin> plugins) {
-      for (Plugin plugin : plugins) {
-        myPlugins.add(plugin);
-      }
+    public PluginSet(Set<? extends Plugin> plugins) {
+      myPlugins.addAll(plugins);
     }
   }
 
@@ -501,17 +479,17 @@ public class PluginsAdvertiser implements StartupActivity {
   }
 
   private static class ConfigurePluginsListener implements NotificationListener {
-    private final Set<UnknownFeature> myUnknownFeatures;
+    private final Set<? extends UnknownFeature> myUnknownFeatures;
     private final Project myProject;
-    private final List<IdeaPluginDescriptor> myAllPlugins;
+    private final List<? extends IdeaPluginDescriptor> myAllPlugins;
     private final Set<PluginDownloader> myPlugins;
     private final Map<Plugin, IdeaPluginDescriptor> myDisabledPlugins;
 
-    public ConfigurePluginsListener(Set<UnknownFeature> unknownFeatures,
-                                    Project project,
-                                    List<IdeaPluginDescriptor> allPlugins,
-                                    Set<PluginDownloader> plugins,
-                                    Map<Plugin, IdeaPluginDescriptor> disabledPlugins) {
+    ConfigurePluginsListener(Set<? extends UnknownFeature> unknownFeatures,
+                             Project project,
+                             List<? extends IdeaPluginDescriptor> allPlugins,
+                             Set<PluginDownloader> plugins,
+                             Map<Plugin, IdeaPluginDescriptor> disabledPlugins) {
       myUnknownFeatures = unknownFeatures;
       myProject = project;
       myAllPlugins = allPlugins;
@@ -533,7 +511,7 @@ public class PluginsAdvertiser implements StartupActivity {
         else if ("configure".equals(description)) {
           LOG.assertTrue(myAllPlugins != null);
           notification.expire();
-          new PluginsAdvertiserDialog(myProject, myPlugins.toArray(new PluginDownloader[myPlugins.size()]), myAllPlugins).show();
+          new PluginsAdvertiserDialog(myProject, myPlugins.toArray(new PluginDownloader[0]), myAllPlugins).show();
         }
         else if ("enable".equals(description)) {
           enablePlugins(myProject, myDisabledPlugins.values());

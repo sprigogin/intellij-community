@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.process;
 
 import com.intellij.execution.ExecutionBundle;
@@ -21,10 +7,7 @@ import com.intellij.execution.KillableProcess;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Conditions;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.ThrowableNotNullFunction;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
@@ -55,14 +38,14 @@ public final class ScriptRunnerUtil {
     return getProcessOutput(commandLine, STDOUT_OUTPUT_KEY_FILTER, DEFAULT_TIMEOUT);
   }
 
-  public static String getProcessOutput(@NotNull GeneralCommandLine commandLine, @NotNull Condition<Key> outputTypeFilter, long timeout)
+  public static String getProcessOutput(@NotNull GeneralCommandLine commandLine, @NotNull Condition<? super Key> outputTypeFilter, long timeout)
     throws ExecutionException {
     return getProcessOutput(new OSProcessHandler(commandLine), outputTypeFilter,
                             timeout);
   }
 
   public static String getProcessOutput(@NotNull final ProcessHandler processHandler,
-                                        @NotNull final Condition<Key> outputTypeFilter,
+                                        @NotNull final Condition<? super Key> outputTypeFilter,
                                         final long timeout)
     throws ExecutionException {
     LOG.assertTrue(!processHandler.isStartNotified());
@@ -98,9 +81,10 @@ public final class ScriptRunnerUtil {
                                          @Nullable VirtualFile scriptFile,
                                          String[] parameters,
                                          @Nullable Charset charset,
-                                         @NotNull ThrowableNotNullFunction<GeneralCommandLine, OSProcessHandler, ExecutionException> creator)
+                                         @NotNull ThrowableNotNullFunction<? super GeneralCommandLine, ? extends OSProcessHandler, ? extends ExecutionException> creator)
     throws ExecutionException {
-    GeneralCommandLine commandLine = getBasicCommandLine(exePath);
+
+    GeneralCommandLine commandLine = new GeneralCommandLine(PathEnvironmentVariableUtil.findExecutableInWindowsPath(exePath));
     if (scriptFile != null) {
       commandLine.addParameter(scriptFile.getPresentableUrl());
     }
@@ -130,26 +114,20 @@ public final class ScriptRunnerUtil {
     return processHandler;
   }
 
-  @NotNull
-  private static GeneralCommandLine getBasicCommandLine(@NotNull String exePath) {
-    exePath = PathEnvironmentVariableUtil.toLocatableExePath(exePath);
-    exePath = PathEnvironmentVariableUtil.findExecutableInWindowsPath(exePath);
-    return new GeneralCommandLine(exePath);
-  }
+  public static boolean isExecutableInPath(@NotNull String exeName) {
+    assert exeName.indexOf(File.pathSeparatorChar) == -1 : exeName;
 
-  public static boolean isExecutableInPath(@NotNull String exePath) {
-    String initialExePath = exePath;
-    GeneralCommandLine commandLine = getBasicCommandLine(exePath);
-    exePath = commandLine.getExePath();
-
-    if (!initialExePath.equals(exePath)) {
-      //it was resolved with PathEnvironmentVariableUtil.toLocatableExePath or PathEnvironmentVariableUtil.findExecutableInWindowsPath
+    File exeFile = PathEnvironmentVariableUtil.findInPath(exeName);
+    if (exeFile != null) {
       return true;
     }
 
-    String path = commandLine.getEffectiveEnvironment().get("PATH");
-    File file = PathEnvironmentVariableUtil.findInPath(exePath, path, null);
-    return file != null;
+    String pathWithExt = PathEnvironmentVariableUtil.findExecutableInWindowsPath(exeName);
+    if (pathWithExt != exeName) {
+      return true;
+    }
+
+    return false;
   }
 
   public static ScriptOutput executeScriptInConsoleWithFullOutput(String exePathString,
@@ -224,8 +202,8 @@ public final class ScriptRunnerUtil {
                                              long millisTimeout,
                                              @Nullable String commandLine) {
     if (processHandler.isProcessTerminated()) {
-      if (commandLine == null && processHandler instanceof BaseOSProcessHandler) {
-        commandLine = ((BaseOSProcessHandler) processHandler).getCommandLine();
+      if (commandLine == null && processHandler instanceof BaseProcessHandler) {
+        commandLine = ((BaseProcessHandler)processHandler).getCommandLine();
       }
       LOG.warn("Process '" + commandLine + "' is already terminated!");
       return;

@@ -44,7 +44,7 @@ public class FieldAccessNotGuardedInspection extends AbstractBaseJavaLocalInspec
   private static class Visitor extends JavaElementVisitor {
     private final ProblemsHolder myHolder;
 
-    public Visitor(ProblemsHolder holder) {
+    Visitor(ProblemsHolder holder) {
       myHolder = holder;
     }
 
@@ -161,7 +161,7 @@ public class FieldAccessNotGuardedInspection extends AbstractBaseJavaLocalInspec
         else if (guardExpression instanceof PsiMethodCallExpression && lockExpression instanceof PsiMethodCallExpression) {
           final PsiMethodCallExpression methodCallExpression1 = (PsiMethodCallExpression)guardExpression;
           final PsiMethodCallExpression methodCallExpression2 = (PsiMethodCallExpression)lockExpression;
-          if (methodCallExpression2.getArgumentList().getExpressions().length == 0) {
+          if (methodCallExpression2.getArgumentList().isEmpty()) {
             final PsiMethod method1 = methodCallExpression1.resolveMethod();
             final PsiMethod method2 = methodCallExpression2.resolveMethod();
             if (method1 == null || method1.equals(method2)) {

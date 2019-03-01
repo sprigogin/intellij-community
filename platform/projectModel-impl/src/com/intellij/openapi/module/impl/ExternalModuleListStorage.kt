@@ -1,10 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.module.impl
 
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.isExternalStorageEnabled
 import com.intellij.openapi.roots.ExternalProjectSystemRegistry
@@ -12,10 +13,18 @@ import com.intellij.openapi.roots.ProjectModelElement
 import com.intellij.openapi.roots.ProjectModelExternalSource
 import org.jdom.Element
 
-@State(name = "ExternalModuleListStorage", storages = arrayOf(Storage("modules.xml")), externalStorageOnly = true)
-internal class ExternalModuleListStorage(private val project: Project) : PersistentStateComponent<Element>, ProjectModelElement {
+interface ExternalModuleListStorage {
+  fun getExternalModules(): Set<ModulePath>?
+}
+
+@State(name = "ExternalProjectModuleManager", storages = [(Storage("modules.xml"))], externalStorageOnly = true)
+internal class ExternalModuleListStorageImpl(private val project: Project)
+  : PersistentStateComponent<Element>, ProjectModelElement, ExternalModuleListStorage {
+
   var loadedState: Set<ModulePath>? = null
     private set
+
+  override fun getExternalModules(): Set<ModulePath>? = loadedState
 
   override fun getState(): Element {
     val e = Element("state")
@@ -34,7 +43,7 @@ internal class ExternalModuleListStorage(private val project: Project) : Persist
 
   override fun getExternalSource(): ProjectModelExternalSource? {
     val externalProjectSystemRegistry = ExternalProjectSystemRegistry.getInstance()
-    for (module in ModuleManagerImpl.getInstanceImpl(project).modules) {
+    for (module in ModuleManager.getInstance(project).modules) {
       externalProjectSystemRegistry.getExternalSource(module)?.let {
         return it
       }

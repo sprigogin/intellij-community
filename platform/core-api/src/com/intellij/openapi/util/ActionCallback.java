@@ -119,7 +119,7 @@ public class ActionCallback implements Disposable {
   }
 
   @NotNull
-  public final ActionCallback doWhenRejected(@NotNull final Consumer<String> consumer) {
+  public final ActionCallback doWhenRejected(@NotNull final Consumer<? super String> consumer) {
     myRejected.doWhenExecuted(() -> consumer.consume(myError));
     return this;
   }
@@ -168,7 +168,7 @@ public class ActionCallback implements Disposable {
   }
 
   private static class ExecutedExecutionCallback extends ExecutionCallback {
-    public ExecutedExecutionCallback() {
+    ExecutedExecutionCallback() {
       super(0);
     }
 
@@ -244,6 +244,8 @@ public class ActionCallback implements Disposable {
 
     @NotNull
     public ActionCallback getWhenProcessed() {
+      if (myCallbacks.isEmpty()) return DONE;
+      
       final ActionCallback result = new ActionCallback(myCallbacks.size());
       Runnable setDoneRunnable = result.createSetDoneRunnable();
       for (ActionCallback each : myCallbacks) {
@@ -260,15 +262,6 @@ public class ActionCallback implements Disposable {
   @NotNull
   public Runnable createSetDoneRunnable() {
     return () -> setDone();
-  }
-
-  /**
-   * @deprecated use {@link #notifyWhenRejected(ActionCallback)}
-   */
-  @NotNull
-  @Deprecated
-  public Runnable createSetRejectedRunnable() {
-    return () -> setRejected();
   }
 
   public boolean waitFor(long msTimeout) {

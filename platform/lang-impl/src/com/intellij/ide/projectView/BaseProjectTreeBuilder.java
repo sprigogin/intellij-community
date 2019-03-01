@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView;
 
@@ -23,19 +9,23 @@ import com.intellij.ide.util.treeView.*;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.util.StatusBarProgress;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.FocusRequestor;
-import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.Consumer;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -43,7 +33,6 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
@@ -62,27 +51,24 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
 
   @NotNull
   @Override
-  public AsyncResult<Object> revalidateElement(Object element) {
-    final AsyncResult<Object> result = new AsyncResult<>();
+  public Promise<Object> revalidateElement(@NotNull Object element) {
+    if (!(element instanceof AbstractTreeNode)) {
+      return Promises.rejectedPromise();
+    }
 
-    if (element instanceof AbstractTreeNode) {
-      AbstractTreeNode node = (AbstractTreeNode)element;
-      final Object value = node.getValue();
-      final ActionCallback callback = new ActionCallback();
-      final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(ObjectUtils.tryCast(value, PsiElement.class));
-      final FocusRequestor focusRequestor = IdeFocusManager.getInstance(myProject).getFurtherRequestor();
-      batch(indicator -> {
-        final Ref<Object> target = new Ref<>();
-        _select(value, virtualFile, false, Conditions.alwaysTrue(), callback, indicator, target, focusRequestor, false);
-        callback.doWhenDone(() -> result.setDone(target.get())).doWhenRejected(() -> result.setRejected());
-      });
-    }
-    else {
-      result.setRejected();
-    }
+    final AsyncPromise<Object> result = new AsyncPromise<>();
+    AbstractTreeNode node = (AbstractTreeNode)element;
+    final Object value = node.getValue();
+    final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(ObjectUtils.tryCast(value, PsiElement.class));
+    batch(indicator -> {
+      final Ref<Object> target = new Ref<>();
+      Promise<Object> callback = _select(element, virtualFile, true, Conditions.alwaysTrue());
+      callback
+        .onSuccess(it -> result.setResult(target.get()))
+        .onError(e -> result.setError(e));
+    });
     return result;
   }
-
 
   @Override
   protected boolean isAlwaysShowPlus(NodeDescriptor nodeDescriptor) {
@@ -112,7 +98,7 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
     if (element instanceof AbstractTreeNode) {
       object = ((AbstractTreeNode)element).getValue();
     }
-    
+
     return object instanceof PsiDirectory
            ? ((PsiDirectory)object).getVirtualFile()
            : object instanceof PsiFile ? ((PsiFile)object).getVirtualFile() : null;
@@ -137,46 +123,50 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
     return result;
   }
 
+  /**
+   * @deprecated Use {@link #selectAsync}
+   */
+  @Deprecated
   @NotNull
   public ActionCallback select(Object element, VirtualFile file, final boolean requestFocus) {
+    return Promises.toActionCallback(_select(element, file, requestFocus, Conditions.alwaysTrue()));
+  }
+
+  @NotNull
+  public Promise<Object> selectAsync(Object element, VirtualFile file, final boolean requestFocus) {
     return _select(element, file, requestFocus, Conditions.alwaysTrue());
   }
 
   public ActionCallback selectInWidth(final Object element,
                                       final boolean requestFocus,
                                       final Condition<AbstractTreeNode> nonStopCondition) {
-    return _select(element, null, requestFocus, nonStopCondition);
+    return Promises.toActionCallback(_select(element, null, requestFocus, nonStopCondition));
   }
 
   @NotNull
-  private ActionCallback _select(final Object element,
+  private Promise<Object> _select(final Object element,
                                  final VirtualFile file,
                                  final boolean requestFocus,
-                                 final Condition<AbstractTreeNode> nonStopCondition) {
-
+                                 final Condition<? super AbstractTreeNode> nonStopCondition) {
     AbstractTreeUpdater updater = getUpdater();
-    if (updater == null) return ActionCallback.REJECTED;
+    if (updater == null) {
+      return Promises.rejectedPromise();
+    }
 
-    final ActionCallback result = new ActionCallback();
-
-    final FocusRequestor requestor = IdeFocusManager.getInstance(myProject).getFurtherRequestor();
-
+    final AsyncPromise<Object> result = new AsyncPromise<>();
     UiActivityMonitor.getInstance().addActivity(myProject, new UiActivity.AsyncBgOperation("projectViewSelect"), updater.getModalityState());
     batch(indicator -> {
-      _select(element, file, requestFocus, nonStopCondition, result, indicator, null, requestor, false);
+      _select(element, file, requestFocus, nonStopCondition, result, indicator, null, null, false);
       UiActivityMonitor.getInstance().removeActivity(myProject, new UiActivity.AsyncBgOperation("projectViewSelect"));
     });
-
-
-
     return result;
   }
 
   private void _select(final Object element,
                        final VirtualFile file,
                        final boolean requestFocus,
-                       final Condition<AbstractTreeNode> nonStopCondition,
-                       final ActionCallback result,
+                       final Condition<? super AbstractTreeNode> nonStopCondition,
+                       final AsyncPromise<Object> result,
                        @NotNull final ProgressIndicator indicator,
                        @Nullable final Ref<Object> virtualSelectTarget,
                        final FocusRequestor focusRequestor,
@@ -184,28 +174,31 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
     final AbstractTreeNode alreadySelected = alreadySelectedNode(element);
 
     final Runnable onDone = () -> {
-      if (requestFocus && virtualSelectTarget == null && getUi().isReady()) {
-        focusRequestor.requestFocus(getTree(), true);
+      JTree tree = getTree();
+      if (tree != null && requestFocus && virtualSelectTarget == null && getUi().isReady()) {
+        tree.requestFocus();
       }
 
-      result.setDone();
+      result.setResult(null);
     };
 
-    final Condition<AbstractTreeNode> condition = abstractTreeNode -> !result.isProcessed() && nonStopCondition.value(abstractTreeNode);
+    final Condition<AbstractTreeNode> condition = abstractTreeNode -> result.getState() == Promise.State.PENDING && nonStopCondition.value(abstractTreeNode);
 
     if (alreadySelected == null) {
       expandPathTo(file, (AbstractTreeNode)getTreeStructure().getRootElement(), element, condition, indicator, virtualSelectTarget)
-        .doWhenDone((Consumer<AbstractTreeNode>)node -> {
+        .onSuccess(node -> {
           if (virtualSelectTarget == null) {
             select(node, onDone);
           }
           else {
             onDone.run();
           }
-        }).doWhenRejected(() -> {
+        })
+        .onError(error -> {
           if (isSecondAttempt) {
-            result.setRejected();
-          } else {
+            result.cancel();
+          }
+          else {
             _select(file, file, requestFocus, nonStopCondition, result, indicator, virtualSelectTarget, focusRequestor, true);
           }
         });
@@ -245,41 +238,38 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
   }
 
   @SuppressWarnings("WeakerAccess")
-  protected boolean canExpandPathTo(@NotNull final AbstractTreeNode root,
-                                    final Object element) {
+  protected boolean canExpandPathTo(@NotNull final AbstractTreeNode root, final Object element) {
     return true;
   }
 
   @NotNull
-  private AsyncResult<AbstractTreeNode> expandPathTo(final VirtualFile file,
-                                                     @NotNull final AbstractTreeNode root,
-                                                     final Object element,
-                                                     @NotNull final Condition<AbstractTreeNode> nonStopCondition,
-                                                     @NotNull final ProgressIndicator indicator,
-                                                     @Nullable final Ref<Object> target) {
-    final AsyncResult<AbstractTreeNode> async = new AsyncResult<>();
-
+  private Promise<AbstractTreeNode> expandPathTo(final VirtualFile file,
+                                                 @NotNull final AbstractTreeNode root,
+                                                 final Object element,
+                                                 @NotNull final Condition<AbstractTreeNode> nonStopCondition,
+                                                 @NotNull final ProgressIndicator indicator,
+                                                 @Nullable final Ref<Object> target) {
+    final AsyncPromise<AbstractTreeNode> async = new AsyncPromise<>();
     if (root.canRepresent(element)) {
       if (target == null) {
-        expand(root, () -> async.setDone(root));
+        expand(root, () -> async.setResult(root));
       }
       else {
         target.set(root);
-        async.setDone(root);
+        async.setResult(root);
       }
       return async;
     }
 
     if (!canExpandPathTo(root, element)) {
-      async.setRejected();
+      async.setError("cannot expand");
       return async;
     }
 
     if (root instanceof ProjectViewNode && file != null && !((ProjectViewNode)root).contains(file)) {
-      async.setRejected();
+      async.setError("not applicable");
       return async;
     }
-
 
     if (target == null) {
       expand(root, () -> {
@@ -291,13 +281,13 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
           expandChild(kids, 0, nonStopCondition, file, element, async, indicator, target);
         }
         else {
-          async.setRejected();
+          async.cancel();
         }
       });
     }
     else {
       if (indicator.isCanceled()) {
-        async.setRejected();
+        async.cancel();
       }
       else {
         final DefaultMutableTreeNode rootNode = getNodeForElement(root);
@@ -306,8 +296,8 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
           kids.addAll(collectChildren(rootNode));
         }
         else {
-          List<Object> list = Arrays.asList(getTreeStructure().getChildElements(root));
-          for (Object each : list) {
+          Object[] childElements = getTreeStructure().getChildElements(root);
+          for (Object each : childElements) {
             kids.add((AbstractTreeNode)each);
           }
         }
@@ -322,12 +312,12 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
     return async;
   }
 
-  private void expandChild(@NotNull final List<AbstractTreeNode> kids,
+  private void expandChild(@NotNull final List<? extends AbstractTreeNode> kids,
                            int i,
                            @NotNull final Condition<AbstractTreeNode> nonStopCondition,
                            final VirtualFile file,
                            final Object element,
-                           @NotNull final AsyncResult<AbstractTreeNode> async,
+                           @NotNull final AsyncPromise<? super AbstractTreeNode> async,
                            @NotNull final ProgressIndicator indicator,
                            final Ref<Object> virtualSelectTarget) {
     while (i < kids.size()) {
@@ -339,15 +329,15 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
       }
 
       if (nonStopCondition.value(eachKid)) {
-        final AsyncResult<AbstractTreeNode> result = expandPathTo(file, eachKid, element, nonStopCondition, indicator, virtualSelectTarget);
-        result.doWhenDone((Consumer<AbstractTreeNode>)abstractTreeNode -> {
+        final Promise<AbstractTreeNode> result = expandPathTo(file, eachKid, element, nonStopCondition, indicator, virtualSelectTarget);
+        result.onSuccess(abstractTreeNode -> {
           indicator.checkCanceled();
-          async.setDone(abstractTreeNode);
+          async.setResult(abstractTreeNode);
         });
 
-        if (!result.isProcessed()) {
+        if (result.getState() == Promise.State.PENDING) {
           final int next = i + 1;
-          result.doWhenRejected(() -> {
+          result.onError(error -> {
             indicator.checkCanceled();
 
             if (nodeWasCollapsed[0] && virtualSelectTarget == null) {
@@ -356,27 +346,30 @@ public abstract class BaseProjectTreeBuilder extends AbstractTreeBuilder {
             expandChild(kids, next, nonStopCondition, file, element, async, indicator, virtualSelectTarget);
           });
           return;
-        } else {
-          if (result.isRejected()) {
+        }
+        else {
+          if (result.getState() == Promise.State.REJECTED) {
             indicator.checkCanceled();
             if (nodeWasCollapsed[0] && virtualSelectTarget == null) {
               collapseChildren(eachKid, null);
             }
             i++;
-          } else {
+          }
+          else {
             return;
           }
         }
-      } else {
+      }
+      else {
         //filter tells us to stop here (for instance, in case of module nodes)
         break;
       }
     }
-    async.setRejected();
+    async.cancel();
   }
 
   @Override
-  protected boolean validateNode(final Object child) {
+  protected boolean validateNode(@NotNull final Object child) {
     if (child == null) {
       return false;
     }

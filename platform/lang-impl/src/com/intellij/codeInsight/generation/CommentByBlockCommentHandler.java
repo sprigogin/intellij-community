@@ -24,6 +24,7 @@ import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.featureStatistics.FeatureUsageTracker;
+import com.intellij.formatting.IndentData;
 import com.intellij.ide.highlighter.custom.CustomFileTypeLexer;
 import com.intellij.lang.*;
 import com.intellij.lexer.Lexer;
@@ -38,9 +39,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.psi.codeStyle.Indent;
 import com.intellij.psi.templateLanguages.MultipleLangCommentProvider;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
@@ -140,8 +139,8 @@ public class CommentByBlockCommentHandler extends MultiCaretCodeInsightActionHan
         int selectionStart = myCaret.getSelectionStart();
         int selectionEnd = myCaret.getSelectionEnd();
         if (commenter instanceof IndentedCommenter) {
-          final Boolean value = ((IndentedCommenter)commenter).forceIndentedLineComment();
-          if (value != null && value == Boolean.TRUE) {
+          final Boolean value = ((IndentedCommenter)commenter).forceIndentedBlockComment();
+          if (value == Boolean.TRUE) {
             selectionStart = myDocument.getLineStartOffset(myDocument.getLineNumber(selectionStart));
             selectionEnd = myDocument.getLineEndOffset(myDocument.getLineNumber(selectionEnd));
           }
@@ -152,8 +151,8 @@ public class CommentByBlockCommentHandler extends MultiCaretCodeInsightActionHan
         EditorUtil.fillVirtualSpaceUntilCaret(editor);
         int caretOffset = myCaret.getOffset();
         if (commenter instanceof IndentedCommenter) {
-          final Boolean value = ((IndentedCommenter)commenter).forceIndentedLineComment();
-          if (value != null && value == Boolean.TRUE) {
+          final Boolean value = ((IndentedCommenter)commenter).forceIndentedBlockComment();
+          if (value == Boolean.TRUE) {
             final int lineNumber = myDocument.getLineNumber(caretOffset);
             final int start = myDocument.getLineStartOffset(lineNumber);
             final int end = myDocument.getLineEndOffset(lineNumber);
@@ -239,7 +238,7 @@ public class CommentByBlockCommentHandler extends MultiCaretCodeInsightActionHan
     intersection = TextRange.create(Math.max(intersection.getStartOffset() - textRange.getStartOffset(), 0),
                                     Math.min(intersection.getEndOffset() - textRange.getStartOffset(), textRange.getLength()));
     return isWhiteSpaceOrComment(element) ||
-           intersection.substring(element.getText()).trim().length() == 0;
+           intersection.substring(element.getText()).trim().isEmpty();
   }
 
   private static boolean isWhiteSpaceOrComment(PsiElement element) {
@@ -418,18 +417,16 @@ public class CommentByBlockCommentHandler extends MultiCaretCodeInsightActionHan
 
     if (startOffset == 0 || chars.charAt(startOffset - 1) == '\n') {
       if (endOffset == myDocument.getTextLength() || endOffset > 0 && chars.charAt(endOffset - 1) == '\n') {
-        CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(myProject);
         CommonCodeStyleSettings settings = CodeStyle.getLanguageSettings(myFile);
         String space;
         if (!settings.BLOCK_COMMENT_AT_FIRST_COLUMN) {
-          final FileType fileType = myFile.getFileType();
           int line1 = myEditor.offsetToLogicalPosition(startOffset).line;
           int line2 = myEditor.offsetToLogicalPosition(endOffset - 1).line;
-          Indent minIndent = CommentUtil.getMinLineIndent(myProject, myDocument, line1, line2, fileType);
+          IndentData minIndent = CommentUtil.getMinLineIndent(myDocument, line1, line2, myFile);
           if (minIndent == null) {
-            minIndent = codeStyleManager.zeroIndent();
+            minIndent = new IndentData(0);
           }
-          space = codeStyleManager.fillIndent(minIndent, fileType);
+          space = minIndent.createIndentInfo().generateNewWhiteSpace(CodeStyle.getIndentOptions(myFile));
         }
         else {
           space = "";
@@ -438,11 +435,9 @@ public class CommentByBlockCommentHandler extends MultiCaretCodeInsightActionHan
         if (!commentPrefix.endsWith("\n")) {
           nestingPrefix.append("\n");
         }
-        final StringBuilder nestingSuffix = new StringBuilder(space);
-        nestingSuffix.append(commentSuffix.startsWith("\n") ? commentSuffix.substring(1) : commentSuffix);
-        nestingSuffix.append("\n");
+        String nestingSuffix = space + (commentSuffix.startsWith("\n") ? commentSuffix.substring(1) : commentSuffix) + "\n";
         TextRange range =
-          insertNestedComments(startOffset, endOffset, nestingPrefix.toString(), nestingSuffix.toString(), commenter);
+          insertNestedComments(startOffset, endOffset, nestingPrefix.toString(), nestingSuffix, commenter);
         if (range != null) {
           myCaret.setSelection(range.getStartOffset(), range.getEndOffset());
           LogicalPosition pos = new LogicalPosition(caretPosition.line + 1, caretPosition.column);

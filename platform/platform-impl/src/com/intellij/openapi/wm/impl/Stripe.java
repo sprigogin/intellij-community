@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.ide.ui.UISettings;
@@ -13,6 +13,7 @@ import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.Gray;
 import com.intellij.ui.ScreenUtil;
+import com.intellij.util.ui.JBSwingUtilities;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -98,31 +99,24 @@ final class Stripe extends JPanel implements UISettingsListener {
       }
     }
 
+    @SuppressWarnings("UseDPIAwareInsets")
     @Override
     public Insets getBorderInsets(Component c) {
       Stripe stripe = (Stripe)c;
       ToolWindowAnchor anchor = stripe.getAnchor();
 
-      Insets result = new Insets(0, 0, 0, 0);
-      final int off = UIUtil.isUnderDarcula() ? 1 : 0;
       if (anchor == ToolWindowAnchor.LEFT) {
-        result.top = 1;
-        result.right = 1 + off;
+        return new Insets(1, 0, 0, 1);
       }
       else if (anchor == ToolWindowAnchor.RIGHT) {
-        result.left = 1 + off;
-        result.top = 1;
+        return new Insets(1, 1, 0, 0);
       }
       else if (anchor == ToolWindowAnchor.TOP) {
-        result.bottom = 0;
-        //result.bottom = 1;
-        result.top = 1;
+        return new Insets(1, 0, 0, 0);
       }
       else {
-        result.top = 1 + off;
+        return new Insets(1, 0, 0, 0);
       }
-
-      return result;
     }
 
     @Override
@@ -191,7 +185,7 @@ final class Stripe extends JPanel implements UISettingsListener {
 
   private LayoutData recomputeBounds(boolean setBounds, Dimension toFitWith, boolean noDrop) {
     final LayoutData data = new LayoutData();
-    final int horizontaloffset = getHeight() - 2;
+    final int horizontaloffset = getHeight();
 
     data.eachY = 0;
     data.size = new Dimension();
@@ -292,7 +286,6 @@ final class Stripe extends JPanel implements UISettingsListener {
     if (!sidesStarted && processDrop) {
       tryDroppingOnGap(data, gap, -1);
     }
-
 
     if (isDroppingButton()) {
       final Dimension dragSize = myDragButton.getPreferredSize();
@@ -526,6 +519,7 @@ final class Stripe extends JPanel implements UISettingsListener {
     }
   }
 
+  @Override
   public String toString() {
     String anchor = null;
     switch (myAnchor) {
@@ -569,6 +563,11 @@ final class Stripe extends JPanel implements UISettingsListener {
     }
 
     return myCachedBg;
+  }
+
+  @Override
+  protected Graphics getComponentGraphics(Graphics g) {
+    return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(g));
   }
 
   @Override

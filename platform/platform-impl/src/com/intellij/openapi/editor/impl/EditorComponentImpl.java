@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.ide.CutProvider;
@@ -39,11 +39,13 @@ import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.Grayer;
 import com.intellij.ui.components.Magnificator;
+import com.intellij.ui.paint.PaintUtil;
+import com.intellij.ui.paint.PaintUtil.RoundingMode;
 import com.intellij.util.ui.JBSwingUtilities;
-import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.ScreenReader;
 import org.intellij.lang.annotations.MagicConstant;
@@ -124,14 +126,14 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (myEditor.isDisposed()) return null;
 
     if (PlatformDataKeys.COPY_PROVIDER.is(dataId)) {
       // enable copying from editor in renderer mode
       return myEditor.getCopyProvider();
     }
-    
+
     if (myEditor.isRendererMode()) return null;
 
     if (CommonDataKeys.EDITOR.is(dataId)) {
@@ -169,6 +171,12 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
     return myEditor.getPreferredSize();
   }
 
+  @Override
+  public void setCursor(Cursor cursor) {
+    super.setCursor(cursor);
+    myEditor.myCursorSetExternally = true;
+  }
+
   protected void fireResized() {
     processComponentEvent(new ComponentEvent(this, ComponentEvent.COMPONENT_RESIZED));
   }
@@ -187,7 +195,6 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
           myEditor.replaceInputMethodText(e);
           // No breaks over here.
 
-          //noinspection fallthrough
         case InputMethodEvent.CARET_POSITION_CHANGED:
           myEditor.inputMethodCaretPositionChanged(e);
           e.consume();
@@ -218,29 +225,28 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
 
   @Override
   public void paintComponent(Graphics g) {
-    myApplication.editorPaintStart();
+    myEditor.measureTypingLatency();
 
-    try {
-      Graphics2D gg = (Graphics2D)g;
-      UIUtil.setupComposite(gg);
-      if (myEditor.useEditorAntialiasing()) {
-        EditorUIUtil.setupAntialiasing(gg);
-      }
-      else {
-        UISettings.setupAntialiasing(gg);
-      }
-      gg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, myEditor.myFractionalMetricsHintValue);
-      AffineTransform origTx = JBUI.alignToIntGrid(gg, true, false);
-      myEditor.paint(gg);
-      if (origTx != null) gg.setTransform(origTx);
+    Graphics2D gg = (Graphics2D)g;
+    UIUtil.setupComposite(gg);
+    if (myEditor.useEditorAntialiasing()) {
+      EditorUIUtil.setupAntialiasing(gg);
     }
-    finally {
-      myApplication.editorPaintFinish();
+    else {
+      UISettings.setupAntialiasing(gg);
     }
+    gg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, myEditor.myFractionalMetricsHintValue);
+    AffineTransform origTx = PaintUtil.alignTxToInt(gg, PaintUtil.insets2offset(getInsets()), true, false, RoundingMode.CEIL);
+    myEditor.paint(gg);
+    if (origTx != null) gg.setTransform(origTx);
   }
 
   public void repaintEditorComponent() {
     repaint();
+  }
+
+  public void repaintEditorComponentExact(int x, int y, int width, int height) {
+    repaint(x, y, width, height);
   }
 
   public void repaintEditorComponent(int x, int y, int width, int height) {
@@ -691,33 +697,27 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
 
   /** Inserts, removes or replaces the given text at the given offset */
   private void editDocumentSafely(final int offset, final int length, @Nullable final String text) {
+    Document document = myEditor.getDocument();
+    RangeMarker marker = document.createRangeMarker(offset, offset + length);
+
     TransactionGuard.submitTransaction(myEditor.getDisposable(), () -> {
       Project project = myEditor.getProject();
-      Document document = myEditor.getDocument();
-      if (!FileDocumentManager.getInstance().requestWriting(document, project)) {
+      if (!marker.isValid() || !FileDocumentManager.getInstance().requestWriting(document, project)) {
+        marker.dispose();
         return;
       }
 
       CommandProcessor.getInstance().executeCommand(project, () -> WriteAction.run(() -> {
         document.startGuardedBlockChecking();
         try {
-          if (text == null) {
-            // remove
-            document.deleteString(offset, offset + length);
-          }
-          else if (length == 0) {
-            // insert
-            document.insertString(offset, text);
-          }
-          else {
-            document.replaceString(offset, offset + length, text);
-          }
+          document.replaceString(marker.getStartOffset(), marker.getEndOffset(), StringUtil.notNullize(text));
         }
         catch (ReadOnlyFragmentModificationException e) {
           EditorActionManager.getInstance().getReadonlyFragmentModificationHandler(document).handle(e);
         }
         finally {
           document.stopGuardedBlockChecking();
+          marker.dispose();
         }
       }), "", document, UndoConfirmationPolicy.DEFAULT, document);
     });
@@ -832,8 +832,8 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
         .leanForward(bias != Position.Bias.Forward);
       Point point = myEditor.logicalPositionToXY(pos);
       Point pointNext = myEditor.logicalPositionToXY(posNext);
-      return point.y == pointNext.y 
-             ? new Rectangle(Math.min(point.x, pointNext.x), point.y, Math.abs(point.x - pointNext.x), myEditor.getLineHeight()) 
+      return point.y == pointNext.y
+             ? new Rectangle(Math.min(point.x, pointNext.x), point.y, Math.abs(point.x - pointNext.x), myEditor.getLineHeight())
              : new Rectangle(point.x, point.y, 0, myEditor.getLineHeight());
     }
 
@@ -894,16 +894,15 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
       implements AccessibleText, AccessibleEditableText, AccessibleExtendedText,
                  CaretListener, DocumentListener {
 
-    public AccessibleEditorComponentImpl() {
+    AccessibleEditorComponentImpl() {
       if (myEditor.isDisposed()) return;
 
-      myEditor.getCaretModel().addCaretListener(this);
+      myEditor.getCaretModel().addCaretListener(this, myEditor.getDisposable());
       myEditor.getDocument().addDocumentListener(this);
 
       Disposer.register(myEditor.getDisposable(), new Disposable() {
         @Override
         public void dispose() {
-          myEditor.getCaretModel().removeCaretListener(AccessibleEditorComponentImpl.this);
           myEditor.getDocument().removeDocumentListener(AccessibleEditorComponentImpl.this);
         }
       });
@@ -914,7 +913,7 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
     private int myCaretPos;
 
     @Override
-    public void caretPositionChanged(CaretEvent e) {
+    public void caretPositionChanged(@NotNull CaretEvent e) {
       Caret caret = e.getCaret();
       if (caret == null) {
         return;
@@ -947,7 +946,7 @@ public class EditorComponentImpl extends JTextComponent implements Scrollable, D
     // ---- Implements DocumentListener ----
 
     @Override
-    public void documentChanged(final DocumentEvent event) {
+    public void documentChanged(@NotNull final DocumentEvent event) {
       final Integer pos = event.getOffset();
       if (ApplicationManager.getApplication().isDispatchThread()) {
         firePropertyChange(ACCESSIBLE_TEXT_PROPERTY, null, pos);

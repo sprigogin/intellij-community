@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,11 +27,13 @@ import org.jetbrains.annotations.NotNull;
 
 public class MergeIfOrIntention extends Intention {
 
+  @Override
   @NotNull
   public PsiElementPredicate getElementPredicate() {
     return new MergeIfOrPredicate();
   }
 
+  @Override
   public void processIntention(@NotNull PsiElement element) {
     final PsiJavaToken token = (PsiJavaToken)element;
     if (MergeIfOrPredicate.isMergableExplicitIf(token)) {
@@ -54,29 +56,17 @@ public class MergeIfOrIntention extends Intention {
       return;
     }
     CommentTracker tracker = new CommentTracker();
-    final String childConditionText;
-    if (ParenthesesUtils.getPrecedence(childCondition) > ParenthesesUtils.OR_PRECEDENCE) {
-      childConditionText = '(' + tracker.markUnchanged(childCondition).getText() + ')';
-    }
-    else {
-      childConditionText = tracker.markUnchanged(childCondition).getText();
-    }
+    final String childConditionText = tracker.text(childCondition, ParenthesesUtils.OR_PRECEDENCE);
     final PsiExpression condition = parentStatement.getCondition();
     if (condition == null) {
       return;
     }
-    final String parentConditionText;
-    if (ParenthesesUtils.getPrecedence(condition) > ParenthesesUtils.OR_PRECEDENCE) {
-      parentConditionText = '(' + tracker.markUnchanged(condition).getText() + ')';
-    }
-    else {
-      parentConditionText = tracker.markUnchanged(condition).getText();
-    }
+    final String parentConditionText = tracker.text(condition, ParenthesesUtils.OR_PRECEDENCE);
     final PsiStatement parentThenBranch = parentStatement.getThenBranch();
     if (parentThenBranch == null) {
       return;
     }
-    final String parentThenBranchText = tracker.markUnchanged(parentThenBranch).getText();
+    final String parentThenBranchText = tracker.text(parentThenBranch);
     @NonNls final StringBuilder statement = new StringBuilder();
     statement.append("if(");
     statement.append(parentConditionText);
@@ -86,11 +76,10 @@ public class MergeIfOrIntention extends Intention {
     statement.append(parentThenBranchText);
     final PsiStatement childElseBranch = childStatement.getElseBranch();
     if (childElseBranch != null) {
-      statement.append("else ");
-      statement.append(tracker.markUnchanged(childElseBranch).getText());
+      statement.append("\nelse ");
+      statement.append(tracker.text(childElseBranch));
     }
-    final String newStatement = statement.toString();
-    PsiReplacementUtil.replaceStatement(parentStatement, newStatement, tracker);
+    PsiReplacementUtil.replaceStatement(parentStatement, statement.toString(), tracker);
   }
 
   private static void replaceMergeableImplicitIf(PsiJavaToken token) {
@@ -101,25 +90,14 @@ public class MergeIfOrIntention extends Intention {
     if (childCondition == null) {
       return;
     }
-    CommentTracker tracker = new CommentTracker();
-    final String childConditionText;
-    if (ParenthesesUtils.getPrecedence(childCondition) > ParenthesesUtils.OR_PRECEDENCE) {
-      childConditionText = '(' + tracker.markUnchanged(childCondition).getText() + ')';
-    }
-    else {
-      childConditionText = tracker.markUnchanged(childCondition).getText();
-    }
+    CommentTracker parentTracker = new CommentTracker();
+    CommentTracker childTracker = new CommentTracker();
+    final String childConditionText = childTracker.text(childCondition, ParenthesesUtils.OR_PRECEDENCE);
     final PsiExpression condition = parentStatement.getCondition();
     if (condition == null) {
       return;
     }
-    final String parentConditionText;
-    if (ParenthesesUtils.getPrecedence(condition) > ParenthesesUtils.OR_PRECEDENCE) {
-      parentConditionText = '(' + tracker.markUnchanged(condition).getText() + ')';
-    }
-    else {
-      parentConditionText = tracker.markUnchanged(condition).getText();
-    }
+    final String parentConditionText = parentTracker.text(condition, ParenthesesUtils.OR_PRECEDENCE);
     final PsiStatement parentThenBranch = parentStatement.getThenBranch();
     if (parentThenBranch == null) {
       return;
@@ -130,13 +108,13 @@ public class MergeIfOrIntention extends Intention {
     newStatement.append("||");
     newStatement.append(childConditionText);
     newStatement.append(')');
-    newStatement.append(tracker.markUnchanged(parentThenBranch).getText());
+    newStatement.append(parentTracker.text(parentThenBranch));
     final PsiStatement childElseBranch = childStatement.getElseBranch();
     if (childElseBranch != null) {
-      newStatement.append("else ");
-      newStatement.append(tracker.markUnchanged(childElseBranch).getText());
+      newStatement.append("\nelse ");
+      newStatement.append(childTracker.text(childElseBranch));
     }
-    PsiReplacementUtil.replaceStatement(parentStatement, newStatement.toString());
-    tracker.deleteAndRestoreComments(childStatement);
+    PsiReplacementUtil.replaceStatement(parentStatement, newStatement.toString(), parentTracker);
+    childTracker.deleteAndRestoreComments(childStatement);
   }
 }

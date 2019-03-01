@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.designer.palette;
 
 import com.intellij.designer.componentTree.TreeTransfer;
@@ -108,7 +94,7 @@ public class PaletteItemsComponent extends JBList {
           }
 
           tooltip = "<html><body><center><b>" +
-                    StringUtil.escapeXml(title) +
+                    StringUtil.escapeXmlEntities(title) +
                     "</b>" +
                     version +
                     "</center><p style='width: 300px'>" +
@@ -222,6 +208,7 @@ public class PaletteItemsComponent extends JBList {
     invalidate();
   }
 
+  @Override
   public int getWidth() {
     return (myTempWidth == null) ? super.getWidth() : myTempWidth.intValue();
   }
@@ -243,9 +230,7 @@ public class PaletteItemsComponent extends JBList {
     else if (getModel().getSize() == 0) {
       indexToSelect = -1;
     }
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(this, true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(this, true));
     setSelectedIndex(indexToSelect);
     if (indexToSelect >= 0) {
       ensureIndexIsVisible(indexToSelect);
@@ -285,11 +270,12 @@ public class PaletteItemsComponent extends JBList {
     private final Action myDefaultAction;
     private final boolean myFocusNext;
 
-    public MoveFocusAction(Action defaultAction, boolean focusNext) {
+    MoveFocusAction(Action defaultAction, boolean focusNext) {
       myDefaultAction = defaultAction;
       myFocusNext = focusNext;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selIndexBefore = getSelectedIndex();
       myDefaultAction.actionPerformed(e);
@@ -312,9 +298,7 @@ public class PaletteItemsComponent extends JBList {
                        : policy.getComponentBefore(container, PaletteItemsComponent.this);
       if (next instanceof PaletteGroupComponent) {
         clearSelection();
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(next, true);
-        });
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(next, true));
         ((PaletteGroupComponent)next).scrollRectToVisible(next.getBounds());
       }
     }
@@ -324,11 +308,12 @@ public class PaletteItemsComponent extends JBList {
     private final Action myDefaultAction;
     private final boolean mySelectNext;
 
-    public ChangeColumnAction(Action defaultAction, boolean selectNext) {
+    ChangeColumnAction(Action defaultAction, boolean selectNext) {
       myDefaultAction = defaultAction;
       mySelectNext = selectNext;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selIndexBefore = getSelectedIndex();
       myDefaultAction.actionPerformed(e);

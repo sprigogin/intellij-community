@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.dgm;
 
 import com.intellij.lang.properties.IProperty;
@@ -26,6 +12,7 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
+import com.intellij.util.AstLoadingFilter;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.resolve.NonCodeMembersContributor;
@@ -48,6 +35,13 @@ public class DGMMemberContributor extends NonCodeMembersContributor {
                                      @NotNull PsiScopeProcessor processor,
                                      @NotNull PsiElement place,
                                      @NotNull ResolveState state) {
+    processDgmMethods(qualifierType, processor, place, state);
+  }
+
+  public static void processDgmMethods(@NotNull PsiType qualifierType,
+                                        @NotNull PsiScopeProcessor processor,
+                                        @NotNull PsiElement place,
+                                        @NotNull ResolveState state) {
     if (!ResolveUtil.shouldProcessMethods(processor.getHint(ElementClassHint.KEY))) return;
 
     final Project project = place.getProject();
@@ -96,30 +90,33 @@ public class DGMMemberContributor extends NonCodeMembersContributor {
   private static Couple<List<String>> collectExtensions(@NotNull Project project, @NotNull GlobalSearchScope resolveScope) {
     List<String> instanceClasses = ContainerUtil.newArrayList(DEFAULT_INSTANCE_EXTENSIONS);
     List<String> staticClasses = ContainerUtil.newArrayList(DEFAULT_STATIC_EXTENSIONS);
-    doCollectExtensions(project, resolveScope, instanceClasses, staticClasses);
+    doCollectExtensions(project, resolveScope, instanceClasses, staticClasses, "META-INF.groovy");
+    doCollectExtensions(project, resolveScope, instanceClasses, staticClasses, "META-INF.services");
     return Couple.of(instanceClasses, staticClasses);
   }
 
   private static void doCollectExtensions(@NotNull Project project,
                                           @NotNull GlobalSearchScope resolveScope,
-                                          List<String> instanceClasses,
-                                          List<String> staticClasses) {
-    PsiPackage aPackage = JavaPsiFacade.getInstance(project).findPackage("META-INF.services");
+                                          @NotNull List<String> instanceClasses,
+                                          @NotNull List<String> staticClasses,
+                                          @NotNull String packageName) {
+    PsiPackage aPackage = JavaPsiFacade.getInstance(project).findPackage(packageName);
     if (aPackage == null) return;
 
     for (PsiDirectory directory : aPackage.getDirectories(resolveScope)) {
       PsiFile file = directory.findFile(DGMUtil.ORG_CODEHAUS_GROOVY_RUNTIME_EXTENSION_MODULE);
-      if (file instanceof PropertiesFile) {
+      if (!(file instanceof PropertiesFile)) continue;
+      AstLoadingFilter.forceAllowTreeLoading(file, () -> {
         IProperty inst = ((PropertiesFile)file).findPropertyByKey("extensionClasses");
         IProperty stat = ((PropertiesFile)file).findPropertyByKey("staticExtensionClasses");
 
         if (inst != null) collectClasses(inst, instanceClasses);
         if (stat != null) collectClasses(stat, staticClasses);
-      }
+      });
     }
   }
 
-  private static void collectClasses(IProperty pr, List<String> classes) {
+  private static void collectClasses(@NotNull IProperty pr, @NotNull List<String> classes) {
     String value = pr.getUnescapedValue();
     if (value == null) return;
     value = value.trim();

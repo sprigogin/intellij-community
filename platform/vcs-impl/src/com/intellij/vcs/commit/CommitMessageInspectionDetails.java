@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.commit;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -23,6 +9,7 @@ import com.intellij.codeInspection.ex.Descriptor;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.ScopeToolState;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.options.ConfigurableUi;
 import com.intellij.openapi.options.ConfigurationException;
@@ -103,10 +90,11 @@ public class CommitMessageInspectionDetails implements UnnamedConfigurable {
       myOptionsConfigurable.reset(myProject);
     }
   }
-  
+
   private void init() {
-    mySeverityChooser = new MySeverityChooser(myProfile.getProfileManager().getOwnSeverityRegistrar());
-    mySeverityChooserPanel.add(mySeverityChooser.createCustomComponent(mySeverityChooser.getTemplatePresentation()), BorderLayout.CENTER);
+    mySeverityChooser = new MySeverityChooser(myProfile.getProfileManager().getSeverityRegistrar());
+    mySeverityChooserPanel.add(mySeverityChooser.createCustomComponent(
+      mySeverityChooser.getTemplatePresentation(), ActionPlaces.UNKNOWN), BorderLayout.CENTER);
 
     InspectionProfileEntry tool = myToolState.getTool().getTool();
     if (tool instanceof BaseCommitMessageInspection) {
@@ -134,7 +122,7 @@ public class CommitMessageInspectionDetails implements UnnamedConfigurable {
   }
 
   private class MySeverityChooser extends LevelChooserAction {
-    public MySeverityChooser(@NotNull SeverityRegistrar registrar) {
+    MySeverityChooser(@NotNull SeverityRegistrar registrar) {
       super(registrar);
     }
 
@@ -146,8 +134,9 @@ public class CommitMessageInspectionDetails implements UnnamedConfigurable {
       myEventDispatcher.getMulticaster().onSeverityChanged(severity);
     }
 
+    @NotNull
     @Override
-    public JComponent createCustomComponent(Presentation presentation) {
+    public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
       return createComboBoxButton(presentation);
     }
   }

@@ -13,7 +13,6 @@
 // limitations under the License.
 package com.intellij.ui;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
@@ -29,15 +28,15 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBTextField;
+import com.intellij.util.Consumer;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ui.JBInsets;
-import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.border.CompoundBorder;
 import javax.swing.event.DocumentListener;
 import javax.swing.plaf.TextUI;
 import java.awt.*;
@@ -57,16 +56,14 @@ public class SearchTextField extends JPanel {
   public static final CustomShortcutSet ALT_SHOW_HISTORY_SHORTCUT = new CustomShortcutSet(ALT_SHOW_HISTORY_KEYSTROKE);
 
   private int myHistorySize = 5;
-  private int myCurrentHistoryIndex = 0;
+  private int myCurrentHistoryIndex;
   private final MyModel myModel;
   private final TextFieldWithProcessing myTextField;
 
   private JBPopup myPopup;
-  private JLabel myClearFieldLabel;
-  private JLabel myToggleHistoryLabel;
   private JPopupMenu myNativeSearchPopup;
   private JMenuItem myNoItems;
-  private String myHistoryPropertyName = null;
+  private String myHistoryPropertyName;
 
   public SearchTextField() {
     this(true);
@@ -102,38 +99,20 @@ public class SearchTextField extends JPanel {
       }
 
       @Override
-      public void setBackground(final Color bg) {
-        super.setBackground(bg);
-        if (!hasIconsOutsideOfTextField()) {
-          if (myClearFieldLabel != null) {
-            myClearFieldLabel.setBackground(bg);
-          }
-        }
-        if (myToggleHistoryLabel != null) {
-          myToggleHistoryLabel.setBackground(bg);
-        }
+      public void setUI(TextUI ui) {
+        if (customSetupUIAndTextField(this, textUI -> super.setUI(textUI))) return;
+
+        super.setUI(ui);
       }
 
       @Override
-      public void setUI(TextUI ui) {
-        if (SystemInfo.isMac) {
-          try {
-            Class<?> uiClass = UIUtil.isUnderIntelliJLaF() ? Class.forName("com.intellij.ide.ui.laf.intellij.MacIntelliJTextFieldUI")
-                                                           : Class.forName("com.intellij.ide.ui.laf.darcula.ui.DarculaTextFieldUI");
-            Method method = ReflectionUtil.getMethod(uiClass, "createUI", JComponent.class);
-            if (method != null) {
-              super.setUI((TextUI)method.invoke(uiClass, this));
-              Class<?> borderClass = UIUtil.isUnderIntelliJLaF() ? Class.forName("com.intellij.ide.ui.laf.intellij.MacIntelliJTextBorder")
-                                                                 : Class.forName("com.intellij.ide.ui.laf.darcula.ui.DarculaTextBorder");
-              setBorder((Border)ReflectionUtil.newInstance(borderClass));
-              setOpaque(false);
-            }
-            return;
-          }
-          catch (Exception ignored) {
-          }
+      protected Rectangle getEmptyTextComponentBounds(Rectangle bounds) {
+        Integer gap = (Integer)getClientProperty("JTextField.Search.GapEmptyText");
+        if (gap != null) {
+          bounds.x += gap;
+          bounds.width -= 2 * gap;
         }
-        super.setUI(ui);
+        return bounds;
       }
     };
     myTextField.setColumns(15);
@@ -155,17 +134,13 @@ public class SearchTextField extends JPanel {
     setHistoryPropertyName(historyPropertyName);
 
     if (historyPopupEnabled) {
-      myTextField.getActionMap().put("showHistory", new AbstractAction() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          if (isSearchControlUISupported() && myNativeSearchPopup != null) {
-            myNativeSearchPopup.show(myTextField, 5, myTextField.getHeight());
-          } else if (myPopup == null || !myPopup.isVisible()) {
-            showPopup();
-          }
+      DumbAwareAction.create(event -> {
+        if (myNativeSearchPopup != null) {
+          myNativeSearchPopup.show(myTextField, 5, myTextField.getHeight());
+        } else if (myPopup == null || !myPopup.isVisible()) {
+          showPopup();
         }
-      });
-      myTextField.getInputMap().put(SHOW_HISTORY_KEYSTROKE, "showHistory");
+      }).registerCustomShortcutSet(KeymapUtil.getActiveKeymapShortcuts("ShowSearchHistory"), myTextField);
     } else if (historyPropertyName != null) {
       myTextField.getActionMap().put("showPrevHistoryItem", new AbstractAction() {
         @Override
@@ -191,68 +166,19 @@ public class SearchTextField extends JPanel {
       myTextField.getInputMap().put(SHOW_HISTORY_KEYSTROKE, "showNextHistoryItem");
     }
 
-    if (isSearchControlUISupported()) {
-      myTextField.putClientProperty("JTextField.variant", "search");
-      myTextField.putClientProperty("JTextField.Search.CancelAction", new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          myTextField.setText("");
-          onFieldCleared();
-        }
-      });
+    myTextField.putClientProperty("JTextField.variant", "search");
+    myTextField.putClientProperty("JTextField.Search.CancelAction", (ActionListener)e -> {
+      myTextField.setText("");
+      onFieldCleared();
+    });
 
-      if (historyPopupEnabled) {
-        myNativeSearchPopup = new JBPopupMenu();
-        myNoItems = new JBMenuItem("No recent searches");
-        myNoItems.setEnabled(false);
+    if (historyPopupEnabled) {
+      myNativeSearchPopup = new JBPopupMenu();
+      myNoItems = new JBMenuItem("No recent searches");
+      myNoItems.setEnabled(false);
 
-        updateMenu();
-        myTextField.putClientProperty("JTextField.Search.FindPopup", myNativeSearchPopup);
-      }
-    }
-    else {
-      myToggleHistoryLabel = new JLabel(AllIcons.Actions.Search);
-      myToggleHistoryLabel.setOpaque(true);
-      myToggleHistoryLabel.setToolTipText("Search History (" + KeymapUtil.getKeystrokeText(SHOW_HISTORY_KEYSTROKE)+ ")");
-      myToggleHistoryLabel.addMouseListener(new MouseAdapter() {
-        public void mousePressed(MouseEvent e) {
-          togglePopup();
-        }
-      });
-      if (historyPopupEnabled) {
-        add(myToggleHistoryLabel, BorderLayout.WEST);
-      }
-
-      myClearFieldLabel = new JLabel(UIUtil.isUnderDarcula() ? AllIcons.Actions.Clean : AllIcons.Actions.CleanLight);
-      myClearFieldLabel.setOpaque(true);
-      add(myClearFieldLabel, BorderLayout.EAST);
-      myClearFieldLabel.addMouseListener(new MouseAdapter() {
-        public void mousePressed(MouseEvent e) {
-          myTextField.setText("");
-          onFieldCleared();
-        }
-      });
-
-      if (!hasIconsOutsideOfTextField()) {
-        final Border originalBorder;
-        if (SystemInfo.isMac) {
-          originalBorder = BorderFactory.createLoweredBevelBorder();
-        }
-        else {
-          originalBorder = myTextField.getBorder();
-        }
-
-        myToggleHistoryLabel.setBackground(myTextField.getBackground());
-        myClearFieldLabel.setBackground(myTextField.getBackground());
-
-        setBorder(new CompoundBorder(JBUI.Borders.empty(2, 0, 2, 0), originalBorder));
-
-        myTextField.setOpaque(true);
-        myTextField.setBorder(JBUI.Borders.empty(0, 5, 0, 5));
-      }
-      else {
-        setBorder(JBUI.Borders.empty(2, 0, 2, 0));
-      }
+      updateMenu();
+      myTextField.putClientProperty("JTextField.Search.FindPopup", myNativeSearchPopup);
     }
 
     if (toClearTextOnEscape()) {
@@ -271,9 +197,7 @@ public class SearchTextField extends JPanel {
   }
 
   protected void onFocusLost() {
-    if (myHistoryPropertyName != null && myNativeSearchPopup == null && myPopup == null) {
-      addCurrentTextToHistory();
-    }
+    addCurrentTextToHistory();
   }
 
   protected void onFocusGained() {
@@ -295,12 +219,35 @@ public class SearchTextField extends JPanel {
     }
   }
 
+  @Deprecated
   protected boolean isSearchControlUISupported() {
-    return (SystemInfo.isMacOSLeopard && UIUtil.isUnderAquaLookAndFeel()) || UIUtil.isUnderDarcula() || UIUtil.isUnderIntelliJLaF();
+    return true;
   }
 
+  @Deprecated
   protected boolean hasIconsOutsideOfTextField() {
-    return UIUtil.isUnderGTKLookAndFeel();
+    return false;
+  }
+
+  protected boolean customSetupUIAndTextField(@NotNull TextFieldWithProcessing textField, @NotNull Consumer<? super TextUI> uiConsumer) {
+    if (SystemInfo.isMac) {
+      try {
+        Class<?> uiClass = UIUtil.isUnderIntelliJLaF() ? Class.forName("com.intellij.ide.ui.laf.intellij.MacIntelliJTextFieldUI")
+                                                       : Class.forName("com.intellij.ide.ui.laf.darcula.ui.DarculaTextFieldUI");
+        Method method = ReflectionUtil.getMethod(uiClass, "createUI", JComponent.class);
+        if (method != null) {
+          uiConsumer.consume((TextUI)method.invoke(uiClass, textField));
+          Class<?> borderClass = UIUtil.isUnderIntelliJLaF() ? Class.forName("com.intellij.ide.ui.laf.intellij.MacIntelliJTextBorder")
+                                                             : Class.forName("com.intellij.ide.ui.laf.darcula.ui.DarculaTextBorder");
+          textField.setBorder((Border)ReflectionUtil.newInstance(borderClass));
+          textField.setOpaque(false);
+        }
+        return true;
+      }
+      catch (Exception ignored) {
+      }
+    }
+    return false;
   }
 
   public void addDocumentListener(DocumentListener listener) {
@@ -313,15 +260,6 @@ public class SearchTextField extends JPanel {
 
   public void addKeyboardListener(final KeyListener listener) {
     getTextEditor().addKeyListener(listener);
-  }
-
-  public void setEnabled(boolean enabled) {
-    super.setEnabled(enabled);
-    if (myToggleHistoryLabel != null) {
-      final Color bg = enabled ? UIUtil.getTextFieldBackground() : UIUtil.getPanelBackground();
-      myToggleHistoryLabel.setBackground(bg);
-      myClearFieldLabel.setBackground(bg);
-    }
   }
 
   public void setHistorySize(int historySize) {
@@ -350,18 +288,14 @@ public class SearchTextField extends JPanel {
     return getTextEditor().getText();
   }
 
+  @Override
   public void removeNotify() {
     super.removeNotify();
     hidePopup();
   }
 
   public void addCurrentTextToHistory() {
-    if ((myNativeSearchPopup != null && myNativeSearchPopup.isVisible()) || (myPopup != null && myPopup.isVisible())) {
-      return;
-    }
-    final String item = getText();
-    myModel.addElement(item);
-    if (myHistoryPropertyName != null) {
+    if (myModel.addElement(getText()) && myHistoryPropertyName != null) {
       PropertiesComponent.getInstance().setValue(myHistoryPropertyName, StringUtil.join(getHistory(), "\n"));
     }
   }
@@ -371,11 +305,9 @@ public class SearchTextField extends JPanel {
       myNativeSearchPopup.remove(myNoItems);
       final JMenuItem menuItem = new JBMenuItem(item);
       myNativeSearchPopup.add(menuItem);
-      menuItem.addActionListener(new ActionListener() {
-        public void actionPerformed(final ActionEvent e) {
-          myTextField.setText(item);
-          addCurrentTextToHistory();
-        }
+      menuItem.addActionListener(e -> {
+        myTextField.setText(item);
+        addCurrentTextToHistory();
       });
     }
   }
@@ -388,17 +320,18 @@ public class SearchTextField extends JPanel {
     return myTextField;
   }
 
+  @Override
   public boolean requestFocusInWindow() {
     return myTextField.requestFocusInWindow();
   }
 
+  @Override
   public void requestFocus() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(getTextEditor(), true);
-    });
+    IdeFocusManager.getGlobalInstance()
+                   .doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(getTextEditor(), true));
   }
 
-  public void setHistoryPropertyName(String historyPropertyName) {
+  protected void setHistoryPropertyName(String historyPropertyName) {
     myHistoryPropertyName = historyPropertyName;
     myTextField.putClientProperty("JTextField.Search.InplaceHistory", myHistoryPropertyName);
     reset();
@@ -418,27 +351,34 @@ public class SearchTextField extends JPanel {
       }
       setHistory(result);
     }
+    else {
+      setEmptyHistory();
+    }
     setSelectedItem("");
   }
 
+  protected void setEmptyHistory() {
+  }
 
   public class MyModel extends AbstractListModel {
     private List<String> myFullList = new ArrayList<>();
 
     private String mySelectedItem;
 
+    @Override
     public String getElementAt(int index) {
       return myFullList.get(index);
     }
 
+    @Override
     public int getSize() {
       return Math.min(myHistorySize, myFullList.size());
     }
 
-    public void addElement(String item) {
+    public boolean addElement(String item) {
       final String newItem = item.trim();
       if (newItem.isEmpty()) {
-        return;
+        return false;
       }
 
       final int length = myFullList.size();
@@ -451,9 +391,9 @@ public class SearchTextField extends JPanel {
       }
       if (index == 0) {
         // item is already at the top of the list
-        return;
+        return false;
       }
-      else if (index > 0) {
+      if (index > 0) {
         // move item to top of the list
         myFullList.remove(index);
       }
@@ -462,6 +402,7 @@ public class SearchTextField extends JPanel {
         myFullList.remove(myFullList.size() - 1);
       }
       insertElementAt(newItem, 0);
+      return true;
     }
 
     public void insertElementAt(String item, int index) {
@@ -518,6 +459,7 @@ public class SearchTextField extends JPanel {
   }
 
   protected void showPopup() {
+    addCurrentTextToHistory();
     if (myPopup == null || !myPopup.isVisible()) {
       final JList list = new JBList(myModel);
       final Runnable chooseRunnable = createItemChosenCallback(list);
@@ -532,16 +474,7 @@ public class SearchTextField extends JPanel {
   }
 
   protected Component getPopupLocationComponent() {
-    return hasIconsOutsideOfTextField() ? myToggleHistoryLabel : this;
-  }
-
-  private void togglePopup() {
-    if (myPopup == null) {
-      showPopup();
-    }
-    else {
-      hidePopup();
-    }
+    return this;
   }
 
   public void setSelectedItem(final String s) {
@@ -553,12 +486,13 @@ public class SearchTextField extends JPanel {
   }
 
   protected static class TextFieldWithProcessing extends JBTextField {
+    @Override
     public void processKeyEvent(KeyEvent e) {
       super.processKeyEvent(e);
     }
   }
 
-  public final void keyEventToTextField(KeyEvent e) {
+  protected final void keyEventToTextField(KeyEvent e) {
     myTextField.processKeyEvent(e);
   }
 
@@ -569,21 +503,25 @@ public class SearchTextField extends JPanel {
     }
     return false;
   }
-  
+
+  @Deprecated
+  @SuppressWarnings("unused")
   public void setSearchIcon(final Icon icon) {
-    if (! isSearchControlUISupported()) {
-      myToggleHistoryLabel.setIcon(icon);
-    }
   }
 
   public static final class FindAction extends DumbAwareAction {
     @Override
-    public void actionPerformed(AnActionEvent event) {
+    public void actionPerformed(@NotNull AnActionEvent event) {
       SearchTextField search = event.getData(KEY);
       if (search != null) {
         search.selectText();
         search.requestFocus();
       }
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+      e.getPresentation().setEnabledAndVisible(e.getData(KEY) != null);
     }
   }
 }

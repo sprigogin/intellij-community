@@ -1,25 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.chainsSearch;
 
 import com.intellij.codeInsight.NullableNotNullManager;
-import com.intellij.codeInsight.completion.CastingLookupElementDecorator;
-import com.intellij.codeInsight.completion.InsertionContext;
-import com.intellij.codeInsight.completion.JavaChainLookupElement;
-import com.intellij.codeInsight.completion.JavaMethodCallElement;
+import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.lookup.ExpressionLookupItem;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementDecorator;
@@ -68,7 +51,7 @@ public class MethodChainLookupRangingHelper {
         }
         PsiClass castClass = ((ChainOperation.TypeCast)op).getCastClass();
         PsiClassType type = JavaPsiFacade.getElementFactory(castClass.getProject()).createType(castClass);
-        chainLookupElement = CastingLookupElementDecorator.createCastingElement(chainLookupElement, type);
+        chainLookupElement = PrioritizedLookupElement.withPriority(CastingLookupElementDecorator.createCastingElement(chainLookupElement, type), -1);
       }
     }
 
@@ -84,7 +67,7 @@ public class MethodChainLookupRangingHelper {
   private static LookupElementDecorator<LookupElement> decorateWithIteratorAccess(PsiMethod method, LookupElement chainLookupElement) {
     return new LookupElementDecorator<LookupElement>(chainLookupElement) {
       @Override
-      public void handleInsert(InsertionContext context) {
+      public void handleInsert(@NotNull InsertionContext context) {
         super.handleInsert(context);
         Document document = context.getDocument();
         int tail = context.getTailOffset();
@@ -130,7 +113,6 @@ public class MethodChainLookupRangingHelper {
   @NotNull
   private static Couple<Integer> calculateParameterInfo(@NotNull PsiMethod method,
                                                         @NotNull ChainCompletionContext context) {
-    NullableNotNullManager nullableNotNullManager = NullableNotNullManager.getInstance(method.getProject());
     int unreachableParametersCount = 0;
     int matchedParametersInContext = 0;
     for (PsiParameter parameter : method.getParameterList().getParameters()) {
@@ -142,7 +124,7 @@ public class MethodChainLookupRangingHelper {
           matchedParametersInContext++;
           continue;
         }
-        if (!nullableNotNullManager.isNullable(parameter, true)) {
+        if (!NullableNotNullManager.isNullable(parameter)) {
           unreachableParametersCount++;
         }
       }

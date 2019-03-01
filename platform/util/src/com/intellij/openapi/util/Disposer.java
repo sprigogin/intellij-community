@@ -34,7 +34,7 @@ public class Disposer {
 
   static {
     try {
-      ourTree = new ObjectTree<Disposable>();
+      ourTree = new ObjectTree<>();
     }
     catch (NoClassDefFoundError e) {
       throw new RuntimeException("loader=" + Disposer.class.getClassLoader(), e);
@@ -127,10 +127,6 @@ public class Disposer {
 
   public static void dispose(@NotNull Disposable disposable, boolean processUnregistered) {
     ourTree.executeAll(disposable, ourDisposeAction, processUnregistered);
-  }
-
-  public static void disposeChildAndReplace(@NotNull Disposable toDispose, @NotNull Disposable toReplace) {
-    ourTree.executeChildAndReplace(toDispose, toReplace, ourDisposeAction);
   }
 
   @NotNull

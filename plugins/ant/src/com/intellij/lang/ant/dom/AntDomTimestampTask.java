@@ -29,10 +29,11 @@ public abstract class AntDomTimestampTask extends AntDomPropertyDefiningElement 
   public static final String DSTAMP = "DSTAMP";
   public static final String TSTAMP = "TSTAMP";
   public static final String TODAY  = "TODAY";
-  
+
   @Attribute("prefix")
   public abstract GenericAttributeValue<String> getPrefix();
 
+  @Override
   protected List<String> getImplicitPropertyNames() {
     String prefix = getPrefix().getStringValue();
     if (prefix == null) {
@@ -42,9 +43,5 @@ public abstract class AntDomTimestampTask extends AntDomPropertyDefiningElement 
       prefix += ".";
     }
     return Arrays.asList(prefix + DSTAMP, prefix + TSTAMP, prefix + TODAY);
-  }
-  // todo: provide real values if that is really needed
-  protected String calcPropertyValue(String propertyName) {
-    return super.calcPropertyValue(propertyName);
   }
 }

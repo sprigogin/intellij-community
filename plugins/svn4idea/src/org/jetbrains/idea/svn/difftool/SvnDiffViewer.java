@@ -27,7 +27,6 @@ import com.intellij.openapi.util.Key;
 import com.intellij.ui.EditorNotificationPanel;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.panels.Wrapper;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -43,10 +42,8 @@ import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 public class SvnDiffViewer implements DiffViewer {
   private static final Logger LOG = Logger.getInstance(SvnDiffViewer.class);
@@ -294,17 +291,17 @@ public class SvnDiffViewer implements DiffViewer {
   //
 
   private class ToggleHidePropertiesAction extends ToggleAction implements DumbAware {
-    public ToggleHidePropertiesAction() {
+    ToggleHidePropertiesAction() {
       ActionUtil.copyFrom(this, "Subversion.TogglePropertiesDiff");
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return !mySettings.isHideProperties();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       mySettings.setHideProperties(!state);
       updatePropertiesPanel();
     }
@@ -327,20 +324,20 @@ public class SvnDiffViewer implements DiffViewer {
     }
 
     @Override
-    public boolean isFocused() {
-      return DiffUtil.isFocusedComponent(getProject(), myPropertiesViewer.getComponent());
+    public boolean isFocusedInWindow() {
+      return DiffUtil.isFocusedComponentInWindow(myPropertiesViewer.getComponent());
     }
 
     @Override
-    public void requestFocus() {
-      DiffUtil.requestFocus(getProject(), myPropertiesViewer.getPreferredFocusedComponent());
+    public void requestFocusInWindow() {
+      DiffUtil.requestFocusInWindow(myPropertiesViewer.getPreferredFocusedComponent());
     }
   }
 
   private class MyFocusListener extends FocusAdapter {
     private final boolean myValue;
 
-    public MyFocusListener(boolean value) {
+    MyFocusListener(boolean value) {
       myValue = value;
     }
 
@@ -353,7 +350,7 @@ public class SvnDiffViewer implements DiffViewer {
   private static class MySplitter extends Splitter {
     @NotNull private final String myLabelText;
 
-    public MySplitter(@NotNull String text) {
+    MySplitter(@NotNull String text) {
       super(true);
       myLabelText = text;
     }

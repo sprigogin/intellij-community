@@ -22,7 +22,7 @@ import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -34,7 +34,7 @@ import java.util.stream.Stream;
  * @author Tagir Valeev
  */
 public class CallMapper<T> {
-  private Map<String, List<CallHandler<T>>> myMap = new HashMap<>();
+  private final Map<String, List<CallHandler<T>>> myMap = new LinkedHashMap<>();
 
   public CallMapper() {}
 
@@ -57,7 +57,7 @@ public class CallMapper<T> {
     return register(CallHandler.of(matcher, call -> value));
   }
 
-  public CallMapper<T> registerAll(List<CallHandler<T>> handlers) {
+  public CallMapper<T> registerAll(List<? extends CallHandler<T>> handlers) {
     handlers.forEach(this::register);
     return this;
   }

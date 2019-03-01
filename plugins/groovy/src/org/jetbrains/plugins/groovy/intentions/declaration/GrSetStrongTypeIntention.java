@@ -121,7 +121,7 @@ public class GrSetStrongTypeIntention extends Intention {
     final TypeInfo typeInfo = getOrCreateTypeElement(parent, elementToBuildTemplate);
     final PsiElement replaceElement = typeInfo.elementToReplace;
 
-    TypeConstraint[] constraints = types.toArray(new TypeConstraint[types.size()]);
+    TypeConstraint[] constraints = types.toArray(TypeConstraint.EMPTY_ARRAY);
     ChooseTypeExpression chooseTypeExpression = new ChooseTypeExpression(constraints, element.getManager(), replaceElement.getResolveScope());
 
     TemplateBuilderImpl builder = new TemplateBuilderImpl(elementToBuildTemplate);
@@ -141,7 +141,7 @@ public class GrSetStrongTypeIntention extends Intention {
     TemplateManager templateManager = TemplateManager.getInstance(project);
     templateManager.startTemplate(editor, template, new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
         if (brokenOff) {
           ApplicationManager.getApplication().runWriteAction(() -> {
             if (rangeMarker.isValid()) {

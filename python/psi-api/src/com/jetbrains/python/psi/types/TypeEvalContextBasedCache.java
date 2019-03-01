@@ -20,9 +20,9 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.util.Function;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
@@ -36,14 +36,14 @@ public final class TypeEvalContextBasedCache<T> {
   private final CachedValue<ConcurrentMap<TypeEvalConstraints, T>> myCachedMapStorage;
 
   @NotNull
-  private final Function<TypeEvalContext, T> myProvider;
+  private final Function<? super TypeEvalContext, ? extends T> myProvider;
 
   /**
    * @param manager       Cache manager to be used to store cache
    * @param valueProvider engine to create value based on context.
    */
   public TypeEvalContextBasedCache(@NotNull final CachedValuesManager manager,
-                                   @NotNull final Function<TypeEvalContext, T> valueProvider) {
+                                   @NotNull final Function<? super TypeEvalContext, ? extends T> valueProvider) {
     myCachedMapStorage = manager.createCachedValue(new MapCreator<T>(), false);
     myProvider = valueProvider;
   }
@@ -68,8 +68,9 @@ public final class TypeEvalContextBasedCache<T> {
       return value;
     }
     final T newValue = myProvider.fun(context);
-    map.put(key, newValue); // ConcurrentMap guarantees happens-before so from this moment get() should work in other threads
-    return newValue;
+    T oldValue =
+      map.putIfAbsent(key, newValue);// ConcurrentMap guarantees happens-before so from this moment get() should work in other threads
+    return oldValue == null ? newValue : oldValue;
   }
 
   /**
@@ -81,7 +82,7 @@ public final class TypeEvalContextBasedCache<T> {
     public Result<ConcurrentMap<TypeEvalConstraints, T>> compute() {
       // This method is called if cache is empty. Create new map for it.
       // Concurrent map allows several threads to call get and put, so it is thread safe but not atomic
-      final ConcurrentHashMap<TypeEvalConstraints, T> map = new ConcurrentHashMap<>();
+      final ConcurrentMap<TypeEvalConstraints, T> map = ContainerUtil.createConcurrentSoftValueMap();
       return new Result<>(map, PsiModificationTracker.MODIFICATION_COUNT);
     }
   }

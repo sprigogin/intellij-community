@@ -144,7 +144,6 @@ public abstract class ModuleManager extends SimpleModificationTracker {
    *
    * @param includeTests whether test-only dependencies should be included
    * @return the module dependency graph.
-   * @since 11.0
    */
   @NotNull
   public abstract Graph<Module> moduleGraph(boolean includeTests);
@@ -188,6 +187,9 @@ public abstract class ModuleManager extends SimpleModificationTracker {
   @Nullable
   public abstract UnloadedModuleDescription getUnloadedModuleDescription(@NotNull String moduleName);
 
+  @NotNull
+  public abstract ModuleGrouper getModuleGrouper(@Nullable ModifiableModuleModel model);
+
   /**
    * Specify list of modules which will be unloaded from the project.
    * @see UnloadedModuleDescription
@@ -196,6 +198,6 @@ public abstract class ModuleManager extends SimpleModificationTracker {
   public abstract void setUnloadedModules(@NotNull List<String> unloadedModuleNames);
 
   @ApiStatus.Experimental
-  public void removeUnloadedModules(@NotNull Collection<UnloadedModuleDescription> unloadedModules) {
+  public void removeUnloadedModules(@NotNull Collection<? extends UnloadedModuleDescription> unloadedModules) {
   }
 }

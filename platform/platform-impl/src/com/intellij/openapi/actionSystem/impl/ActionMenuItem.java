@@ -1,11 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.ui.UISettings;
-import com.intellij.ide.ui.laf.darcula.DarculaLaf;
-import com.intellij.ide.ui.laf.intellij.MacIntelliJIconCache;
-import com.intellij.internal.statistic.customUsageCollectors.actions.MainMenuCollector;
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.MainMenuCollector;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
@@ -21,15 +19,13 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.components.JBCheckBoxMenuItem;
 import com.intellij.ui.plaf.beg.BegMenuItemUI;
-import com.intellij.ui.plaf.gtk.GtkMenuItemUI;
 import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.LafIconLookup;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.plaf.MenuItemUI;
-import javax.swing.plaf.synth.SynthMenuItemUI;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -53,6 +49,7 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
   private AnActionEvent myEvent;
   private MenuItemSynchronizer myMenuItemSynchronizer;
   private boolean myToggled;
+  private final boolean myUseDarkIcons;
 
   public ActionMenuItem(final AnAction action,
                         final Presentation presentation,
@@ -60,7 +57,8 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
                         @NotNull DataContext context,
                         final boolean enableMnemonics,
                         final boolean prepareNow,
-                        final boolean insideCheckedGroup) {
+                        final boolean insideCheckedGroup,
+                        final boolean useDarkIcons) {
     myAction = ActionRef.fromAction(action);
     myPresentation = presentation;
     myPlace = place;
@@ -68,6 +66,7 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
     myEnableMnemonics = enableMnemonics;
     myToggleable = action instanceof Toggleable;
     myInsideCheckedGroup = insideCheckedGroup;
+    myUseDarkIcons = useDarkIcons;
 
     myEvent = new AnActionEvent(null, context, place, myPresentation, ActionManager.getInstance(), 0, true, false);
     addActionListener(new ActionTransmitter());
@@ -156,10 +155,8 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
       setAcceleratorFromShortcuts(getActiveKeymapShortcuts(id).getShortcuts());
     }
     else {
-      final ShortcutSet shortcutSet = action.getShortcutSet();
-      if (shortcutSet != null) {
-        setAcceleratorFromShortcuts(shortcutSet.getShortcuts());
-      }
+      ShortcutSet shortcutSet = action.getShortcutSet();
+      setAcceleratorFromShortcuts(shortcutSet.getShortcuts());
     }
   }
 
@@ -178,18 +175,7 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
 
   @Override
   public void updateUI() {
-    if (UIUtil.isStandardMenuLAF()) {
-      super.updateUI();
-    }
-    else {
-      setUI(BegMenuItemUI.createUI(this));
-    }
-  }
-
-  @Override
-  public void setUI(MenuItemUI ui) {
-    MenuItemUI newUi = UIUtil.isUnderGTKLookAndFeel() && ui instanceof SynthMenuItemUI ? new GtkMenuItemUI((SynthMenuItemUI)ui) : ui;
-    super.setUI(newUi);
+    setUI(BegMenuItemUI.createUI(this));
   }
 
   /**
@@ -214,16 +200,14 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
     if (isToggleable() && (myPresentation.getIcon() == null || myInsideCheckedGroup || !UISettings.getInstance().getShowIconsInMenus())) {
       action.update(myEvent);
       myToggled = Boolean.TRUE.equals(myEvent.getPresentation().getClientProperty(Toggleable.SELECTED_PROPERTY));
-      if (ActionPlaces.MAIN_MENU.equals(myPlace) && SystemInfo.isMacSystemMenu ||
-          UIUtil.isUnderWindowsLookAndFeel() && SystemInfo.isWin7OrNewer) {
+      if (ActionPlaces.MAIN_MENU.equals(myPlace) && SystemInfo.isMacSystemMenu) {
         setState(myToggled);
       }
-      else if (!(getUI() instanceof GtkMenuItemUI)) {
+      else {
         if (myToggled) {
-          boolean darcula = UIUtil.isUnderDarcula();
-          setIcon(getIcon(darcula));
-          setSelectedIcon(getSelectedIcon(darcula));
-          setDisabledIcon(getDisabledIcon(darcula));
+          setIcon(LafIconLookup.getIcon("checkmark"));
+          setSelectedIcon(LafIconLookup.getSelectedIcon("checkmark"));
+          setDisabledIcon(LafIconLookup.getDisabledIcon("checkmark"));
         }
         else {
           setIcon(EmptyIcon.ICON_16);
@@ -238,35 +222,25 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
         if (action instanceof ToggleAction && ((ToggleAction)action).isSelected(myEvent)) {
           icon = new PoppedIcon(icon, 16, 16);
         }
-        setIcon(icon);
-        Icon selected = myPresentation.getSelectedIcon();
-        setSelectedIcon(selected != null ? selected : icon);
         Icon disabled = myPresentation.getDisabledIcon();
-        setDisabledIcon(disabled != null ? disabled : IconLoader.getDisabledIcon(icon));
+        if (disabled == null)
+          disabled = IconLoader.getDisabledIcon(icon);
+        Icon selected = myPresentation.getSelectedIcon();
+        if (selected == null)
+          selected = icon;
+
+        setIcon(myPresentation.isEnabled() ? icon : disabled);
+        setSelectedIcon(selected != null ? selected : icon);
+        setDisabledIcon(disabled);
       }
     }
-  }
-
-  private static Icon getIcon(boolean darcula) {
-    if (darcula) return DarculaLaf.loadIcon("checkmark.png");
-    return MacIntelliJIconCache.getIcon("checkmark", false, false, true);
-  }
-
-  private static Icon getSelectedIcon(boolean darcula) {
-    if (darcula) return DarculaLaf.loadIcon("checkmarkSelected.png");
-    return MacIntelliJIconCache.getIcon("checkmark", true, false, true);
-  }
-
-  private static Icon getDisabledIcon(boolean darcula) {
-    if (darcula) return DarculaLaf.loadIcon("checkmarkDisabled.png");
-    return MacIntelliJIconCache.getIcon("checkmark", false, false, false);
   }
 
   @Override
   public void setIcon(Icon icon) {
     if (SystemInfo.isMacSystemMenu && ActionPlaces.MAIN_MENU.equals(myPlace)) {
       // JDK can't paint correctly our HiDPI icons at the system menu bar
-      icon = IconLoader.get1xIcon(icon);
+      icon = IconLoader.getMenuBarIcon(icon, myUseDarkIcons);
     }
     super.setIcon(icon);
   }
@@ -370,6 +344,8 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
         }
         else if (Presentation.PROP_TEXT.equals(name)) {
           setText(myPresentation.getText());
+          Window window = UIUtil.getWindow(ActionMenuItem.this);
+          if (window != null) window.pack();
         }
         else if (Presentation.PROP_ICON.equals(name) || Presentation.PROP_DISABLED_ICON.equals(name) || SELECTED.equals(name)) {
           updateIcon(myAction.getAction());

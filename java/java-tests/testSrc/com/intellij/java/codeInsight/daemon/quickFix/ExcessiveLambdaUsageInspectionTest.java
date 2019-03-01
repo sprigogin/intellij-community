@@ -16,7 +16,7 @@
 package com.intellij.java.codeInsight.daemon.quickFix;
 
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
-import com.intellij.codeInspection.ExcessiveLambdaUsageInspection;
+import com.intellij.codeInspection.lambdaToExplicit.ExcessiveLambdaUsageInspection;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.testFramework.IdeaTestUtil;
@@ -36,8 +36,6 @@ public class ExcessiveLambdaUsageInspectionTest extends LightQuickFixParameteriz
   protected Sdk getProjectJDK() {
     return IdeaTestUtil.getMockJdk9();
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

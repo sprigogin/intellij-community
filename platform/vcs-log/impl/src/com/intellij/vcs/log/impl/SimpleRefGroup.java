@@ -24,21 +24,27 @@ import com.intellij.vcs.log.VcsRefType;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class SimpleRefGroup implements RefGroup {
   @NotNull private final String myName;
   @NotNull private final List<VcsRef> myRefs;
+  private final boolean myExpanded;
 
   public SimpleRefGroup(@NotNull String name, @NotNull List<VcsRef> refs) {
+    this(name, refs, false);
+  }
+
+  public SimpleRefGroup(@NotNull String name, @NotNull List<VcsRef> refs, boolean expanded) {
     myName = name;
     myRefs = refs;
+    myExpanded = expanded;
   }
 
   @Override
   public boolean isExpanded() {
-    return false;
+    return myExpanded;
   }
 
   @NotNull
@@ -60,7 +66,7 @@ public class SimpleRefGroup implements RefGroup {
   }
 
   @NotNull
-  public static List<Color> getColors(@NotNull Collection<VcsRef> refs) {
+  public static List<Color> getColors(@NotNull Collection<? extends VcsRef> refs) {
     MultiMap<VcsRefType, VcsRef> referencesByType = ContainerUtil.groupBy(refs, VcsRef::getType);
     if (referencesByType.size() == 1) {
       Map.Entry<VcsRefType, Collection<VcsRef>> firstItem =

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("CreateFieldFromUsage")
 
 package com.intellij.lang.java.request
@@ -25,8 +11,11 @@ import com.intellij.lang.jvm.JvmClassKind
 import com.intellij.lang.jvm.JvmModifier
 import com.intellij.lang.jvm.actions.CreateFieldRequest
 import com.intellij.lang.jvm.actions.EP_NAME
+import com.intellij.lang.jvm.actions.groupActionsByType
 import com.intellij.psi.*
+import com.intellij.psi.impl.PsiImplUtil
 import com.intellij.psi.util.PsiUtil.resolveClassInClassTypeOnly
+import com.intellij.psi.util.PsiUtilCore
 import com.intellij.psi.util.parentOfType
 
 fun generateActions(ref: PsiReferenceExpression): List<IntentionAction> {
@@ -37,7 +26,7 @@ fun generateActions(ref: PsiReferenceExpression): List<IntentionAction> {
     extensions.flatMap { ext ->
       ext.createAddFieldActions(clazz, request)
     }
-  }
+  }.groupActionsByType()
 }
 
 private fun checkReference(ref: PsiReferenceExpression): Boolean {
@@ -53,6 +42,13 @@ private class CreateFieldRequests(val myRef: PsiReferenceExpression) {
   fun collectRequests(): Map<JvmClass, CreateFieldRequest> {
     doCollectRequests()
     return requests
+  }
+
+  private fun addRequest(target: JvmClass, request: CreateFieldRequest) {
+    if (target is PsiElement) {
+      PsiUtilCore.ensureValid(target)
+    }
+    requests[target] = request
   }
 
   private fun doCollectRequests() {
@@ -71,7 +67,7 @@ private class CreateFieldRequests(val myRef: PsiReferenceExpression) {
       }
     }
     else {
-      val baseClass = extractBaseClassFromSwitchStatement()
+      val baseClass = resolveClassInClassTypeOnly(PsiImplUtil.getSwitchLabel(myRef)?.enclosingSwitchStatement?.expression?.type)
       if (baseClass != null) {
         processHierarchy(baseClass)
       }
@@ -79,12 +75,6 @@ private class CreateFieldRequests(val myRef: PsiReferenceExpression) {
         processOuterAndImported()
       }
     }
-  }
-
-  private fun extractBaseClassFromSwitchStatement(): PsiClass? {
-    val parent = myRef.parent as? PsiSwitchLabelStatement ?: return null
-    val switchStatement = parent.parentOfType<PsiSwitchStatement>() ?: return null
-    return resolveClassInClassTypeOnly(switchStatement.expression?.type)
   }
 
   private fun processHierarchy(baseClass: PsiClass) {
@@ -125,9 +115,9 @@ private class CreateFieldRequests(val myRef: PsiReferenceExpression) {
       modifiers = modifiers,
       reference = myRef,
       useAnchor = target.toJavaClassOrNull() == ownerClass,
-      constant = false
+      isConstant = false
     )
-    requests[target] = request
+    addRequest(target, request)
   }
 }
 

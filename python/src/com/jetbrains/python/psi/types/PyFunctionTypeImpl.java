@@ -119,7 +119,7 @@ public class PyFunctionTypeImpl implements PyFunctionType {
     final boolean isNonStaticMethod = function != null && function.getContainingClass() != null && function.getModifier() != STATICMETHOD;
     if (isNonStaticMethod) {
       // In Python 2 unbound methods have __method fake type
-      if (LanguageLevel.forElement(location).isOlderThan(LanguageLevel.PYTHON30)) {
+      if (LanguageLevel.forElement(location).isPython2()) {
         return true;
       }
       final PyExpression qualifier;
@@ -131,7 +131,6 @@ public class PyFunctionTypeImpl implements PyFunctionType {
         qualifier = ContainerUtil.getLastItem(location.followAssignmentsChain(resolveContext).getQualifiers());
       }
       if (qualifier != null) {
-        //noinspection ConstantConditions
         final PyType qualifierType = PyTypeChecker.toNonWeakType(context.getType(qualifier), context);
         if (isInstanceType(qualifierType)) {
           return true;
@@ -172,6 +171,7 @@ public class PyFunctionTypeImpl implements PyFunctionType {
     return myCallable;
   }
 
+  @Override
   @NotNull
   public PyFunctionType dropSelf(@NotNull TypeEvalContext context) {
     final List<PyCallableParameter> parameters = getParameters(context);

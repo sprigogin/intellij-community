@@ -14,7 +14,7 @@ import com.intellij.refactoring.listeners.UndoRefactoringElementListener;
 import org.jetbrains.annotations.NotNull;
 
 class TestMethod extends TestObject {
-  public TestMethod(JUnitConfiguration configuration, ExecutionEnvironment environment) {
+  TestMethod(JUnitConfiguration configuration, ExecutionEnvironment environment) {
     super(configuration, environment);
   }
 
@@ -32,7 +32,7 @@ class TestMethod extends TestObject {
 
   @Override
   public String suggestActionName() {
-    return ProgramRunnerUtil.shortenName(getConfiguration().getPersistentData().METHOD_NAME, 2) + "()";
+    return ProgramRunnerUtil.shortenName(getConfiguration().getPersistentData().getMethodName(), 2) + "()";
   }
 
   @Override

@@ -131,7 +131,7 @@ class ClsDocTagImpl extends ClsElementImpl implements PsiDocTag {
     private final ClsDocTagImpl myParent;
     private final String myText;
 
-    public NameElement(ClsDocTagImpl parent, String text) {
+    NameElement(ClsDocTagImpl parent, String text) {
       myParent = parent;
       myText = text;
     }
@@ -165,11 +165,6 @@ class ClsDocTagImpl extends ClsElementImpl implements PsiDocTag {
     @Override
     public PsiElement getParent() {
       return myParent;
-    }
-
-    @Override
-    public void accept(@NotNull PsiElementVisitor visitor) {
-      visitor.visitElement(this);
     }
   }
 }

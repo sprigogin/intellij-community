@@ -38,15 +38,15 @@ public class StreamKnownSource {
       System.out.println("Probably");
     }
 
-    boolean emptyAll = Stream.empty().allMatch(Objects::nonNull);
+    boolean emptyAll = <warning descr="Result of 'Stream.empty().allMatch(Objects::nonNull)' is always 'true'">Stream.empty().allMatch(Objects::nonNull)</warning>;
     if (<warning descr="Condition 'emptyAll' is always 'true'">emptyAll</warning>) {
       System.out.println("True");
     }
-    boolean emptyAny = Stream.empty().anyMatch(Objects::nonNull);
+    boolean emptyAny = <warning descr="Result of 'Stream.empty().anyMatch(Objects::nonNull)' is always 'false'">Stream.empty().anyMatch(Objects::nonNull)</warning>;
     if (<warning descr="Condition 'emptyAny' is always 'false'">emptyAny</warning>) {
       System.out.println("False");
     }
-    boolean emptyNone = Stream.empty().noneMatch(Objects::nonNull);
+    boolean emptyNone = <warning descr="Result of 'Stream.empty().noneMatch(Objects::nonNull)' is always 'true'">Stream.empty().noneMatch(Objects::nonNull)</warning>;
     if (<warning descr="Condition 'emptyNone' is always 'true'">emptyNone</warning>) {
       System.out.println("True");
     }
@@ -77,7 +77,7 @@ public class StreamKnownSource {
   }
 
   void testStreamOf(int[] arr) {
-    if(Stream.of().count() > 0) {
+    if(<warning descr="Condition 'Stream.of().count() > 0' is always 'false'">Stream.of().count() > 0</warning>) {
       System.out.println("Impossible");
     }
     if(<warning descr="Condition 'Stream.of(\"foo\", \"bar\").findFirst().isPresent()' is always 'true'">Stream.of("foo", "bar").findFirst().isPresent()</warning>) {
@@ -103,9 +103,13 @@ public class StreamKnownSource {
     if(res == null && <warning descr="Condition 'empty' is always 'true' when reached">empty</warning>) {
       System.out.println("res == null -> empty list");
     }
+  }
+
+  void testListSize2(List<String> list) {
+    boolean empty = list.isEmpty();
     Optional<String> first = list.stream().filter(Objects::nonNull).findFirst();
     if (empty) {
-      System.out.println(first.<warning descr="'Optional.get()' without 'isPresent()' check">get</warning>());
+      System.out.println(first.<warning descr="The call to 'get' always fails, according to its method contracts">get</warning>());
     }
   }
 
@@ -115,10 +119,28 @@ public class StreamKnownSource {
       return;
     }
 
-    boolean hasNoNulls = list.stream().allMatch(Objects::nonNull);
+    boolean hasNoNulls = <warning descr="Result of 'list.stream().allMatch(Objects::nonNull)' is always 'true'">list.stream().allMatch(Objects::nonNull)</warning>;
 
     if(<warning descr="Condition 'hasNoNulls' is always 'true'">hasNoNulls</warning>) {
       System.out.println("Always");
     }
+  }
+
+  void testLongVararg() {
+    IntStream.of(1, 2, 3, 4, 5).anyMatch(x -> <warning descr="Condition 'x > 6' is always 'false'">x > 6</warning>);
+    Stream.of("foo", "bar", "baz", "qux").filter(<warning descr="Method reference result is always 'true'">Objects::nonNull</warning>).forEach(System.out::println);
+  }
+
+  void testShortVararg(String a, String b) {
+    if(Stream.of(a, b).allMatch(Objects::isNull)) {
+      if(<warning descr="Condition 'a != null' is always 'false'">a != null</warning>) {
+        System.out.println("Impossible");
+      }
+      if(<warning descr="Condition 'b != null' is always 'false'">b != null</warning>) {
+        System.out.println("Impossible");
+      }
+    }
+    IntStream.of(1, 2).anyMatch(x -> <warning descr="Condition 'x > 6' is always 'false'">x > 6</warning>);
+    Stream.of("foo", "bar").filter(<warning descr="Method reference result is always 'true'">Objects::nonNull</warning>).forEach(System.out::println);
   }
 }

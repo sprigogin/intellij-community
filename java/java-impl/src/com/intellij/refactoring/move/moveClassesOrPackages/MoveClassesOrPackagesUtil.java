@@ -41,7 +41,6 @@ import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.refactoring.util.TextOccurrencesUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -73,7 +72,7 @@ public class MoveClassesOrPackagesUtil {
 
     findNonCodeUsages(searchInStringsAndComments, searchInNonJavaFiles, element, newQName, results);
     preprocessUsages(results);
-    return results.toArray(new UsageInfo[results.size()]);
+    return results.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   private static void preprocessUsages(ArrayList<UsageInfo> results) {
@@ -86,7 +85,7 @@ public class MoveClassesOrPackagesUtil {
                                        boolean searchInNonJavaFiles,
                                        final PsiElement element,
                                        final String newQName,
-                                       ArrayList<UsageInfo> results) {
+                                       ArrayList<? super UsageInfo> results) {
     final String stringToSearch = getStringToSearch(element);
     if (stringToSearch == null) return;
     TextOccurrencesUtil.findNonCodeUsages(element, stringToSearch, searchInStringsAndComments, searchInNonJavaFiles, newQName, results);
@@ -101,6 +100,9 @@ public class MoveClassesOrPackagesUtil {
     }
     else if (element instanceof PsiDirectory) {
       return getStringToSearch(JavaDirectoryService.getInstance().getPackage((PsiDirectory)element));
+    }
+    else if (element instanceof PsiClassOwner) {
+      return ((PsiClassOwner)element).getName();
     }
     else {
       LOG.error("Unknown element type");
@@ -144,7 +146,7 @@ public class MoveClassesOrPackagesUtil {
     moveDirectoryRecursively(dir, destination, new HashSet<>());
   }
 
-  private static void moveDirectoryRecursively(PsiDirectory dir, PsiDirectory destination, HashSet<VirtualFile> movedPaths) throws IncorrectOperationException {
+  private static void moveDirectoryRecursively(PsiDirectory dir, PsiDirectory destination, HashSet<? super VirtualFile> movedPaths) throws IncorrectOperationException {
     final VirtualFile destVFile = destination.getVirtualFile();
     final VirtualFile sourceVFile = dir.getVirtualFile();
     if (movedPaths.contains(sourceVFile)) return;
@@ -314,7 +316,7 @@ public class MoveClassesOrPackagesUtil {
   }
 
   public static VirtualFile chooseSourceRoot(final PackageWrapper targetPackage,
-                                             final List<VirtualFile> contentSourceRoots,
+                                             final List<? extends VirtualFile> contentSourceRoots,
                                              final PsiDirectory initialDirectory) {
     Project project = targetPackage.getManager().getProject();
     //ensure that there would be no duplicates: e.g. when one content root is subfolder of another root (configured via excluded roots)
@@ -323,7 +325,7 @@ public class MoveClassesOrPackagesUtil {
     buildDirectoryList(targetPackage, contentSourceRoots, targetDirectories, relativePathsToCreate);
 
     final PsiDirectory selectedDirectory = DirectoryChooserUtil.chooseDirectory(
-      targetDirectories.toArray(new PsiDirectory[targetDirectories.size()]),
+      targetDirectories.toArray(PsiDirectory.EMPTY_ARRAY),
       initialDirectory,
       project,
       relativePathsToCreate
@@ -337,8 +339,8 @@ public class MoveClassesOrPackagesUtil {
   }
 
   public static void buildDirectoryList(PackageWrapper aPackage,
-                                        List<VirtualFile> contentSourceRoots,
-                                        LinkedHashSet<PsiDirectory> targetDirectories,
+                                        List<? extends VirtualFile> contentSourceRoots,
+                                        LinkedHashSet<? super PsiDirectory> targetDirectories,
                                         Map<PsiDirectory, String> relativePathsToCreate) {
 
     final PsiDirectory[] directories = aPackage.getDirectories();
@@ -366,7 +368,7 @@ public class MoveClassesOrPackagesUtil {
         final PsiDirectory subdirectory = currentDirectory.findSubdirectory(shortName);
         if (subdirectory == null) {
           targetDirectories.add(currentDirectory);
-          final StringBuffer postfix = new StringBuffer();
+          final StringBuilder postfix = new StringBuilder();
           for (int k = j; k < shortNames.length; k++) {
             String name = shortNames[k];
             postfix.append(File.separatorChar);

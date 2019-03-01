@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
+import com.google.common.collect.ImmutableMap;
 import com.intellij.codeInsight.controlflow.ControlFlowUtil;
 import com.intellij.codeInsight.controlflow.Instruction;
 import com.intellij.codeInspection.*;
 import com.intellij.lang.injection.InjectedLanguageManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
@@ -61,6 +47,7 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
   private final boolean myIgnoreTupleUnpacking;
   private final boolean myIgnoreLambdaParameters;
   private final boolean myIgnoreRangeIterationVariables;
+  private final boolean myIgnoreVariablesStartingWithUnderscore;
   private final HashSet<PsiElement> myUnusedElements;
   private final HashSet<PsiElement> myUsedElements;
 
@@ -68,11 +55,13 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
                                         @NotNull LocalInspectionToolSession session,
                                         boolean ignoreTupleUnpacking,
                                         boolean ignoreLambdaParameters,
-                                        boolean ignoreRangeIterationVariables) {
+                                        boolean ignoreRangeIterationVariables,
+                                        boolean ignoreVariablesStartingWithUnderscore) {
     super(holder, session);
     myIgnoreTupleUnpacking = ignoreTupleUnpacking;
     myIgnoreLambdaParameters = ignoreLambdaParameters;
     myIgnoreRangeIterationVariables = ignoreRangeIterationVariables;
+    myIgnoreVariablesStartingWithUnderscore = ignoreVariablesStartingWithUnderscore;
     myUnusedElements = new HashSet<>();
     myUsedElements = new HashSet<>();
   }
@@ -193,9 +182,11 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
       final PyFunction function = (PyFunction)owner;
       final String functionName = function.getName();
 
-      return !PyNames.INIT.equals(functionName) &&
-             function.getContainingClass() != null &&
-             PyNames.getBuiltinMethods(LanguageLevel.forElement(function)).containsKey(functionName);
+      final LanguageLevel level = LanguageLevel.forElement(function);
+      final ImmutableMap<String, PyNames.BuiltinDescription> builtinMethods =
+        function.getContainingClass() != null ? PyNames.getBuiltinMethods(level) : PyNames.getModuleBuiltinMethods(level);
+
+      return !PyNames.INIT.equals(functionName) && builtinMethods.containsKey(functionName);
     }
 
     return false;
@@ -242,7 +233,7 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
     if (scopeAnchor != null) {
       final ScopeOwner declOwner = ScopeUtil.getDeclarationScopeOwner(scopeAnchor, name);
       if (declOwner != null && declOwner != owner) {
-        final Collection<PsiElement> writeElements = ScopeUtil.getReadWriteElements(name, declOwner, false, true);
+        final Collection<PsiElement> writeElements = ScopeUtil.getElementsOfAccessType(name, declOwner, ReadWriteInstruction.ACCESS.WRITE);
         for (PsiElement e : writeElements) {
           myUsedElements.add(e);
           myUnusedElements.remove(e);
@@ -302,7 +293,7 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
   }
 
   void registerProblems() {
-    final PyInspectionExtension[] filters = Extensions.getExtensions(PyInspectionExtension.EP_NAME);
+    final List<PyInspectionExtension> filters = PyInspectionExtension.EP_NAME.getExtensionList();
     // Register problems
 
     final Set<PyFunction> functionsWithInheritors = new HashSet<>();
@@ -311,7 +302,7 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
     for (PsiElement element : myUnusedElements) {
       boolean ignoreUnused = false;
       for (PyInspectionExtension filter : filters) {
-        if (filter.ignoreUnused(element)) {
+        if (filter.ignoreUnused(element, myTypeEvalContext)) {
           ignoreUnused = true;
         }
       }
@@ -377,9 +368,9 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
             fixes.add(new AddFieldQuickFix(name, name, containingClass.getName(), false));
           }
           if (canRemove) {
-            fixes.add(new PyRemoveParameterQuickFix(myTypeEvalContext));
+            fixes.add(new PyRemoveParameterQuickFix());
           }
-          registerWarning(element, PyBundle.message("INSP.unused.locals.parameter.isnot.used", name), fixes.toArray(new LocalQuickFix[fixes.size()]));
+          registerWarning(element, PyBundle.message("INSP.unused.locals.parameter.isnot.used", name), fixes.toArray(LocalQuickFix.EMPTY_ARRAY));
         }
         else {
           if (myIgnoreTupleUnpacking && isTupleUnpacking(element)) {
@@ -392,7 +383,7 @@ public class PyUnusedLocalInspectionVisitor extends PyInspectionVisitor {
                               ProblemHighlightType.LIKE_UNUSED_SYMBOL, null, new ReplaceWithWildCard());
             }
           }
-          else {
+          else if (!myIgnoreVariablesStartingWithUnderscore || !name.startsWith(PyNames.UNDERSCORE)) {
             registerWarning(element, PyBundle.message("INSP.unused.locals.local.variable.isnot.used", name), new PyRemoveStatementQuickFix());
           }
         }

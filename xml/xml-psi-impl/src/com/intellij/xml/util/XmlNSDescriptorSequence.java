@@ -61,7 +61,7 @@ public class XmlNSDescriptorSequence implements XmlNSDescriptor{
       ContainerUtil.addAll(descriptors, descriptor.getRootElementsDescriptors(document));
     }
 
-    return descriptors.toArray(new XmlElementDescriptor[descriptors.size()]);
+    return descriptors.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   @Override
@@ -113,10 +113,10 @@ public class XmlNSDescriptorSequence implements XmlNSDescriptor{
 
   @NotNull
   @Override
-  public Object[] getDependences(){
-    final List<Object> ret = new ArrayList<>();
+  public Object[] getDependencies(){
+    List<Object> ret = new ArrayList<>();
     for (XmlNSDescriptor descriptor : sequence) {
-      ContainerUtil.addAll(ret, descriptor.getDependences());
+      ContainerUtil.addAll(ret, descriptor.getDependencies());
     }
     return ret.toArray();
   }

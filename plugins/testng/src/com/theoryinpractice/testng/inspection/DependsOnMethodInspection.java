@@ -8,12 +8,12 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  */
 public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTool {
   private static final Logger LOGGER = Logger.getInstance("TestNG Runner");
-  private static final Pattern PATTERN = Pattern.compile("\"([a-zA-Z1-9_\\(\\)\\*]*)\"");
+  private static final Pattern PATTERN = Pattern.compile("\"([a-zA-Z1-9_()*]*)\"");
 
   @NotNull
   @Override
@@ -35,7 +35,7 @@ public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTo
   @NotNull
   @Override
   public String getDisplayName() {
-    return "dependsOnMethods problem";
+    return "'dependsOnMethods' problem";
   }
 
   @NotNull
@@ -44,6 +44,7 @@ public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTo
     return "dependsOnMethodTestNG";
   }
 
+  @Override
   public boolean isEnabledByDefault() {
     return true;
   }
@@ -94,7 +95,7 @@ public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTo
       }
     }
 
-    return problemDescriptors.toArray(new ProblemDescriptor[problemDescriptors.size()]);
+    return problemDescriptors.toArray(ProblemDescriptor.EMPTY_ARRAY);
   }
 
   private static void checkMethodNameDependency(InspectionManager manager,
@@ -104,7 +105,7 @@ public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTo
                                                 List<ProblemDescriptor> problemDescriptors,
                                                 boolean onTheFly) {
     LOGGER.debug("Found dependsOnMethods with text: " + methodName);
-    if (methodName.length() > 0 && methodName.charAt(methodName.length() - 1) == ')') {
+    if (!methodName.isEmpty() && methodName.charAt(methodName.length() - 1) == ')') {
 
       LOGGER.debug("dependsOnMethods contains ()" + psiClass.getName());
       // TODO Add quick fix for removing brackets on annotation
@@ -119,7 +120,7 @@ public class DependsOnMethodInspection extends AbstractBaseJavaLocalInspectionTo
         final String methodNameMask = StringUtil.trimEnd(methodName, "*");
         final List<PsiMethod> methods = ContainerUtil.filter(psiClass.getMethods(),
                                                              method -> method.getName().startsWith(methodNameMask));
-        foundMethods = methods.toArray(new PsiMethod[methods.size()]);
+        foundMethods = methods.toArray(PsiMethod.EMPTY_ARRAY);
       }
       else {
         foundMethods = psiClass.findMethodsByName(methodName, true);

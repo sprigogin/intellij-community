@@ -15,6 +15,9 @@
  */
 package org.jetbrains.intellij.build.impl
 
+import com.google.gson.GsonBuilder
+import com.intellij.util.containers.ContainerUtil
+import groovy.text.SimpleTemplateEngine
 import groovy.transform.CompileStatic
 import org.jetbrains.intellij.build.BuildMessages
 import org.jetbrains.intellij.build.LibraryLicense
@@ -30,41 +33,40 @@ import org.jetbrains.jps.model.module.JpsModule
 @CompileStatic
 class LibraryLicensesListGenerator {
   private final BuildMessages messages
-  private final JpsProject project
-  private final List<LibraryLicense> licensesList
+  private Map<LibraryLicense, String> licensesInModules
 
-  LibraryLicensesListGenerator(BuildMessages messages, JpsProject project, List<LibraryLicense> licensesList) {
+  private LibraryLicensesListGenerator(BuildMessages messages,
+                                       Map<LibraryLicense, String> licensesInModules) {
     this.messages = messages
-    this.project = project
-    this.licensesList = licensesList
+    this.licensesInModules = licensesInModules
   }
 
-  private String getLibraryName(JpsLibrary lib) {
-    def name = lib.name
-    if (name.startsWith("#")) {
-      if (lib.getRoots(JpsOrderRootType.COMPILED).size() != 1) {
-        def urls = lib.getRoots(JpsOrderRootType.COMPILED).collect { it.url }
-        messages.warning("Non-single entry module library $name: $urls");
-      }
-      File file = lib.getFiles(JpsOrderRootType.COMPILED)[0]
-      return file.name
-    }
-    return name
+  static LibraryLicensesListGenerator create(BuildMessages messages,
+                                             JpsProject project,
+                                             List<LibraryLicense> licensesList,
+                                             Set<String> usedModulesNames) {
+    Map<LibraryLicense, String> licences = generateLicenses(messages, project, licensesList, usedModulesNames)
+    return new LibraryLicensesListGenerator(messages, licences)
   }
 
-  void generateLicensesTable(String filePath, Set<String> usedModulesNames) {
-    messages.info("Generating licenses table")
-    messages.info("Used modules: $usedModulesNames")
+  private static Map<LibraryLicense, String> generateLicenses(BuildMessages messages,
+                                                              JpsProject project,
+                                                              List<LibraryLicense> licensesList,
+                                                              Set<String> usedModulesNames) {
+    Map<LibraryLicense, String> licenses = [:]
+    messages.debug("Generating licenses table")
+    messages.debug("Used modules: $usedModulesNames")
     Set<JpsModule> usedModules = project.modules.findAll { usedModulesNames.contains(it.name) } as Set<JpsModule>
     Map<String, String> usedLibraries = [:]
     usedModules.each { JpsModule module ->
       JpsJavaExtensionService.dependencies(module).includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME).getLibraries().each { item ->
-        usedLibraries[getLibraryName(item)] = module.name
+        getLibraryNames(item).forEach { String name ->
+          usedLibraries[name] = module.name
+        }
       }
     }
 
-    Map<LibraryLicense, String> licenses = [:]
-    licensesList.findAll {it.license != LibraryLicense.JETBRAINS_OWN}.each { LibraryLicense lib ->
+    licensesList.findAll { it.license != LibraryLicense.JETBRAINS_OWN }.each { LibraryLicense lib ->
       if (usedModulesNames.contains(lib.attachedTo)) {
         licenses[lib] = lib.attachedTo
       }
@@ -77,67 +79,128 @@ class LibraryLicensesListGenerator {
         }
       }
     }
+    return licenses
+  }
 
-    messages.info("Used libraries:")
+  static List<String> getLibraryNames(JpsLibrary lib) {
+    def name = lib.name
+    if (name.startsWith("#")) {
+      return ContainerUtil.map(lib.getFiles(JpsOrderRootType.COMPILED), {f->f.getName()})
+    }
+    return Collections.singletonList(name)
+  }
+
+  void generateHtml(String filePath) {
+    messages.debug("Used libraries:")
     List<String> lines = []
-    licenses.entrySet().each {
+
+    String line = '''
+  <tr valign="top">
+    <td class="firstColumn">
+      $name
+      <span class="version">$libVersion</span>
+    </td>
+    <td class="secondColumn">
+      $license
+    </td>
+  </tr>
+      '''.trim()
+    def engine = new SimpleTemplateEngine()
+
+    licensesInModules.entrySet().each {
       LibraryLicense lib = it.key
       String moduleName = it.value
-      def name = lib.url != null ? "[$lib.name|$lib.url]" : lib.name
-      def license = lib.libraryLicenseUrl != null ? "[$lib.license|$lib.libraryLicenseUrl]" : lib.license
-      messages.info(" $lib.name (in module $moduleName)")
-      lines << "|$name| ${lib.version ?: ""}|$license|".toString()
+
+      String libKey = (lib.name + "_" + lib.version ?: "").replace(" ", "_")
+      // id here is needed because of a bug IDEA-188262
+      String name = lib.url != null ? "<a id=\"${libKey}_lib_url\" class=\"name\" href=\"$lib.url\">$lib.name</a>" :
+                    "<span class=\"name\">$lib.name</span>"
+      String license = lib.libraryLicenseUrl != null ?
+                       "<a id=\"${libKey}_license_url\" class=\"licence\" href=\"$lib.libraryLicenseUrl\">$lib.license</a>" :
+                       "<span class=\"licence\">$lib.license</span>"
+
+      messages.debug(" $lib.name (in module $moduleName)")
+      lines << engine.createTemplate(line).make(["name": name, "libVersion": lib.version ?: "", "license": license]).toString()
     }
-    //projectBuilder.info("Unused libraries:")
-    //licensesList.findAll {!licenses.containsKey(it)}.each {LibraryLicense lib ->
-    //  projectBuilder.info(" $lib.name")
-    //}
 
     lines.sort(true, String.CASE_INSENSITIVE_ORDER)
     File file = new File(filePath)
     file.parentFile.mkdirs()
     FileWriter out = new FileWriter(file)
     try {
-      out.println("|| Software || Version || License ||")
+      out.println('''
+<style>
+  table {
+    width: 560px;
+  }
+  
+  th {
+    border:0pt;
+    text-align: left;
+  }
+  
+  td {
+    padding-bottom: 11px;
+  }
+  
+  .firstColumn {
+    width: 410px;
+    padding-left: 16px;
+    padding-right: 50px;
+  }
+  
+  .secondColumn {
+    width: 150px;
+    padding-right: 28px;
+  }
+  
+  .name {
+    color: #4a78c2;
+    margin-right: 5px;
+  }
+    
+  .version {
+    color: #888888;
+    line-height: 1.5em;
+    white-space: nowrap;
+  }
+  
+  .licence {
+    color: #779dbd;
+  }
+</style>
+'''.trim())
+      out.println("<table>")
+      out.println("<tr><th class=\"firstColumn\">Software</th><th class=\"secondColumn\">License</th></tr>")
       lines.each {
         out.println(it)
       }
+      out.println("</table>")
     }
     finally {
       out.close()
     }
   }
 
-  void checkLibLicenses() {
-    def libraries = new HashSet<JpsLibrary>()
-    def lib2Module = new HashMap<JpsLibrary, JpsModule>();
-    Set<String> nonPublicModules = ["buildScripts", "build", "buildSrc", "testGuiFramework"] as Set
-    project.modules.findAll { !nonPublicModules.contains(it.name) && !it.name.contains("guitests") }.each { JpsModule module ->
-      JpsJavaExtensionService.dependencies(module).includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME).getLibraries().each {
-        lib2Module[it] = module
-        libraries << it
-      }
+  void generateJson(String filePath) {
+    List<LibraryLicenseData> entries = []
+
+    licensesInModules.keySet().sort( {it.name} ).each {
+      entries.add(
+        new LibraryLicenseData(
+          name: it.name,
+          url: it.url,
+          version: it.version,
+          license: it.license,
+          licenseUrl: it.libraryLicenseUrl
+        )
+      )
     }
 
-    def libWithLicenses = licensesList.collectMany { it.libraryNames } as Set<String>
-
-    List<String> withoutLicenses = []
-    libraries.each { JpsLibrary lib ->
-      def name = getLibraryName(lib)
-      if (!libWithLicenses.contains(name)) {
-        withoutLicenses << "$name (used in module ${lib2Module[lib].name})".toString()
-      }
-    }
-
-    if (!withoutLicenses.isEmpty()) {
-      def errorMessage = []
-      errorMessage << "Licenses aren't specified for ${withoutLicenses.size()} libraries:"
-      withoutLicenses.sort(true, String.CASE_INSENSITIVE_ORDER)
-      withoutLicenses.each { errorMessage << it }
-      errorMessage << "If a library is packaged into IDEA installation information about its license must be added into one of *LibraryLicenses.groovy files"
-      errorMessage << "If a library is used in tests only change its scope to 'Test'"
-      errorMessage << "If a library is used for compilation only change its scope to 'Provided'"
-      messages.error(errorMessage.join("\n"))
+    File file = new File(filePath)
+    file.parentFile.mkdirs()
+    file.withWriter {
+      new GsonBuilder().setPrettyPrinting().create().toJson(entries, it)
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,12 @@ package com.siyeh.ipp.forloop;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.codeStyle.VariableKind;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.VariableNameGenerator;
 import com.siyeh.ipp.base.Intention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NonNls;
@@ -65,10 +68,7 @@ public class ReplaceForEachLoopWithIndexedForLoopIntention extends Intention {
     @NonNls final StringBuilder newStatement = new StringBuilder();
     final String indexText = createVariableName("i", PsiType.INT, statement);
     createForLoopDeclaration(statement, iteratedValue, isArray, iteratedValueText, newStatement, indexText);
-    final Project project = statement.getProject();
-    final CodeStyleSettings codeStyleSettings =
-      CodeStyleSettingsManager.getSettings(project);
-    if (codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_LOCALS) {
+    if (JavaCodeStyleSettings.getInstance(statement.getContainingFile()).GENERATE_FINAL_LOCALS) {
       newStatement.append("final ");
     }
     newStatement.append(type.getCanonicalText());
@@ -95,11 +95,11 @@ public class ReplaceForEachLoopWithIndexedForLoopIntention extends Intention {
       final PsiElement[] children = block.getChildren();
       for (int i = 1; i < children.length - 1; i++) {
         //skip the braces
-        newStatement.append(tracker.markUnchanged(children[i]).getText());
+        newStatement.append(tracker.text(children[i]));
       }
     }
     else {
-      newStatement.append(tracker.markUnchanged(body).getText());
+      newStatement.append(tracker.text(body));
     }
     newStatement.append('}');
     PsiReplacementUtil.replaceStatementAndShortenClassNames(statement, newStatement.toString(), tracker);
@@ -219,7 +219,7 @@ public class ReplaceForEachLoopWithIndexedForLoopIntention extends Intention {
       }
       return createVariable(variableName, expression, context);
     }
-    return tracker.markUnchanged(expression).getText();
+    return tracker.text(expression);
   }
 
   private static String createVariable(String variableNameRoot,
@@ -240,37 +240,14 @@ public class ReplaceForEachLoopWithIndexedForLoopIntention extends Intention {
     return variableName;
   }
 
-  public static String createVariableName(
-    @Nullable String baseName,
-    @NotNull PsiExpression assignedExpression) {
-    final Project project = assignedExpression.getProject();
-    final JavaCodeStyleManager codeStyleManager =
-      JavaCodeStyleManager.getInstance(project);
-    final SuggestedNameInfo names =
-      codeStyleManager.suggestVariableName(VariableKind.LOCAL_VARIABLE,
-                                           baseName, assignedExpression, null);
-    if (names.names.length == 0) {
-      return codeStyleManager.suggestUniqueVariableName(baseName,
-                                                        assignedExpression, true);
-    }
-    return codeStyleManager.suggestUniqueVariableName(names.names[0],
-                                                      assignedExpression, true);
+  public static String createVariableName(@Nullable String baseName, @NotNull PsiExpression assignedExpression) {
+    return new VariableNameGenerator(assignedExpression, VariableKind.LOCAL_VARIABLE).byName(baseName).byExpression(assignedExpression)
+      .byType(assignedExpression.getType()).generate(true);
   }
 
   public static String createVariableName(@Nullable String baseName,
                                           @NotNull PsiType type,
                                           @NotNull PsiElement context) {
-    final Project project = context.getProject();
-    final JavaCodeStyleManager codeStyleManager =
-      JavaCodeStyleManager.getInstance(project);
-    final SuggestedNameInfo names =
-      codeStyleManager.suggestVariableName(
-        VariableKind.LOCAL_VARIABLE, baseName, null, type);
-    if (names.names.length == 0) {
-      return codeStyleManager.suggestUniqueVariableName(baseName,
-                                                        context, true);
-    }
-    return codeStyleManager.suggestUniqueVariableName(names.names[0],
-                                                      context, true);
+    return new VariableNameGenerator(context, VariableKind.LOCAL_VARIABLE).byName(baseName).byType(type).generate(true);
   }
 }

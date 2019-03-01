@@ -81,7 +81,7 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
   public void testStrFormatPy3() {
     doTest();
   }
-  
+
   // PY-18762
   public void testHomogeneousTuples() {
     doTest();
@@ -246,6 +246,21 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
+  // PY-21302
+  public void testInitializingNewType() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-21302
+  public void testNewTypeAsParameter() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-21302
+  public void testNewTypeInheritance() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
   // PY-24287
   public void testPromotingBytearrayToBytes() {
     doTest();
@@ -275,5 +290,89 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
 
   public void testChainedComparisonsGenericMatching() {
     runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-27398
+  public void testInitializingDataclass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
+  }
+
+  // PY-28442
+  public void testDataclassClsCallType() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
+  }
+
+  // PY-26354
+  public void testInitializingAttrs() {
+    doTestByText("import attr\n" +
+                 "import typing\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Weak1:\n" +
+                 "    x = attr.ib()\n" +
+                 "    y = attr.ib(default=0)\n" +
+                 "    z = attr.ib(default=attr.Factory(list))\n" +
+                 "    \n" +
+                 "Weak1(1, \"str\", 2)\n" +
+                 "\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Weak2:\n" +
+                 "    x = attr.ib()\n" +
+                 "    \n" +
+                 "    @x.default\n" +
+                 "    def __init_x__(self):\n" +
+                 "        return 1\n" +
+                 "    \n" +
+                 "Weak2(\"str\")\n" +
+                 "\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Strong:\n" +
+                 "    x = attr.ib(type=int)\n" +
+                 "    y = attr.ib(default=0, type=int)\n" +
+                 "    z = attr.ib(default=attr.Factory(list), type=typing.List[int])\n" +
+                 "    \n" +
+                 "Strong(1, <warning descr=\"Expected type 'int', got 'str' instead\">\"str\"</warning>, <warning descr=\"Expected type 'List[int]', got 'List[str]' instead\">[\"str\"]</warning>)");
+  }
+
+  // PY-28957
+  public void testDataclassesReplace() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
+  }
+
+  // PY-28127 PY-31424
+  public void testInitializingTypeVar() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testReAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testTypeCommentAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testTypeDeclarationAndAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testClassLevelAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testNoTypeMismatchInAssignmentWithoutTypeAnnotation() {
+    doTest();
   }
 }

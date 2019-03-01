@@ -40,15 +40,16 @@ public abstract class FunctionalExpressionElementType<T extends PsiFunctionalExp
   @NotNull
   @Override
   public FunctionalExpressionStub<T> deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    return new FunctionalExpressionStub<>(parentStub, this, StringRef.toString(dataStream.readName()));
+    return new FunctionalExpressionStub<>(parentStub, this, dataStream.readNameString());
   }
 
   @Override
   public void indexStub(@NotNull FunctionalExpressionStub<T> stub, @NotNull IndexSink sink) {
   }
 
+  @NotNull
   @Override
-  public FunctionalExpressionStub<T> createStub(LighterAST tree, LighterASTNode funExpr, StubElement parentStub) {
+  public FunctionalExpressionStub<T> createStub(@NotNull LighterAST tree, @NotNull LighterASTNode funExpr, @NotNull StubElement parentStub) {
     return new FunctionalExpressionStub<>(parentStub, this, getPresentableText(tree, funExpr));
   }
 

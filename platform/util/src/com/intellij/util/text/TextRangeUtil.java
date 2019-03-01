@@ -15,6 +15,7 @@
  */
 package com.intellij.util.text;
 
+import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,12 +29,9 @@ import java.util.List;
  */
 public class TextRangeUtil {
 
-  public static final Comparator<TextRange> RANGE_COMPARATOR = new Comparator<TextRange>() {
-    @Override
-    public int compare(TextRange range1, TextRange range2) {
-      int startOffsetDiff = range1.getStartOffset() - range2.getStartOffset();
-      return startOffsetDiff != 0 ? startOffsetDiff : range1.getEndOffset() - range2.getEndOffset();
-    }
+  public static final Comparator<TextRange> RANGE_COMPARATOR = (range1, range2) -> {
+    int startOffsetDiff = range1.getStartOffset() - range2.getStartOffset();
+    return startOffsetDiff != 0 ? startOffsetDiff : range1.getEndOffset() - range2.getEndOffset();
   };
   
   private TextRangeUtil() {
@@ -48,13 +46,13 @@ public class TextRangeUtil {
    * @param excludedRanges The list of ranges to exclude.
    * @return A list of ranges after excluded ranges have been applied.
    */
-  public static Iterable<TextRange> excludeRanges(@NotNull TextRange original, @NotNull List<TextRange> excludedRanges) {
+  public static Iterable<TextRange> excludeRanges(@NotNull TextRange original, @NotNull List<? extends TextRange> excludedRanges) {
     if (!excludedRanges.isEmpty()) {
       if (excludedRanges.size() > 1) {
-        Collections.sort(excludedRanges, RANGE_COMPARATOR);
+        excludedRanges.sort(RANGE_COMPARATOR);
       }
       int enabledRangeStart = original.getStartOffset();
-      List<TextRange> enabledRanges = new ArrayList<TextRange>();
+      List<TextRange> enabledRanges = new ArrayList<>();
       for (TextRange excludedRange : excludedRanges) {
         if (excludedRange.getEndOffset() < enabledRangeStart) continue;
         int excludedRangeStart = excludedRange.getStartOffset();
@@ -79,7 +77,7 @@ public class TextRangeUtil {
    * @return least text range that contains all of passed text ranges
    */
   @NotNull
-  public static TextRange getEnclosingTextRange(@NotNull List<TextRange> textRanges) {
+  public static TextRange getEnclosingTextRange(@NotNull List<? extends TextRange> textRanges) {
     if(textRanges.isEmpty())
       return TextRange.EMPTY_RANGE;
     int lowerBound = textRanges.get(0).getStartOffset();
@@ -90,5 +88,13 @@ public class TextRangeUtil {
       upperBound = Math.max(upperBound, textRange.getEndOffset());
     }
     return new TextRange(lowerBound, upperBound);
+  }
+
+  public static int getDistance(@NotNull Segment r2, @NotNull Segment r1) {
+    int s1 = r1.getStartOffset();
+    int e1 = r1.getEndOffset();
+    int s2 = r2.getStartOffset();
+    int e2 = r2.getEndOffset();
+    return Math.max(s1, s2) <= Math.min(e1, e2) ? 0 : Math.min(Math.abs(s1 - e2), Math.abs(s2 - e1));
   }
 }

@@ -1,36 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl.source.tree;
 
-import com.intellij.extapi.psi.StubBasedPsiElementBase;
 import com.intellij.lang.ASTNode;
 import com.intellij.lexer.Lexer;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiComment;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.impl.DebugUtil;
-import com.intellij.psi.stubs.StubBase;
-import com.intellij.psi.stubs.StubElement;
-import com.intellij.psi.stubs.StubTree;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.IStrongWhitespaceHolderElementType;
@@ -38,7 +17,9 @@ import com.intellij.psi.tree.TokenSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TreeUtil {
@@ -68,8 +49,8 @@ public class TreeUtil {
 
   @Nullable
   public static ASTNode findChildBackward(ASTNode parent, IElementType type) {
-    if (DebugUtil.CHECK_INSIDE_ATOMIC_ACTION_ENABLED) {
-      ApplicationManager.getApplication().assertReadAccessAllowed();
+    if (DebugUtil.CHECK_INSIDE_ATOMIC_ACTION_ENABLED && parent instanceof TreeElement) {
+      ((TreeElement)parent).assertReadAccessAllowed();
     }
     for (ASTNode element = parent.getLastChildNode(); element != null; element = element.getTreePrev()) {
       if (element.getElementType() == type) return element;
@@ -78,7 +59,7 @@ public class TreeUtil {
   }
 
   @Nullable
-  public static ASTNode skipElements(ASTNode element, TokenSet types) {
+  public static ASTNode skipElements(@Nullable ASTNode element, @NotNull TokenSet types) {
     while (true) {
       if (element == null) return null;
       if (!types.contains(element.getElementType())) break;
@@ -88,7 +69,7 @@ public class TreeUtil {
   }
 
   @Nullable
-  public static ASTNode skipElementsBack(@Nullable ASTNode element, TokenSet types) {
+  public static ASTNode skipElementsBack(@Nullable ASTNode element, @NotNull TokenSet types) {
     if (element == null) return null;
     if (!types.contains(element.getElementType())) return element;
 
@@ -262,8 +243,13 @@ public class TreeUtil {
     return nextLeaf((TreeElement)node, null);
   }
 
+  @Nullable
+  public static LeafElement nextLeaf(@NotNull final LeafElement node) {
+    return nextLeaf(node, null);
+  }
+
   public static final Key<FileElement> CONTAINING_FILE_KEY_AFTER_REPARSE = Key.create("CONTAINING_FILE_KEY_AFTER_REPARSE");
-  public static FileElement getFileElement(TreeElement element) {
+  public static FileElement getFileElement(@NotNull TreeElement element) {
     TreeElement parent = element;
     while (parent != null && !(parent instanceof FileElement)) {
       parent = parent.getTreeParent();
@@ -441,52 +427,13 @@ public class TreeUtil {
     boolean isStrongElementOnRisingSlope = true;
   }
 
-  public static class StubBindingException extends RuntimeException {
-    StubBindingException(String message) {
-      super(message);
-    }
-  }
-
-  public static void bindStubsToTree(@NotNull StubTree stubTree, @NotNull FileElement tree) throws StubBindingException {
-    List<Pair<StubBase, TreeElement>> bindings = calcStubAstBindings(stubTree, tree);
-
-    for (int i = 0; i < bindings.size(); i++) {
-      Pair<StubBase, TreeElement> pair = bindings.get(i);
-      StubBasedPsiElementBase psi = (StubBasedPsiElementBase)pair.second.getPsi();
-      //noinspection unchecked
-      pair.first.setPsi(psi);
-      psi.setStubIndex(i + 1);
-    }
-  }
-
-  @NotNull
-  public static List<Pair<StubBase, TreeElement>> calcStubAstBindings(@NotNull StubTree stubTree, @NotNull FileElement tree) throws StubBindingException {
-    PsiFile file = (PsiFile)tree.getPsi();
-    List<CompositeElement> nodes = tree.getStubbedSpine().getNodes();
-    List<StubElement<?>> stubs = stubTree.getPlainList();
-    if (stubs.size() != nodes.size()) {
-      throw new StubBindingException("Stub list in " + file.getName() + " length differs from PSI");
-    }
-
-    List<Pair<StubBase, TreeElement>> bindings = new ArrayList<>();
-    for (int i = 1; i < stubs.size(); i++) { // start from 1 to skip file root stub
-      StubBase<?> stub = (StubBase<?>)stubs.get(i);
-      CompositeElement node = nodes.get(i);
-      if (stub.getStubType() != node.getElementType()) {
-        throw new StubBindingException("stub:" + stub + ", AST:" + node.getElementType());
-      }
-      bindings.add(Pair.create(stub, node));
-    }
-    return bindings;
-  }
-
   @Nullable
-  public static ASTNode skipWhitespaceAndComments(final ASTNode node, boolean forward) {
+  public static ASTNode skipWhitespaceAndComments(@Nullable ASTNode node, boolean forward) {
     return skipWhitespaceCommentsAndTokens(node, TokenSet.EMPTY, forward);
   }
 
   @Nullable
-  public static ASTNode skipWhitespaceCommentsAndTokens(final ASTNode node, @NotNull TokenSet alsoSkip, boolean forward) {
+  public static ASTNode skipWhitespaceCommentsAndTokens(@Nullable ASTNode node, @NotNull TokenSet alsoSkip, boolean forward) {
     ASTNode element = node;
     while (true) {
       if (element == null) return null;
@@ -496,7 +443,7 @@ public class TreeUtil {
     return element;
   }
 
-  public static boolean isWhitespaceOrComment(ASTNode element) {
+  public static boolean isWhitespaceOrComment(@NotNull ASTNode element) {
     return element.getPsi() instanceof PsiWhiteSpace || element.getPsi() instanceof PsiComment;
   }
 }

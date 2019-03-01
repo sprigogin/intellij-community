@@ -24,8 +24,10 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
 
+@CompileStatic
 class CopyReferenceActionTest extends LightCodeInsightFixtureTestCase {
   private int oldSetting
 
@@ -64,9 +66,9 @@ class CopyReferenceActionTest extends LightCodeInsightFixtureTestCase {
     myFixture.addClass("package p; public class Foo {}")
     myFixture.configureByText("Foo.java", "package p1; public class Fo<caret>o {}")
     performCopy()
-    myFixture.configureByText("a.java", "import p.Foo; class Bar { <caret>}")
+    myFixture.configureByText("a.java", "import p.Foo; class Bar extends Foo { <caret>}")
     performPaste()
-    myFixture.checkResult """import p.Foo; class Bar { p1.Foo}"""
+    myFixture.checkResult """import p.Foo; class Bar extends Foo { p1.Foo}"""
   }
 
   void testAddImport() {
@@ -119,6 +121,30 @@ class Foo {
 class Foo {
   void foo(int a) {} //Foo.foo(int)<caret>
   void foo(int a, int b) {}
+}
+"""
+  }
+
+  void "test paste overloaded signature to code"() {
+    myFixture.configureByText "a.java", """
+class Foo {
+  void foo<caret>(int a) {}
+  void foo(int a, int b) {}
+  {
+    //paste before comment
+  }
+}
+"""
+    performCopy()
+    myFixture.editor.caretModel.moveToOffset(myFixture.editor.document.text.indexOf('//') - 2)
+    performPaste()
+    myFixture.checkResult """
+class Foo {
+  void foo(int a) {}
+  void foo(int a, int b) {}
+  {
+      Foo.foo()  //paste before comment
+  }
 }
 """
   }

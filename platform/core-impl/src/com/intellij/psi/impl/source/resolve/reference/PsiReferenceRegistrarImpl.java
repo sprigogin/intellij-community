@@ -15,7 +15,6 @@
  */
 package com.intellij.psi.impl.source.resolve.reference;
 
-import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.patterns.*;
@@ -42,18 +41,8 @@ public class PsiReferenceRegistrarImpl extends PsiReferenceRegistrar {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.resolve.reference.PsiReferenceRegistrarImpl");
   private final Map<Class<?>, SimpleProviderBinding> myBindingsMap = ContainerUtil.newTroveMap();
   private final Map<Class<?>, NamedObjectProviderBinding> myNamedBindingsMap = ContainerUtil.newTroveMap();
-  @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
   private final ConcurrentMap<Class, ProviderBinding[]> myBindingCache;
   private boolean myInitialized;
-
-  /**
-   * @deprecated To be removed in 2018.2
-   */
-  @Deprecated
-  @SuppressWarnings("unused")
-  public PsiReferenceRegistrarImpl(final Language language) {
-    this();
-  }
 
   PsiReferenceRegistrarImpl() {
     myBindingCache = ConcurrentFactoryMap.createMap(key-> {
@@ -68,13 +57,12 @@ public class PsiReferenceRegistrarImpl extends PsiReferenceRegistrar {
             result.add(myNamedBindingsMap.get(bindingClass));
           }
         }
-        //noinspection unchecked
-        return result.toArray(new ProviderBinding[result.size()]);
+      return result.toArray(new ProviderBinding[0]);
       }
     );
   }
 
-  public void markInitialized() {
+  void markInitialized() {
     myInitialized = true;
   }
 
@@ -143,18 +131,9 @@ public class PsiReferenceRegistrarImpl extends PsiReferenceRegistrar {
     providerBinding.registerProvider(names, pattern, caseSensitive, provider, priority);
   }
 
-  /**
-   * @see com.intellij.psi.PsiReferenceContributor
-   * @deprecated
-   */
-  public void registerReferenceProvider(@NotNull Class scope, @NotNull PsiReferenceProvider provider) {
-    registerReferenceProvider(PlatformPatterns.psiElement(scope), provider, DEFAULT_PRIORITY);
-  }
-
   @NotNull
   List<ProviderBinding.ProviderInfo<ProcessingContext>> getPairsByElement(@NotNull PsiElement element,
-                                                                                               @NotNull PsiReferenceService.Hints hints) {
-
+                                                                          @NotNull PsiReferenceService.Hints hints) {
     final ProviderBinding[] bindings = myBindingCache.get(element.getClass());
     if (bindings.length == 0) return Collections.emptyList();
 

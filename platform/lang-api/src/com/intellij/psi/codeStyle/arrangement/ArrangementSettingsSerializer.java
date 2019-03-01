@@ -25,7 +25,6 @@ import org.jetbrains.annotations.Nullable;
  * Implementations of this interface are expected to be thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 7/18/12 10:30 AM
  */
 public interface ArrangementSettingsSerializer {
 
@@ -34,7 +33,7 @@ public interface ArrangementSettingsSerializer {
    * with {@link #serialize(ArrangementSettings, Element)}.
    * <p/>
    * <b>Note:</b> it's save to return {@code null} if current rearranger doesn't use custom settings (settings over those
-   * located at the {@code 'lang-api'}/{@code 'lang-impl'} modules).
+   * located at the {@code 'intellij.platform.lang'}/{@code 'intellij.platform.lang.impl'} modules).
    *
    * @param element  serialized settings holder
    * @return         settings de-serialized from the given element
@@ -46,7 +45,7 @@ public interface ArrangementSettingsSerializer {
    * Allows to provide custom settings serialization logic. This method is expected to be consistent with {@link #deserialize(Element)}.
    * <p/>
    * <b>Note:</b> it's save to return {@code null} if current rearranger doesn't use custom settings (settings over those
-   * located at the {@code 'lang-api'}/{@code 'lang-impl'} modules).
+   * located at the {@code 'intellij.platform.lang'}/{@code 'intellij.platform.lang.impl'} modules).
    *
    * @param settings  settings to serialize
    * @param holder    element to hold serialized settings

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.ExpectedTypesProvider;
@@ -31,11 +17,10 @@ import com.intellij.psi.util.PsiSuperMethodUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.LayeredIcon;
 import com.intellij.util.Consumer;
+import com.intellij.util.JavaPsiConstructorUtil;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.text.CharArrayUtil;
-import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -65,12 +50,12 @@ class SameSignatureCallParametersProvider extends CompletionProvider<CompletionP
 
   @Override
   protected void addCompletions(@NotNull CompletionParameters parameters,
-                                ProcessingContext context,
+                                @NotNull ProcessingContext context,
                                 @NotNull CompletionResultSet result) {
     addSignatureItems(parameters, result);
   }
 
-  void addSignatureItems(@NotNull CompletionParameters parameters, @NotNull Consumer<LookupElement> result) {
+  void addSignatureItems(@NotNull CompletionParameters parameters, @NotNull Consumer<? super LookupElement> result) {
     final PsiCall methodCall = PsiTreeUtil.getParentOfType(parameters.getPosition(), PsiCall.class);
     assert methodCall != null;
     Set<Pair<PsiMethod, PsiSubstitutor>> candidates = getCallCandidates(methodCall);
@@ -93,7 +78,7 @@ class SameSignatureCallParametersProvider extends CompletionProvider<CompletionP
 
   private static LookupElement createParametersLookupElement(final PsiMethod takeParametersFrom, PsiElement call, PsiMethod invoked) {
     final PsiParameter[] parameters = takeParametersFrom.getParameterList().getParameters();
-    final String lookupString = StringUtil.join(parameters, psiParameter -> psiParameter.getName(), ", ");
+    final String lookupString = StringUtil.join(parameters, PsiNamedElement::getName, ", ");
 
     final int w = PlatformIcons.PARAMETER_ICON.getIconWidth();
     LayeredIcon icon = new LayeredIcon(2);
@@ -104,10 +89,15 @@ class SameSignatureCallParametersProvider extends CompletionProvider<CompletionP
     boolean makeFinalIfNeeded = PsiTreeUtil.isAncestor(takeParametersFrom, call, true);
     element = element.withInsertHandler(new InsertHandler<LookupElement>() {
       @Override
-      public void handleInsert(InsertionContext context, LookupElement item) {
+      public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
+        context.commitDocument();
         int startOffset = context.getTailOffset();
-        int endOffset = CharArrayUtil.shiftForwardUntil(context.getDocument().getImmutableCharSequence(), startOffset, ")");
-        context.getDocument().deleteString(startOffset, endOffset);
+        PsiExpressionList exprList =
+          PsiTreeUtil.findElementOfClassAtOffset(context.getFile(), startOffset - 1, PsiExpressionList.class, false);
+        PsiElement rParen = exprList == null ? null : exprList.getLastChild();
+        if (rParen != null && rParen.textMatches(")")) {
+          context.getDocument().deleteString(startOffset, rParen.getTextRange().getStartOffset());
+        }
         if (makeFinalIfNeeded) {
           context.commitDocument();
           for (PsiParameter parameter : CompletionUtil.getOriginalOrSelf(takeParametersFrom).getParameterList().getParameters()) {
@@ -131,8 +121,8 @@ class SameSignatureCallParametersProvider extends CompletionProvider<CompletionP
       results = new JavaResolveResult[]{expression.resolveMethodGenerics()};
     }
 
-    PsiMethod toExclude = ExpressionUtils.isConstructorInvocation(expression) ? PsiTreeUtil.getParentOfType(expression, PsiMethod.class)
-                                                                              : null;
+    PsiMethod toExclude =
+      JavaPsiConstructorUtil.isConstructorCall(expression) ? PsiTreeUtil.getParentOfType(expression, PsiMethod.class) : null;
 
     for (final JavaResolveResult candidate : results) {
       final PsiElement element = candidate.getElement();

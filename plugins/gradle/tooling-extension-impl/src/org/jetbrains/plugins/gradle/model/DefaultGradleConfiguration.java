@@ -20,14 +20,13 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/7/2016
  */
 public class DefaultGradleConfiguration implements GradleConfiguration {
   private static final long serialVersionUID = 1L;
-  private String myName;
-  private String myDescription;
-  private boolean myVisible;
-  private boolean myScriptClasspathConfiguration;
+  private final String myName;
+  private final String myDescription;
+  private final boolean myVisible;
+  private final boolean myScriptClasspathConfiguration;
 
   public DefaultGradleConfiguration(String name, String description, boolean visible) {
     this(name, description, visible, false);

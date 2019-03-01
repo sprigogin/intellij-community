@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,11 @@
 package com.siyeh.ig.controlflow;
 
 import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiConditionalExpression;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -30,6 +29,8 @@ import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
+import org.intellij.lang.annotations.Pattern;
+import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -41,6 +42,11 @@ public class NegatedConditionalInspection extends BaseInspection {
    */
   public boolean m_ignoreNegatedNullComparison = true;
 
+  /**
+   * @noinspection PublicField
+   */
+  public boolean m_ignoreNegatedZeroComparison = true;
+
   @Override
   @NotNull
   public String getDisplayName() {
@@ -48,6 +54,7 @@ public class NegatedConditionalInspection extends BaseInspection {
       "negated.conditional.display.name");
   }
 
+  @Pattern(VALID_ID_PATTERN)
   @Override
   @NotNull
   public String getID() {
@@ -68,8 +75,16 @@ public class NegatedConditionalInspection extends BaseInspection {
 
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("negated.conditional.ignore.option"), this,
-                                          "m_ignoreNegatedNullComparison");
+    final MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
+    panel.addCheckbox(InspectionGadgetsBundle.message("negated.if.else.ignore.negated.null.option"), "m_ignoreNegatedNullComparison");
+    panel.addCheckbox(InspectionGadgetsBundle.message("negated.if.else.ignore.negated.zero.option"), "m_ignoreNegatedZeroComparison");
+    return panel;
+  }
+
+  @Override
+  public void writeSettings(@NotNull Element node) {
+    defaultWriteSettings(node, "m_ignoreNegatedZeroComparison");
+    writeBooleanOption(node, "m_ignoreNegatedZeroComparison", true);
   }
 
   @Override
@@ -86,8 +101,7 @@ public class NegatedConditionalInspection extends BaseInspection {
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiConditionalExpression conditionalExpression = (PsiConditionalExpression)element.getParent();
       assert conditionalExpression != null;
@@ -98,9 +112,8 @@ public class NegatedConditionalInspection extends BaseInspection {
       final String negatedCondition = BoolUtils.getNegatedExpressionText(condition, tracker);
       assert elseBranch != null;
       assert thenBranch != null;
-      final String newStatement = negatedCondition + '?' + tracker.markUnchanged(elseBranch).getText() +
-                                  ':' + tracker.markUnchanged(thenBranch).getText();
-      PsiReplacementUtil.replaceExpression(conditionalExpression, newStatement);
+      final String newStatement = negatedCondition + '?' + tracker.text(elseBranch) + ':' + tracker.text(thenBranch);
+      PsiReplacementUtil.replaceExpression(conditionalExpression, newStatement, tracker);
     }
   }
 
@@ -118,7 +131,7 @@ public class NegatedConditionalInspection extends BaseInspection {
         return;
       }
       final PsiExpression condition = expression.getCondition();
-      if (!ExpressionUtils.isNegation(condition, m_ignoreNegatedNullComparison, false)) {
+      if (!ExpressionUtils.isNegation(condition, m_ignoreNegatedNullComparison, m_ignoreNegatedZeroComparison)) {
         return;
       }
       registerError(condition);

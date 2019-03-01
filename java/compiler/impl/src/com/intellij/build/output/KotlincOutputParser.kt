@@ -1,13 +1,13 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.build.output
 
 import com.intellij.build.FilePosition
+import com.intellij.build.events.BuildEvent
 import com.intellij.build.events.MessageEvent
 import com.intellij.build.events.impl.FileMessageEventImpl
 import com.intellij.build.events.impl.MessageEventImpl
 import com.intellij.openapi.util.text.StringUtil
 import java.io.File
-import java.lang.IllegalStateException
 import java.util.function.Consumer
 import java.util.regex.Pattern
 
@@ -20,10 +20,10 @@ import java.util.regex.Pattern
 class KotlincOutputParser : BuildOutputParser {
 
   companion object {
-    private val COMPILER_MESSAGES_GROUP = "Kotlin compiler"
+    private const val COMPILER_MESSAGES_GROUP = "Kotlin compiler"
   }
 
-  override fun parse(line: String, reader: BuildOutputInstantReader, consumer: Consumer<MessageEvent>): Boolean {
+  override fun parse(line: String, reader: BuildOutputInstantReader, consumer: Consumer<in BuildEvent>): Boolean {
     val colonIndex1 = line.colon()
 
     val severity = if (colonIndex1 >= 0) line.substringBeforeAndTrim(colonIndex1) else return false
@@ -37,7 +37,8 @@ class KotlincOutputParser : BuildOutputParser {
 
       val fileExtension = file.extension.toLowerCase()
       if (!file.isFile || (fileExtension != "kt" && fileExtension != "java")) {
-        return addMessage(createMessage(reader.buildId, getMessageKind(severity), lineWoSeverity.amendNextLinesIfNeeded(reader)), consumer)
+        return addMessage(createMessage(reader.buildId, getMessageKind(severity), lineWoSeverity.amendNextLinesIfNeeded(reader), line),
+                          consumer)
       }
 
       val lineWoPath = lineWoSeverity.substringAfterAndTrim(colonIndex2)
@@ -46,7 +47,9 @@ class KotlincOutputParser : BuildOutputParser {
         val position = lineWoPath.substringBeforeAndTrim(colonIndex3)
 
         val matcher = KOTLIN_POSITION_PATTERN.matcher(position).takeIf { it.matches() } ?: JAVAC_POSITION_PATTERN.matcher(position)
-        val message = lineWoPath.substringAfterAndTrim(colonIndex3).amendNextLinesIfNeeded(reader)
+        val relatedNextLines = "".amendNextLinesIfNeeded(reader)
+        val message = lineWoPath.substringAfterAndTrim(colonIndex3) + relatedNextLines
+        val details = lineWoSeverity + relatedNextLines
 
         if (matcher.matches()) {
           val lineNumber = matcher.group(1)
@@ -54,14 +57,15 @@ class KotlincOutputParser : BuildOutputParser {
           if (lineNumber != null) {
             val symbolNumberText = symbolNumber.toInt()
             return addMessage(createMessageWithLocation(
-              reader.buildId, getMessageKind(severity), message, path, lineNumber.toInt(), symbolNumberText), consumer)
+              reader.buildId, getMessageKind(severity), message, path, lineNumber.toInt(), symbolNumberText, details), consumer)
           }
         }
 
-        return addMessage(createMessage(reader.buildId, getMessageKind(severity), message), consumer)
+        return addMessage(createMessage(reader.buildId, getMessageKind(severity), message, details), consumer)
       }
       else {
-        return addMessage(createMessage(reader.buildId, getMessageKind(severity), lineWoSeverity.amendNextLinesIfNeeded(reader)), consumer)
+        val text = lineWoSeverity.amendNextLinesIfNeeded(reader)
+        return addMessage(createMessage(reader.buildId, getMessageKind(severity), text, text), consumer)
       }
     }
 
@@ -76,25 +80,16 @@ class KotlincOutputParser : BuildOutputParser {
     var nextLine = reader.readLine()
 
     val builder = StringBuilder(this)
-    while (nextLine != null && nextLine.isNextMessage().not()) {
-      builder.append("\n").append(nextLine)
-      nextLine = reader.readLine()
-    }
-
-    if (nextLine != null) {
-      // This code is needed for compatibility with AS 2.0 and IDEA 15.0, because of difference in android plugins
-      val positionField = try {
-        reader::class.java.getDeclaredField("myPosition")
+    while (nextLine != null) {
+      if (nextLine.isNextMessage()) {
+        reader.pushBack()
+        break
       }
-      catch (e: Throwable) {
-        null
-      }
-      if (positionField != null) {
-        positionField.isAccessible = true
-        positionField.setInt(reader, positionField.getInt(reader) - 1)
+      else {
+        builder.append("\n").append(nextLine)
+        nextLine = reader.readLine()
       }
     }
-
     return builder.toString()
   }
 
@@ -102,6 +97,8 @@ class KotlincOutputParser : BuildOutputParser {
     val colonIndex1 = indexOf(COLON)
     return colonIndex1 == 0
            || (colonIndex1 >= 0 && substring(0, colonIndex1).startsWithSeverityPrefix()) // Next Kotlin message
+           || StringUtil.startsWith(this, "Note: ") // Next javac info message candidate
+           || StringUtil.startsWith(this, "> Task :") // Next gradle message candidate
            || StringUtil.containsIgnoreCase(this, "FAILURE")
            || StringUtil.containsIgnoreCase(this, "FAILED")
   }
@@ -135,15 +132,15 @@ class KotlincOutputParser : BuildOutputParser {
            && messageText.contains(KAPT_ERROR_WHILE_ANNOTATION_PROCESSING_MARKER_TEXT)
   }
 
-  private fun addMessage(message: MessageEvent, consumer: Consumer<MessageEvent>): Boolean {
+  private fun addMessage(message: MessageEvent, consumer: Consumer<in MessageEvent>): Boolean {
     // Ignore KaptError.ERROR_RAISED message from kapt. We already processed all errors from annotation processing
     if (isKaptErrorWhileAnnotationProcessing(message)) return true
     consumer.accept(message)
     return true
   }
 
-  private fun createMessage(buildId: Any, messageKind: MessageEvent.Kind, text: String): MessageEvent {
-    return MessageEventImpl(buildId, messageKind, COMPILER_MESSAGES_GROUP, text.trim())
+  private fun createMessage(buildId: Any, messageKind: MessageEvent.Kind, text: String, detail: String): MessageEvent {
+    return MessageEventImpl(buildId, messageKind, COMPILER_MESSAGES_GROUP, text.trim(), detail)
   }
 
   private fun createMessageWithLocation(
@@ -152,9 +149,10 @@ class KotlincOutputParser : BuildOutputParser {
     text: String,
     file: String,
     lineNumber: Int,
-    columnIndex: Int
+    columnIndex: Int,
+    detail: String
   ): FileMessageEventImpl {
-    return FileMessageEventImpl(buildId, messageKind, COMPILER_MESSAGES_GROUP, text.trim(),
+    return FileMessageEventImpl(buildId, messageKind, COMPILER_MESSAGES_GROUP, text.trim(), detail,
                                 FilePosition(File(file), lineNumber - 1, columnIndex - 1))
   }
 

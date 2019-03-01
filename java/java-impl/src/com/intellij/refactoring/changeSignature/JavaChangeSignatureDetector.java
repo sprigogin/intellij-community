@@ -65,14 +65,14 @@ public class JavaChangeSignatureDetector implements LanguageChangeSignatureDetec
 
   @Override
   public TextRange getHighlightingRange(@NotNull DetectedJavaChangeInfo changeInfo) {
-    PsiElement method = changeInfo.getMethod();
-    return method != null ? getSignatureRange((PsiMethod)method) : null;
+    PsiMethod method = changeInfo.getMethod();
+    return method != null ? getSignatureRange(method) : null;
   }
 
   @Override
   public String getMethodSignaturePreview(DetectedJavaChangeInfo initialChangeInfo,
-                                          final List<TextRange> deleteRanges,
-                                          final List<TextRange> newRanges) {
+                                          final List<? super TextRange> deleteRanges,
+                                          final List<? super TextRange> newRanges) {
     StringBuilder buf = new StringBuilder();
     String visibility = VisibilityUtil.getVisibilityString(initialChangeInfo.getNewVisibility());
     buf.append(visibility);

@@ -6,6 +6,7 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -60,14 +61,23 @@ public class PyKnownDecoratorUtil {
     UNITTEST_EXPECTED_FAILURE("unittest.case.expectedFailure"),
     UNITTEST_MOCK_PATCH("unittest.mock.patch"),
 
-    TYPING_OVERLOAD("typing.overload"),
+    TYPING_OVERLOAD("typing." + PyNames.OVERLOAD),
     TYPING_RUNTIME("typing.runtime"),
+    TYPING_RUNTIME_EXT("typing_extensions.runtime"),
 
     REPRLIB_RECURSIVE_REPR("reprlib.recursive_repr"),
 
     PYRAMID_DECORATOR_REIFY("pyramid.decorator.reify"),
     DJANGO_UTILS_FUNCTIONAL_CACHED_PROPERTY("django.utils.functional.cached_property"),
-    KOMBU_UTILS_CACHED_PROPERTY("kombu.utils.cached_property");
+    KOMBU_UTILS_CACHED_PROPERTY("kombu.utils.cached_property"),
+
+    DATACLASSES_DATACLASS("dataclasses.dataclass"),
+    ATTR_S("attr.s"),
+    ATTR_ATTRS("attr.attrs"),
+    ATTR_ATTRIBUTES("attr.attributes"),
+    ATTR_DATACLASS("attr.dataclass"),
+
+    PYTEST_FIXTURE("pytest.fixture");
 
     private final QualifiedName myQualifiedName;
 
@@ -203,6 +213,15 @@ public class PyKnownDecoratorUtil {
     return ContainerUtil.exists(getKnownDecorators(function, context), GENERATOR_BASED_COROUTINE_DECORATORS::contains);
   }
 
+  public static boolean isResolvedToGeneratorBasedCoroutine(@NotNull PyCallExpression receiver,
+                                                            @NotNull PyResolveContext resolveContext,
+                                                            @NotNull TypeEvalContext typeEvalContext) {
+    return StreamEx
+      .of((receiver).multiResolveCalleeFunction(resolveContext))
+      .select(PyFunction.class)
+      .anyMatch(function -> hasGeneratorBasedCoroutineDecorator(function, typeEvalContext));
+  }
+
   public static boolean hasRedeclarationDecorator(@NotNull PyFunction function, @NotNull TypeEvalContext context) {
     return getKnownDecorators(function, context).contains(TYPING_OVERLOAD);
   }
@@ -214,11 +233,33 @@ public class PyKnownDecoratorUtil {
 
   public static boolean hasUnknownOrChangingReturnTypeDecorator(@NotNull PyDecoratable decoratable, @NotNull TypeEvalContext context) {
     final List<KnownDecorator> decorators = getKnownDecorators(decoratable, context);
-    return !allDecoratorsAreKnown(decoratable, decorators) || decorators.contains(UNITTEST_MOCK_PATCH);
+
+    if (!allDecoratorsAreKnown(decoratable, decorators)) {
+      return true;
+    }
+
+    return ContainerUtil.exists(decorators, d -> d == UNITTEST_MOCK_PATCH || d == CONTEXTLIB_CONTEXTMANAGER);
+  }
+
+  public static boolean hasUnknownOrUpdatingAttributesDecorator(@NotNull PyDecoratable decoratable, @NotNull TypeEvalContext context) {
+    final List<KnownDecorator> decorators = getKnownDecorators(decoratable, context);
+
+    if (!allDecoratorsAreKnown(decoratable, decorators)) {
+      return true;
+    }
+
+    return ContainerUtil.exists(
+      decorators,
+      d ->
+        d == FUNCTOOLS_LRU_CACHE || // cache_clear, cache_info
+        d == FUNCTOOLS_SINGLEDISPATCH // dispatch, register, registry
+    );
   }
 
   private static boolean allDecoratorsAreKnown(@NotNull PyDecoratable element, @NotNull List<KnownDecorator> decorators) {
     final PyDecoratorList decoratorList = element.getDecoratorList();
-    return decoratorList == null ? decorators.isEmpty() : decoratorList.getDecorators().length == decorators.size();
+    return decoratorList == null
+           ? decorators.isEmpty()
+           : decoratorList.getDecorators().length == StreamEx.of(decorators).groupingBy(KnownDecorator::getShortName).size();
   }
 }

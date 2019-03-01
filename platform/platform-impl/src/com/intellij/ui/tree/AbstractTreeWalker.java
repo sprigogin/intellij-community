@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tree;
 
 import org.jetbrains.annotations.NotNull;
@@ -25,13 +11,13 @@ import java.util.Collection;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
-abstract class AbstractTreeWalker<N> {
+public abstract class AbstractTreeWalker<N> {
   private enum State {STARTED, REQUESTED, PAUSED, FINISHED, FAILED}
 
   private final AtomicReference<State> state = new AtomicReference<>();
   private final AsyncPromise<TreePath> promise = new AsyncPromise<>();
   private final ArrayDeque<ArrayDeque<N>> stack = new ArrayDeque<>();
-  private final Function<N, Object> converter;
+  private final Function<? super N, Object> converter;
   private final TreeVisitor visitor;
   private volatile TreePath current;
 
@@ -51,7 +37,7 @@ abstract class AbstractTreeWalker<N> {
    * @param visitor   an object that controls visiting a tree structure
    * @param converter a node converter for the path components
    */
-  public AbstractTreeWalker(@NotNull TreeVisitor visitor, Function<N, Object> converter) {
+  public AbstractTreeWalker(@NotNull TreeVisitor visitor, Function<? super N, Object> converter) {
     this.converter = converter;
     this.visitor = visitor;
   }
@@ -74,7 +60,7 @@ abstract class AbstractTreeWalker<N> {
    * @param children a list of child nodes for the node specified in the {@link #getChildren} method
    * @throws IllegalStateException if it is called in unexpected state
    */
-  public void setChildren(Collection<N> children) {
+  public void setChildren(Collection<? extends N> children) {
     boolean paused = state.compareAndSet(State.PAUSED, State.STARTED);
     if (!paused && !state.compareAndSet(State.REQUESTED, State.STARTED)) throw new IllegalStateException();
     stack.push(children == null ? new ArrayDeque<>() : new ArrayDeque<>(children));
@@ -197,7 +183,7 @@ abstract class AbstractTreeWalker<N> {
     }
   }
 
-  private void update(State expected, State replacement) {
+  private void update(State expected, @NotNull State replacement) {
     if (!state.compareAndSet(expected, replacement)) throw new IllegalStateException();
   }
 }

@@ -1,47 +1,34 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl.text;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorStateLevel;
-import com.intellij.openapi.progress.util.ProgressIndicatorBase;
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.Semaphore;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.concurrency.CancellablePromise;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AsyncEditorLoader {
-  private static final ExecutorService ourExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("AsyncEditorLoader pool", 2);
+  private static final ExecutorService ourExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("AsyncEditorLoader Pool", 2);
   private static final Key<AsyncEditorLoader> ASYNC_LOADER = Key.create("ASYNC_LOADER");
   private static final int SYNCHRONOUS_LOADING_WAITING_TIME_MS = 200;
+  private static final int DOCUMENT_COMMIT_WAITING_TIME_MS = 5_000;
   @NotNull private final Editor myEditor;
   @NotNull private final Project myProject;
   @NotNull private final TextEditorImpl myTextEditor;
@@ -49,7 +36,7 @@ public class AsyncEditorLoader {
   @NotNull private final TextEditorProvider myProvider;
   private final List<Runnable> myDelayedActions = new ArrayList<>();
   private TextEditorState myDelayedState;
-  private final CompletableFuture<?> myLoadingFinished = new CompletableFuture<>();
+  private final AtomicBoolean myLoadingFinished = new AtomicBoolean();
 
   AsyncEditorLoader(@NotNull TextEditorImpl textEditor, @NotNull TextEditorComponent component, @NotNull TextEditorProvider provider) {
     myProvider = provider;
@@ -63,10 +50,11 @@ public class AsyncEditorLoader {
     myEditorComponent.getContentPanel().setVisible(false);
   }
 
-  @NotNull
-  Future<?> start() {
+  void start() {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    Future<Runnable> continuationFuture = scheduleLoading();
+
+    CancellablePromise<Runnable> asyncLoading = scheduleLoading();
+
     boolean showProgress = true;
     if (worthWaiting()) {
       /*
@@ -77,48 +65,45 @@ public class AsyncEditorLoader {
        * 4. freeze EDT a bit and hope that for small editors it'll suffice and for big ones show "Loading" after that.
        * This strategy seems to produce minimal blinking annoyance.
        */
-      Runnable continuation = resultInTimeOrNull(continuationFuture, SYNCHRONOUS_LOADING_WAITING_TIME_MS);
+      Runnable continuation = resultInTimeOrNull(asyncLoading);
       if (continuation != null) {
         showProgress = false;
         loadingFinished(continuation);
       }
     }
-    if (showProgress) myEditorComponent.startLoading();
-    return myLoadingFinished;
+    if (showProgress) {
+      myEditorComponent.startLoading();
+    }
   }
 
-  private Future<Runnable> scheduleLoading() {
-    PsiDocumentManager psiDocumentManager = PsiDocumentManager.getInstance(myProject);
+  private CancellablePromise<Runnable> scheduleLoading() {
+    long commitDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(DOCUMENT_COMMIT_WAITING_TIME_MS);
+
+    return ReadAction
+      .nonBlocking(() -> {
+        waitForCommit(commitDeadline);
+        return myTextEditor.loadEditorInBackground();
+      })
+      .expireWith(myEditorComponent)
+      .expireWith(myProject)
+      .finishOnUiThread(ModalityState.any(), result -> loadingFinished(result))
+      .submit(ourExecutor);
+  }
+
+  private void waitForCommit(long commitDeadlineNs) {
     Document document = myEditor.getDocument();
-    return ourExecutor.submit(() -> {
-      AtomicLong docStamp = new AtomicLong();
-      Ref<Runnable> ref = new Ref<>();
-      try {
-        while (!myEditorComponent.isDisposed()) {
-          ProgressIndicatorUtils.runWithWriteActionPriority(() -> psiDocumentManager.commitAndRunReadAction(() -> {
-            docStamp.set(document.getModificationStamp());
-            ref.set(myProject.isDisposed() ? EmptyRunnable.INSTANCE : myTextEditor.loadEditorInBackground());
-          }), new ProgressIndicatorBase());
-          Runnable continuation = ref.get();
-          if (continuation != null) {
-            psiDocumentManager.performLaterWhenAllCommitted(() -> {
-              if (docStamp.get() == document.getModificationStamp()) loadingFinished(continuation);
-              else if (!myEditorComponent.isDisposed()) scheduleLoading();
-            }, ModalityState.any());
-            return continuation;
-          }
-          ProgressIndicatorUtils.yieldToPendingWriteActions();
-        }
+    PsiDocumentManager pdm = PsiDocumentManager.getInstance(myProject);
+    if (!pdm.isCommitted(document) && System.nanoTime() < commitDeadlineNs) {
+      Semaphore semaphore = new Semaphore(1);
+      pdm.performForCommittedDocument(document, semaphore::up);
+      while (System.nanoTime() < commitDeadlineNs && !semaphore.waitFor(10)) {
+        ProgressManager.checkCanceled();
       }
-      finally {
-        if (ref.isNull()) invokeLater(() -> loadingFinished(null));
-      }
-      return null;
-    });
+    }
   }
 
-  private static void invokeLater(Runnable runnable) {
-    ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
+  private boolean isDone() {
+    return myLoadingFinished.get();
   }
 
   private boolean worthWaiting() {
@@ -127,11 +112,12 @@ public class AsyncEditorLoader {
            !ApplicationManager.getApplication().isWriteAccessAllowed();
   }
 
-  private static <T> T resultInTimeOrNull(Future<T> future, long timeMs) {
+  private static <T> T resultInTimeOrNull(@NotNull Future<T> future) {
     try {
-      return future.get(timeMs, TimeUnit.MILLISECONDS);
+      return future.get(SYNCHRONOUS_LOADING_WAITING_TIME_MS, TimeUnit.MILLISECONDS);
     }
-    catch (InterruptedException | TimeoutException ignored) {}
+    catch (InterruptedException | TimeoutException ignored) {
+    }
     catch (ExecutionException e) {
       throw new RuntimeException(e);
     }
@@ -139,8 +125,7 @@ public class AsyncEditorLoader {
   }
 
   private void loadingFinished(Runnable continuation) {
-    if (myLoadingFinished.isDone()) return;
-    myLoadingFinished.complete(null);
+    if (!myLoadingFinished.compareAndSet(false, true)) return;
     myEditor.putUserData(ASYNC_LOADER, null);
 
     if (myEditorComponent.isDisposed()) return;
@@ -154,10 +139,11 @@ public class AsyncEditorLoader {
     }
     myEditorComponent.getContentPanel().setVisible(true);
 
-    if (myDelayedState != null) {
+    if (myDelayedState != null && PsiDocumentManager.getInstance(myProject).isCommitted(myEditor.getDocument())) {
       TextEditorState state = new TextEditorState();
+      state.RELATIVE_CARET_POSITION = Integer.MAX_VALUE; // don't do any scrolling
       state.setFoldingState(myDelayedState.getFoldingState());
-      myProvider.setStateImpl(myProject, myEditor, state);
+      myProvider.setStateImpl(myProject, myEditor, state, true);
       myDelayedState = null;
     }
 
@@ -190,20 +176,20 @@ public class AsyncEditorLoader {
 
 
     TextEditorState state = myProvider.getStateImpl(myProject, myEditor, level);
-    if (!myLoadingFinished.isDone() && myDelayedState != null) {
+    if (!isDone() && myDelayedState != null) {
       state.setDelayedFoldState(myDelayedState::getFoldingState);
     }
     return state;
   }
 
-  void setEditorState(@NotNull final TextEditorState state) {
+  void setEditorState(@NotNull final TextEditorState state, boolean exactState) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
-    if (!myLoadingFinished.isDone()) {
+    if (!isDone()) {
       myDelayedState = state;
     }
 
-    myProvider.setStateImpl(myProject, myEditor, state);
+    myProvider.setStateImpl(myProject, myEditor, state, exactState);
   }
 
   public static boolean isEditorLoaded(@NotNull Editor editor) {

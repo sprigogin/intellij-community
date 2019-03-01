@@ -41,7 +41,7 @@ public class MoveModuleToGroup extends ActionGroup {
   }
 
   @Override
-  public void update(AnActionEvent e){
+  public void update(@NotNull AnActionEvent e){
     final DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     final Module[] modules = LangDataKeys.MODULE_CONTEXT_ARRAY.getData(dataContext);
@@ -69,6 +69,6 @@ public class MoveModuleToGroup extends ActionGroup {
           return moduleGroup1.toString().compareToIgnoreCase(moduleGroup2.toString());
     }).map(MoveModuleToGroup::new).collect(Collectors.toList()));
 
-    return result.toArray(new AnAction[result.size()]);
+    return result.toArray(AnAction.EMPTY_ARRAY);
   }
 }

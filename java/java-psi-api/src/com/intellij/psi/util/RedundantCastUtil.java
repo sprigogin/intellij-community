@@ -2,6 +2,7 @@
 package com.intellij.psi.util;
 
 import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
@@ -9,6 +10,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.impl.source.resolve.graphInference.PsiPolyExpressionUtil;
 import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.ArrayUtil;
@@ -17,10 +19,7 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author max
@@ -44,6 +43,8 @@ public class RedundantCastUtil {
 
   public static boolean isCastRedundant (PsiTypeCastExpression typeCast) {
     PsiElement parent = typeCast.getParent();
+    PsiExpression operand = typeCast.getOperand();
+    if (operand != null && operand.getType() != null && operand.getType().equals(typeCast.getType())) return true;
     while(parent instanceof PsiParenthesizedExpression) parent = parent.getParent();
     if (parent instanceof PsiExpressionList) parent = parent.getParent();
     if (parent instanceof PsiReferenceExpression) parent = parent.getParent();
@@ -59,42 +60,11 @@ public class RedundantCastUtil {
     return arg;
   }
 
-  public static PsiExpression removeCast(PsiTypeCastExpression castExpression) {
-    if (castExpression == null) return null;
-    PsiExpression operand = castExpression.getOperand();
-    if (operand instanceof PsiParenthesizedExpression) {
-      final PsiParenthesizedExpression parExpr = (PsiParenthesizedExpression)operand;
-      operand = parExpr.getExpression();
-    }
-    if (operand == null) return null;
-
-    PsiExpression toBeReplaced = castExpression;
-
-    PsiElement parent = castExpression.getParent();
-    while (parent instanceof PsiParenthesizedExpression) {
-      toBeReplaced = (PsiExpression)parent;
-      parent = parent.getParent();
-    }
-
-    try {
-      return (PsiExpression)toBeReplaced.replace(operand);
-    }
-    catch (IncorrectOperationException e) {
-      LOG.error(e);
-    }
-    return toBeReplaced;
-  }
-
   private static class MyCollectingVisitor extends MyIsRedundantVisitor {
     private final Set<PsiTypeCastExpression> myFoundCasts = new HashSet<>();
 
     private MyCollectingVisitor() {
       super(true);
-    }
-
-    @Override
-    public void visitReferenceExpression(PsiReferenceExpression expression) {
-      visitElement(expression);
     }
 
     @Override
@@ -242,7 +212,7 @@ public class RedundantCastUtil {
       PsiReferenceExpression methodExpr = methodCall.getMethodExpression();
       PsiExpression qualifier = methodExpr.getQualifierExpression();
       if (!(qualifier instanceof PsiParenthesizedExpression)) return;
-      PsiExpression operand = ((PsiParenthesizedExpression)qualifier).getExpression();
+      PsiExpression operand = PsiUtil.skipParenthesizedExprDown(qualifier);
       if (!(operand instanceof PsiTypeCastExpression)) return;
       PsiTypeCastExpression typeCast = (PsiTypeCastExpression)operand;
       PsiExpression castOperand = typeCast.getOperand();
@@ -259,13 +229,14 @@ public class RedundantCastUtil {
 
       try {
         Project project = methodExpr.getProject();
-        PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
 
         final PsiExpression expressionFromText = factory.createExpressionFromText(methodCall.getText(), methodCall);
         if (!(expressionFromText instanceof PsiMethodCallExpression)) return;
         PsiMethodCallExpression newCall = (PsiMethodCallExpression)expressionFromText;
         PsiExpression newQualifier = newCall.getMethodExpression().getQualifierExpression();
-        PsiExpression newOperand = ((PsiTypeCastExpression)((PsiParenthesizedExpression)newQualifier).getExpression()).getOperand();
+        PsiTypeCastExpression newCast = Objects.requireNonNull((PsiTypeCastExpression)PsiUtil.skipParenthesizedExprDown(newQualifier));
+        PsiExpression newOperand = Objects.requireNonNull(newCast.getOperand());
         newQualifier.replace(newOperand);
 
         final JavaResolveResult newResult = newCall.getMethodExpression().advancedResolve(false);
@@ -279,28 +250,23 @@ public class RedundantCastUtil {
         }
         if (Comparing.equal(newReturnType, oldReturnType) &&
             (Comparing.equal(newTargetMethod, targetMethod) ||
-             newTargetMethod.getSignature(newResult.getSubstitutor()).equals(targetMethod.getSignature(resolveResult.getSubstitutor())) &&
              !(newTargetMethod.isDeprecated() && !targetMethod.isDeprecated()) &&
+             MethodSignatureUtil.isSuperMethod(newTargetMethod, targetMethod) &&
              // see SCR11555, SCR14559
              areThrownExceptionsCompatible(targetMethod, newTargetMethod) &&
-             areNullnessCompatible(project, targetMethod, newTargetMethod))) {
+             areNullabilityCompatible(targetMethod, newTargetMethod))) {
           addToResults(typeCast);
         }
       }
       catch (IncorrectOperationException ignore) { }
     }
 
-    private static boolean areNullnessCompatible(Project project,
-                                                 final PsiMethod oldTargetMethod,
-                                                 final PsiMethod newTargetMethod) {
+    private static boolean areNullabilityCompatible(final PsiMethod oldTargetMethod,
+                                                    final PsiMethod newTargetMethod) {
       // the cast may be for the @NotNull which newTargetMethod has whereas the oldTargetMethod doesn't
-      NullableNotNullManager nnm = NullableNotNullManager.getInstance(project);
-      boolean oldNotNull = nnm.isNotNull(oldTargetMethod, true);
-      boolean newNotNull = nnm.isNotNull(newTargetMethod, true);
-      if (oldNotNull != newNotNull) return false;
-      boolean oldNullable = nnm.isNullable(oldTargetMethod, true);
-      boolean newNullable = nnm.isNullable(newTargetMethod, true);
-      return oldNullable == newNullable;
+      Nullability oldNullability = NullableNotNullManager.getNullability(oldTargetMethod);
+      Nullability newNullability = NullableNotNullManager.getNullability(newTargetMethod);
+      return oldNullability == newNullability;
     }
 
     private static boolean areThrownExceptionsCompatible(final PsiMethod targetMethod, final PsiMethod newTargetMethod) {
@@ -332,7 +298,7 @@ public class RedundantCastUtil {
 
     @Override
     public void visitReferenceExpression(PsiReferenceExpression expression) {
-      //expression.acceptChildren(this);
+      visitElement(expression);
     }
 
     private void processCall(PsiCall expression){
@@ -358,10 +324,7 @@ public class RedundantCastUtil {
             final PsiType typeByParent = PsiTypesUtil.getExpectedTypeByParent(expression);
             final PsiCall newCall;
             if (typeByParent != null) {
-              final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(expression.getProject());
-              final String arrayCreationText = "new " + typeByParent.getCanonicalText() + "[] {" + expression.getText() + "}";
-              final PsiExpression arrayDeclaration = elementFactory.createExpressionFromText(arrayCreationText, expression);
-              newCall = (PsiCall)((PsiNewExpression)arrayDeclaration).getArrayInitializer().getInitializers()[0];
+              newCall = (PsiCall)LambdaUtil.copyWithExpectedType(expression, typeByParent);
             }
             else {
               final PsiCall call = LambdaUtil.treeWalkUp(expression);
@@ -405,8 +368,24 @@ public class RedundantCastUtil {
                 (!(newCall instanceof PsiCallExpression) ||
                  oldAnonymousClass != null && newAnonymousClass != null && Comparing.equal(oldAnonymousClass.getBaseClassType(), newAnonymousClass.getBaseClassType()) ||
                  Comparing.equal(PsiUtil.recaptureWildcards(((PsiCallExpression)newCall).getType(), expression), ((PsiCallExpression)expression).getType())) &&
-                newResult.isValidResult()) {
-              if (!(newArgs[i] instanceof PsiFunctionalExpression)) {
+                newResult.isValidResult() &&
+                !(newResult instanceof MethodCandidateInfo && ((MethodCandidateInfo)newResult).getInferenceErrorMessage() != null)) {
+              PsiExpression newArg = PsiUtil.deparenthesizeExpression(newArgs[i]);
+              if (newArg instanceof PsiConditionalExpression && PsiPolyExpressionUtil.isPolyExpression(newArgs[i])) {
+                PsiType targetType = newArg.getType();
+                LOG.assertTrue(targetType != null);
+                //target type is detected by method call
+                //check that both sides are fine with that
+                PsiExpression thenExpression = ((PsiConditionalExpression)newArg).getThenExpression();
+                PsiType thenType = thenExpression != null ? thenExpression.getType() : null;
+                PsiExpression elseExpression = ((PsiConditionalExpression)newArg).getElseExpression();
+                PsiType elseType = elseExpression != null ? elseExpression.getType() : null;
+                if (thenType != null && targetType.isAssignableFrom(thenType) &&
+                    elseType != null && targetType.isAssignableFrom(elseType)) {
+                  addToResults(cast);
+                }
+              }
+              else if (!(newArg instanceof PsiFunctionalExpression)) {
                 addToResults(cast);
               }
               else {
@@ -414,7 +393,7 @@ public class RedundantCastUtil {
                 final PsiType parameterType = PsiTypesUtil.getParameterType(parameters, i, varargs);
                 final PsiType newArgType = newResult.getSubstitutor().substitute(parameterType);
 
-                if (Comparing.equal(castType, ((PsiFunctionalExpression)newArgs[i]).getGroundTargetType(newArgType))) {
+                if (Comparing.equal(castType, ((PsiFunctionalExpression)newArg).getGroundTargetType(newArgType))) {
                   addToResults(cast);
                 }
               }
@@ -473,7 +452,7 @@ public class RedundantCastUtil {
                                                PsiType interfaceType,
                                                PsiTypeCastExpression returnExpression,
                                                int returnExprIdx,
-                                               Function<PsiExpression, PsiTypeCastExpression> computeCastExpression) {
+                                               Function<? super PsiExpression, ? extends PsiTypeCastExpression> computeCastExpression) {
       final PsiCall newCall = LambdaUtil.copyTopLevelCall(expression);
       if (newCall == null) return;
       final PsiExpressionList newArgsList = newCall.getArgumentList();
@@ -534,14 +513,19 @@ public class RedundantCastUtil {
             if (opposite == null || conditionalType instanceof PsiPrimitiveType &&
                                     !Comparing.equal(conditionalType, opposite.getType())) return;
           }
-        } else if (parent instanceof PsiSynchronizedStatement && expr != null && expr.getType() instanceof PsiPrimitiveType) {
+        }
+        else if (parent instanceof PsiSynchronizedStatement &&
+                 expr != null &&
+                 (expr.getType() instanceof PsiPrimitiveType || expr instanceof PsiFunctionalExpression)) {
           return;
         } else if (expr instanceof PsiLambdaExpression || expr instanceof PsiMethodReferenceExpression) {
-          if (parent instanceof PsiParenthesizedExpression && parent.getParent() instanceof PsiReferenceExpression) {
+          if (parent instanceof PsiParenthesizedExpression &&
+              PsiUtil.skipParenthesizedExprUp(parent.getParent()) instanceof PsiReferenceExpression) {
             return;
           }
 
           final PsiType functionalInterfaceType = PsiTypesUtil.getExpectedTypeByParent(typeCast);
+          //noinspection SuspiciousNameCombination
           if (topCastType != null && functionalInterfaceType != null && !TypeConversionUtil.isAssignable(topCastType, functionalInterfaceType, false)) return;
         }
         processAlreadyHasTypeCast(typeCast);
@@ -763,7 +747,7 @@ public class RedundantCastUtil {
     if (refExpression.getParent() instanceof PsiMethodCallExpression) return false;
     final PsiElement resolved = refExpression.resolve();
     try {
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(refExpression.getProject()).getElementFactory();
+      final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(refExpression.getProject());
       final PsiExpression copyExpression = elementFactory.createExpressionFromText(refExpression.getText(), refExpression);
       if (copyExpression instanceof PsiReferenceExpression) {
         final PsiReferenceExpression copy = (PsiReferenceExpression)copyExpression;
@@ -836,6 +820,9 @@ public class RedundantCastUtil {
           return true;
         }
       }
+    }
+    else if (parent instanceof PsiLocalVariable) {
+      return ((PsiLocalVariable)parent).getTypeElement().isInferredType();
     }
     return false;
   }

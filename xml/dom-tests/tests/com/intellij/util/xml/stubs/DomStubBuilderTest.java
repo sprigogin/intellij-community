@@ -19,11 +19,13 @@ import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.PsiManagerEx;
+import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.stubs.ObjectStubTree;
 import com.intellij.psi.stubs.StubTreeLoader;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ref.GCWatcher;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
 import com.intellij.util.xml.XmlName;
@@ -98,7 +100,7 @@ public class DomStubBuilderTest extends DomStubTest {
     VirtualFile file = psiFile.getVirtualFile();
     assertTrue(loader.canHaveStub(file));
     ObjectStubTree stubTree = loader.readFromVFile(getProject(), file);
-    assertNull(stubTree); // no stubs for invalid XML
+    assertNotNull(stubTree);
   }
 
   public void testInclusion() {
@@ -111,6 +113,9 @@ public class DomStubBuilderTest extends DomStubTest {
                                    "    Element:bar\n");
 
     PsiFile file = myFixture.getFile();
+    GCWatcher.tracking(file.getNode()).tryGc();
+    assertFalse(((PsiFileImpl) file).isContentsLoaded());
+
     DomFileElement<Foo> element = DomManager.getDomManager(getProject()).getFileElement((XmlFile)file, Foo.class);
     assert element != null;
     assertEquals(2, element.getRootElement().getBars().size());

@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.compiler;
 
 import com.intellij.openapi.components.*;
@@ -52,11 +50,13 @@ public class ArtifactsWorkspaceSettings implements PersistentStateComponent<Arti
     Collections.sort(myState.myArtifactsToBuild);
   }
 
+  @Override
   public ArtifactsWorkspaceSettingsState getState() {
     return myState;
   }
 
-  public void loadState(ArtifactsWorkspaceSettingsState state) {
+  @Override
+  public void loadState(@NotNull ArtifactsWorkspaceSettingsState state) {
     myState = state;
   }
 

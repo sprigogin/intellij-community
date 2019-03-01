@@ -87,6 +87,13 @@ public class MemoryIndexStorage<Key, Value> implements VfsAwareIndexStorage<Key,
     myMap.clear();
   }
 
+  public void clearMemoryMapForId(Key key, int fileId) {
+    ChangeTrackingValueContainer<Value> container = myMap.get(key);
+    if (container != null) {
+      container.dropAssociatedValue(fileId);
+    }
+  }
+
   public void fireMemoryStorageCleared() {
     for (BufferingStateListener listener : myListeners) {
       listener.memoryStorageCleared();
@@ -128,7 +135,7 @@ public class MemoryIndexStorage<Key, Value> implements VfsAwareIndexStorage<Key,
   }
 
   @Override
-  public boolean processKeys(@NotNull final Processor<Key> processor, GlobalSearchScope scope, IdFilter idFilter) throws StorageException {
+  public boolean processKeys(@NotNull final Processor<? super Key> processor, GlobalSearchScope scope, IdFilter idFilter) throws StorageException {
     final Set<Key> stopList = new HashSet<>();
 
     Processor<Key> decoratingProcessor = key -> {

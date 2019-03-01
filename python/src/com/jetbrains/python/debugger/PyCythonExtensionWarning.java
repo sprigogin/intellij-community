@@ -73,7 +73,7 @@ public class PyCythonExtensionWarning {
     return new DumbAwareAction("Install") {
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         compileCythonExtension(project);
         notification.expire();
       }
@@ -84,7 +84,7 @@ public class PyCythonExtensionWarning {
     return new DumbAwareAction("How does it work") {
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         HelpManager.getInstance().invokeHelp("Cython_Speedups");
       }
     };
@@ -121,7 +121,7 @@ public class PyCythonExtensionWarning {
         throw new ExecutionException("Python Run Configuration should be selected");
       }
       AbstractPythonRunConfiguration runConfiguration = (AbstractPythonRunConfiguration)configuration;
-      final String sdkPath = runConfiguration.getSdkHome();
+      final String interpreterPath = runConfiguration.getInterpreterPath();
       final String helpersPath = PythonHelpersLocator.getHelpersRoot().getPath();
 
       final String cythonExtensionsDir = PyDebugRunner.CYTHON_EXTENSIONS_DIR;
@@ -129,7 +129,7 @@ public class PyCythonExtensionWarning {
         {"build_ext", "--build-lib", cythonExtensionsDir, "--build-temp", String.format("%s%sbuild", cythonExtensionsDir, File.separator)};
 
       final List<String> cmdline = new ArrayList<>();
-      cmdline.add(sdkPath);
+      cmdline.add(interpreterPath);
       cmdline.add(FileUtil.join(helpersPath, FileUtil.toSystemDependentName(SETUP_CYTHON_PATH)));
       cmdline.addAll(Arrays.asList(cythonArgs));
       LOG.info("Compile Cython Extensions " + StringUtil.join(cmdline, " "));
@@ -138,12 +138,12 @@ public class PyCythonExtensionWarning {
       PythonEnvUtil.addToPythonPath(environment, cythonExtensionsDir);
       PythonEnvUtil.setPythonUnbuffered(environment);
       PythonEnvUtil.setPythonDontWriteBytecode(environment);
-      if (sdkPath != null) {
-        PythonEnvUtil.resetHomePathChanges(sdkPath, environment);
+      if (interpreterPath != null) {
+        PythonEnvUtil.resetHomePathChanges(interpreterPath, environment);
       }
       GeneralCommandLine commandLine = new GeneralCommandLine(cmdline).withEnvironment(environment);
 
-      final boolean canCreate = FileUtil.ensureCanCreateFile(new File(helpersPath));
+      final boolean canCreate = FileUtil.ensureCanCreateFile(new File(cythonExtensionsDir));
       final boolean useSudo = !canCreate && !SystemInfo.isWindows;
       Process process;
       if (useSudo) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.impl
 
 import com.intellij.execution.ProgramRunnerUtil
@@ -21,8 +7,6 @@ import com.intellij.execution.configurations.RuntimeConfigurationException
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.IconLoader
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.IconDeferrer
 import com.intellij.util.containers.ObjectLongHashMap
 import gnu.trove.THashMap
@@ -33,6 +17,7 @@ import kotlin.concurrent.write
 
 class TimedIconCache {
   private val idToIcon = THashMap<String, Icon>()
+  private val idToInvalid = THashMap<String, Boolean>()
   private val iconCheckTimes = ObjectLongHashMap<String>()
   private val iconCalcTime = ObjectLongHashMap<String>()
 
@@ -51,7 +36,6 @@ class TimedIconCache {
       idToIcon.get(id)?.let {
         return it
       }
-
       val icon = IconDeferrer.getInstance().deferAutoUpdatable(settings.configuration.icon, project.hashCode() xor settings.hashCode()) {
         if (project.isDisposed) {
           return@deferAutoUpdatable null
@@ -63,13 +47,13 @@ class TimedIconCache {
 
         val startTime = System.currentTimeMillis()
 
-        val icon = calcIcon(settings, project)
+        val icon2Valid = calcIcon(settings, project)
 
         lock.write {
           iconCalcTime.put(id, System.currentTimeMillis() - startTime)
+          idToInvalid.set(id, icon2Valid.second)
         }
-
-        icon
+        icon2Valid.first
       }
 
       set(id, icon)
@@ -77,16 +61,22 @@ class TimedIconCache {
     }
   }
 
-  private fun calcIcon(settings: RunnerAndConfigurationSettings, project: Project): Icon {
+  fun isInvalid(id: String) : Boolean {
+    idToInvalid.get(id)?.let {return it}
+    return false
+  }
+
+  private fun calcIcon(settings: RunnerAndConfigurationSettings, project: Project): Pair<Icon, Boolean> {
     try {
       settings.checkSettings()
-      return ProgramRunnerUtil.getConfigurationIcon(settings, false)
+      return ProgramRunnerUtil.getConfigurationIcon(settings, false).to(false)
     }
     catch (e: IndexNotReadyException) {
-      return ProgramRunnerUtil.getConfigurationIcon(settings, false)
+      return ProgramRunnerUtil.getConfigurationIcon(settings, false).to(false)
     }
     catch (ignored: RuntimeConfigurationException) {
-      return ProgramRunnerUtil.getConfigurationIcon(settings, !DumbService.isDumb(project))
+      val invalid = !DumbService.isDumb(project)
+      return ProgramRunnerUtil.getConfigurationIcon(settings, invalid).to(invalid)
     }
   }
 

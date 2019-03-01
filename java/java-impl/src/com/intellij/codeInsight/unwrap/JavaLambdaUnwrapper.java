@@ -33,11 +33,17 @@ public class JavaLambdaUnwrapper extends JavaUnwrapper {
   }
 
   @Override
+  public PsiElement collectAffectedElements(@NotNull PsiElement e, @NotNull List<PsiElement> toExtract) {
+     super.collectAffectedElements(e, toExtract);
+     return JavaAnonymousUnwrapper.findElementToExtractFrom(e);
+  }
+
+  @Override
   protected void doUnwrap(PsiElement element, Context context) throws IncorrectOperationException {
     PsiElement from = JavaAnonymousUnwrapper.findElementToExtractFrom(element);
     PsiLambdaExpression lambdaExpression = (PsiLambdaExpression)element;
     PsiElement body = lambdaExpression.getBody();
-    if (body instanceof PsiExpression || body instanceof PsiCodeBlock && ((PsiCodeBlock)body).getStatements().length == 1) {
+    if (body instanceof PsiExpression || body instanceof PsiCodeBlock && ((PsiCodeBlock)body).getStatementCount() == 1) {
       List<PsiExpression> returnExpressions = LambdaUtil.getReturnExpressions(lambdaExpression);
       if (returnExpressions.size() == 1
           && !PsiType.VOID.equals(returnExpressions.get(0).getType())
@@ -51,7 +57,7 @@ public class JavaLambdaUnwrapper extends JavaUnwrapper {
     }
     else {
       context.extractElement(body, from);
-      if (context.myIsEffective && !(from.getParent() instanceof PsiLambdaExpression)) {
+      if (context.isEffective() && !(from.getParent() instanceof PsiLambdaExpression)) {
         PsiStatement emptyStatement = JavaPsiFacade.getElementFactory(from.getProject()).createStatementFromText(";", from);
         from.getParent().addBefore(emptyStatement, from);
       }

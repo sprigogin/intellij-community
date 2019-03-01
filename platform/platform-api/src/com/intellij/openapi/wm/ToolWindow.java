@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm;
 
 import com.intellij.openapi.util.ActionCallback;
@@ -15,7 +15,6 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 
 public interface ToolWindow extends BusyObject {
-
   Key<Boolean> SHOW_CONTENT_ICON = new Key<>("ContentIcon");
 
   /**
@@ -69,7 +68,14 @@ public interface ToolWindow extends BusyObject {
   boolean isSplitMode();
 
   /**
-   * @exception IllegalStateException if tool window isn't installed.
+   * There are four base anchors for Tool Window: TOP, LEFT, BOTTOM, RIGHT.
+   * For each anchor there are two groups tool windows - not split and split for better organizing.
+   * For example, you can see two actions in Move To group: Left Top and Left Bottom.
+   * 'Left' here is anchor or side where the button is located,
+   * 'Top' and 'Bottom' are two subsets of buttons (not split and split).
+   *
+   * @throws IllegalStateException if tool window isn't installed.
+   * @see ToolWindowAnchor
    */
   void setSplitMode(boolean split, @Nullable Runnable runnable);
 
@@ -149,9 +155,7 @@ public interface ToolWindow extends BusyObject {
    */
   JComponent getComponent();
 
-
   ContentManager getContentManager();
-
 
   void setDefaultState(@Nullable ToolWindowAnchor anchor, @Nullable ToolWindowType type, @Nullable Rectangle floatingBounds);
 
@@ -172,10 +176,7 @@ public interface ToolWindow extends BusyObject {
 
   void showContentPopup(InputEvent inputEvent);
 
-  ActionCallback getActivation();
-
   default void setHelpId(@NonNls String helpId) {
-
   }
 
   @Nullable
@@ -193,4 +194,11 @@ public interface ToolWindow extends BusyObject {
     }
   }
 
+  /**
+   * @deprecated Not used anymore.
+   */
+  @Deprecated
+  default ActionCallback getActivation() {
+    return ActionCallback.DONE;
+  }
 }

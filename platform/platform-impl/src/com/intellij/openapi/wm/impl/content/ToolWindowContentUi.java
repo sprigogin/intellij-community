@@ -1,27 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.CloseAction;
 import com.intellij.ide.actions.ShowContentAction;
+import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.actionSystem.impl.ActionManagerImpl;
-import com.intellij.openapi.actionSystem.impl.MenuItemPresentationFactory;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.ThreeComponentsSplitter;
@@ -31,9 +17,9 @@ import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.wm.IdeFrame;
-import com.intellij.openapi.wm.ToolWindowContentUiType;
+import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.impl.ToolWindowImpl;
+import com.intellij.openapi.wm.impl.ToolWindowManagerImpl;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.content.*;
 import com.intellij.ui.content.tabs.PinToolwindowTabAction;
@@ -43,6 +29,7 @@ import com.intellij.util.ContentUtilEx;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.EmptyIterator;
 import com.intellij.util.containers.JBIterable;
+import com.intellij.util.containers.Predicate;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -66,7 +53,6 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
   ContentManager myManager;
 
-
   final JPanel myContent = new JPanel(new BorderLayout());
   ToolWindowImpl myWindow;
 
@@ -76,18 +62,18 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
   ShowContentAction myShowContent;
 
-  ContentLayout myTabsLayout = new TabContentLayout(this);
+  TabContentLayout myTabsLayout = new TabContentLayout(this);
   ContentLayout myComboLayout = new ComboContentLayout(this);
 
   private ToolWindowContentUiType myType = ToolWindowContentUiType.TABBED;
+
+  public Predicate<Point> isResizableArea = p -> true;
 
   public ToolWindowContentUi(ToolWindowImpl window) {
     myWindow = window;
     myContent.setOpaque(false);
     myContent.setFocusable(false);
     setOpaque(false);
-
-    myShowContent = new ShowContentAction(myWindow, myContent);
 
     setBorder(new EmptyBorder(0, 0, 0, 2));
 
@@ -111,6 +97,32 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
             .iterator();
         }
       });
+
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(UISettingsListener.TOPIC, uiSettings -> {
+        revalidate();
+        repaint();
+    });
+  }
+
+  private boolean isResizeable() {
+    if (myWindow.getType() == ToolWindowType.FLOATING || myWindow.getType() == ToolWindowType.WINDOWED) return false;
+    if (myWindow.getAnchor() == ToolWindowAnchor.BOTTOM) return true;
+    if (myWindow.getAnchor() == ToolWindowAnchor.TOP) return false;
+    if (!myWindow.isSplitMode()) return false;
+    ToolWindowManagerImpl manager = myWindow.getToolWindowManager();
+    List<String> ids = manager.getIdsOn(myWindow.getAnchor());
+    for (String id : ids) {
+      if (id.equals(myWindow.getId())) continue;
+      ToolWindow window = manager.getToolWindow(id);
+      if (window != null && window.isVisible() && (window.getType() == ToolWindowType.DOCKED || window.getType() == ToolWindowType.SLIDING)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean isResizeable(@NotNull Point point) {
+    return isResizableArea.apply(point);
   }
 
   public void setType(@NotNull ToolWindowContentUiType type) {
@@ -132,6 +144,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     return myType == ToolWindowContentUiType.TABBED ? myTabsLayout : myComboLayout;
   }
 
+  @Override
   public JComponent getComponent() {
     return myContent;
   }
@@ -140,6 +153,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     return this;
   }
 
+  @Override
   public void setManager(@NotNull final ContentManager manager) {
     if (myManager != null) {
       getCurrentLayout().reset();
@@ -150,23 +164,27 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     getCurrentLayout().init();
 
     myManager.addContentManagerListener(new ContentManagerListener() {
-      public void contentAdded(final ContentManagerEvent event) {
+      @Override
+      public void contentAdded(@NotNull final ContentManagerEvent event) {
         getCurrentLayout().contentAdded(event);
         event.getContent().addPropertyChangeListener(ToolWindowContentUi.this);
         rebuild();
       }
 
-      public void contentRemoved(final ContentManagerEvent event) {
+      @Override
+      public void contentRemoved(@NotNull final ContentManagerEvent event) {
         event.getContent().removePropertyChangeListener(ToolWindowContentUi.this);
         getCurrentLayout().contentRemoved(event);
         ensureSelectedContentVisible();
         rebuild();
       }
 
-      public void contentRemoveQuery(final ContentManagerEvent event) {
+      @Override
+      public void contentRemoveQuery(@NotNull final ContentManagerEvent event) {
       }
 
-      public void selectionChanged(final ContentManagerEvent event) {
+      @Override
+      public void selectionChanged(@NotNull final ContentManagerEvent event) {
         ensureSelectedContentVisible();
 
         update();
@@ -183,6 +201,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     myCloseAllAction = new TabbedContentAction.CloseAllAction(myManager);
     myNextTabAction = new TabbedContentAction.MyNextTabAction(myManager);
     myPreviousTabAction = new TabbedContentAction.MyPreviousTabAction(myManager);
+    myShowContent = new ShowContentAction(myWindow, myContent, myManager);
   }
 
   private void ensureSelectedContentVisible() {
@@ -219,36 +238,46 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
 
 
+  @Override
   public void doLayout() {
     getCurrentLayout().layout();
   }
 
 
+  @Override
   protected void paintComponent(final Graphics g) {
     super.paintComponent(g);
     getCurrentLayout().paintComponent(g);
   }
 
+  @Override
   protected void paintChildren(final Graphics g) {
     super.paintChildren(g);
     getCurrentLayout().paintChildren(g);
   }
 
+  @Override
   public Dimension getMinimumSize() {
     Insets insets = getInsets();
     return new Dimension(insets.left + insets.right + getCurrentLayout().getMinimumWidth(), super.getMinimumSize().height);
   }
 
+  @Override
   public Dimension getPreferredSize() {
-    Dimension size = super.getPreferredSize();
+    Dimension size = new Dimension();
     size.height = 0;
+    size.width = TabContentLayout.TAB_LAYOUT_START + getInsets().left + getInsets().right;
     for (int i = 0; i < getComponentCount(); i++) {
       final Component each = getComponent(i);
       size.height = Math.max(each.getPreferredSize().height, size.height);
+      size.width += each.getPreferredSize().width;
     }
+
+    size.width = Math.max(size.width, getMinimumSize().width);
     return size;
   }
 
+  @Override
   public void propertyChange(final PropertyChangeEvent evt) {
     update();
   }
@@ -260,21 +289,26 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     repaint();
   }
 
+  @Override
   public boolean isSingleSelection() {
     return true;
   }
 
+  @Override
   public boolean isToSelectAddedContent() {
     return false;
   }
 
+  @Override
   public boolean canBeEmptySelection() {
     return false;
   }
 
+  @Override
   public void beforeDispose() {
   }
 
+  @Override
   public boolean canChangeSelectionTo(@NotNull Content content, boolean implicit) {
     return true;
   }
@@ -303,6 +337,10 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     return getCurrentLayout().getNextContentActionName();
   }
 
+  public void setTabDoubleClickActions(@NotNull AnAction... actions) {
+    myTabsLayout.setTabDoubleClickActions(actions);
+  }
+
   public static void initMouseListeners(final JComponent c, final ToolWindowContentUi ui, final boolean allowResize) {
     if (c.getClientProperty(ui) != null) return;
 
@@ -314,7 +352,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
 
       private Component getActualSplitter() {
-        if (!allowResize) return null;
+        if (!allowResize || !ui.isResizeable()) return null;
 
         Component component = c;
         Component parent = component.getParent();
@@ -325,7 +363,9 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
               return parent;
             }
           }
-          if (parent instanceof Splitter && ((Splitter)parent).isVertical() && ((Splitter)parent).getSecondComponent() == component) {
+          if (parent instanceof Splitter && ((Splitter)parent).isVertical()
+              && ((Splitter)parent).getSecondComponent() == component
+              && ((Splitter)parent).getFirstComponent() != null) {
             return parent;
           }
           component = parent;
@@ -359,9 +399,9 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
         if (!e.isPopupTrigger()) {
           if (!UIUtil.isCloseClick(e)) {
             myLastPoint.set(info != null ? info.getLocation() : e.getLocationOnScreen());
-            if (allowResize) {
-              myPressPoint.set(myLastPoint.get());
-              arm(c.getComponentAt(e.getPoint()) == c ? c : null);
+            myPressPoint.set(myLastPoint.get());
+            if (allowResize && ui.isResizeable()) {
+              arm(c.getComponentAt(e.getPoint()) == c && ui.isResizeable(e.getPoint()) ? c : null);
             }
             ui.myWindow.fireActivated();
           }
@@ -380,14 +420,19 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
       @Override
       public void mouseMoved(MouseEvent e) {
-        c.setCursor(allowResize && getActualSplitter() != null && c.getComponentAt(e.getPoint()) == c
+        c.setCursor(allowResize && ui.isResizeable() && getActualSplitter() != null && c.getComponentAt(e.getPoint()) == c && ui.isResizeable(e.getPoint())
                     ? Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
                     : Cursor.getDefaultCursor());
       }
 
       @Override
+      public void mouseExited(MouseEvent e) {
+        c.setCursor(null);
+      }
+
+      @Override
       public void mouseDragged(MouseEvent e) {
-        if (myLastPoint.isNull()) return;
+        if (myLastPoint.isNull() || myPressPoint.isNull()) return;
 
         PointerInfo info = MouseInfo.getPointerInfo();
         if (info == null) return;
@@ -423,6 +468,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
 
     c.addMouseListener(new PopupHandler() {
+      @Override
       public void invokePopup(final Component comp, final int x, final int y) {
         final Content content = c instanceof BaseLabel ? ((BaseLabel)c).getContent() : null;
         ui.showContextMenu(comp, x, y, ui.myWindow.getPopupGroup(), content);
@@ -468,7 +514,9 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     if (selectedContent == null && toolWindowGroup == null) {
       return;
     }
+    DefaultActionGroup configuredGroup = (DefaultActionGroup)ActionManager.getInstance().getAction("ToolWindowContextMenu");
     DefaultActionGroup group = new DefaultActionGroup();
+    group.copyFromGroup(configuredGroup);
     if (selectedContent != null) {
       initActionGroup(group, selectedContent);
     }
@@ -477,15 +525,14 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
       group.addAll(toolWindowGroup);
     }
 
-    final ActionPopupMenu popupMenu =
-      ((ActionManagerImpl)ActionManager.getInstance()).createActionPopupMenu(POPUP_PLACE, group, new MenuItemPresentationFactory(true));
+    final ActionPopupMenu popupMenu = ActionManager.getInstance().createActionPopupMenu(POPUP_PLACE, group);
     popupMenu.getComponent().show(comp, x, y);
   }
 
   private static AnAction createSplitTabsAction(final TabbedContent content) {
     return new DumbAwareAction("Split '" + content.getTitlePrefix() + "' group") {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         content.split();
       }
     };
@@ -494,7 +541,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
   private static AnAction createMergeTabsAction(final ContentManager manager, final String tabPrefix) {
     return new DumbAwareAction("Merge tabs to '" + tabPrefix + "' group") {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         final Content selectedContent = manager.getSelectedContent();
         final List<Pair<String, JComponent>> tabs = new ArrayList<>();
         int selectedTab = -1;
@@ -554,9 +601,12 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     }
   }
 
+  @Override
   @Nullable
-  public Object getData(@NonNls String dataId) {
-    if (PlatformDataKeys.TOOL_WINDOW.is(dataId)) return myWindow;
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (PlatformDataKeys.TOOL_WINDOW.is(dataId)) {
+      return myWindow;
+    }
 
     if (CloseAction.CloseTarget.KEY.is(dataId)) {
       return computeCloseTarget();
@@ -578,6 +628,7 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
   }
 
   private class HideToolwindowTarget implements CloseAction.CloseTarget {
+    @Override
     public void close() {
       myWindow.fireHidden();
     }
@@ -585,17 +636,19 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
 
   private class CloseContentTarget implements CloseAction.CloseTarget {
 
-    private Content myContent;
+    private final Content myContent;
 
     private CloseContentTarget(Content content) {
       myContent = content;
     }
 
+    @Override
     public void close() {
       myManager.removeContent(myContent, true, true, true);
     }
   }
 
+  @Override
   public void dispose() {
     myContent.removeAll();
   }
@@ -609,7 +662,9 @@ public class ToolWindowContentUi extends JPanel implements ContentUI, PropertyCh
     final Content selectedContent = myManager.getSelectedContent();
 
     final SelectContentStep step = new SelectContentStep(contents);
-    step.setDefaultOptionIndex(myManager.getIndexOfContent(selectedContent));
+    if (selectedContent != null) {
+      step.setDefaultOptionIndex(myManager.getIndexOfContent(selectedContent));
+    }
 
     final ListPopup popup = JBPopupFactory.getInstance().createListPopup(step);
     getCurrentLayout().showContentPopup(popup);

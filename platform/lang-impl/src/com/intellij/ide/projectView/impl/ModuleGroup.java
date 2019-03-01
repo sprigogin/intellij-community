@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleGrouper;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
@@ -38,6 +39,7 @@ public class ModuleGroup {
     myGroupPath = groupPath;
   }
 
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof ModuleGroup)) return false;
@@ -45,57 +47,75 @@ public class ModuleGroup {
     return myGroupPath.equals(((ModuleGroup)o).myGroupPath);
   }
 
+  @Override
   public int hashCode() {
     return myGroupPath.hashCode();
   }
 
+  @NotNull
   public String[] getGroupPath() {
     return ArrayUtil.toStringArray(myGroupPath);
   }
 
+  @NotNull
   public List<String> getGroupPathList() {
     return myGroupPath;
   }
 
   @NotNull
-  public Collection<Module> modulesInGroup(Project project, boolean recursively) {
+  public Collection<Module> modulesInGroup(@NotNull Project project, boolean recursively) {
     return modulesInGroup(ModuleGrouper.instanceFor(project), recursively);
   }
 
   @NotNull
-  public Collection<Module> modulesInGroup(ModuleGrouper grouper, boolean recursively) {
+  public Collection<Module> modulesInGroup(@NotNull ModuleGrouper grouper, boolean recursively) {
     List<Module> result = new ArrayList<>();
+    Set<List<String>> moduleAsGroupsPaths = ContainerUtil.map2Set(grouper.getAllModules(), module -> grouper.getModuleAsGroupPath(module));
     for (final Module module : grouper.getAllModules()) {
       List<String> group = grouper.getGroupPath(module);
-      if (myGroupPath.equals(group) || (recursively && isChild(myGroupPath, group))) {
+      if (myGroupPath.equals(group) || isChild(myGroupPath, group) && (recursively || isUnderGroupWithSameNameAsSomeModule(myGroupPath, group, moduleAsGroupsPaths))) {
         result.add(module);
       }
     }
     return result;
   }
 
+  private static boolean isUnderGroupWithSameNameAsSomeModule(@NotNull List<String> parent, @NotNull List<String> descendant, @NotNull Set<List<String>> moduleNamesAsGroups) {
+    return descendant.size() > parent.size() && moduleNamesAsGroups.contains(descendant.subList(0, parent.size() + 1));
+  }
+
   @NotNull
-  public Collection<ModuleGroup> childGroups(ModuleGrouper grouper) {
+  public Collection<ModuleGroup> childGroups(@NotNull ModuleGrouper grouper) {
     Set<ModuleGroup> result = new THashSet<>();
+    Set<List<String>> moduleAsGroupsPaths = ContainerUtil.map2Set(grouper.getAllModules(), module -> grouper.getModuleAsGroupPath(module));
     for (Module module : grouper.getAllModules()) {
       List<String> group = grouper.getGroupPath(module);
       if (isChild(myGroupPath, group)) {
         final List<String> directChild = ContainerUtil.append(myGroupPath, group.get(myGroupPath.size()));
-        result.add(new ModuleGroup(directChild));
+        if (!moduleAsGroupsPaths.contains(directChild)) {
+          result.add(new ModuleGroup(directChild));
+        }
       }
     }
 
     return result;
   }
 
-  private static boolean isChild(final List<String> parent, final List<String> descendant) {
+  private static boolean isChild(@NotNull List<String> parent, @NotNull List<String> descendant) {
     return descendant.size() > parent.size() && descendant.subList(0, parent.size()).equals(parent);
   }
 
+  @NotNull
   public String presentableText() {
     return "'" + myGroupPath.get(myGroupPath.size() - 1) + "'";
   }
 
+  @NotNull
+  public String getQualifiedName() {
+    return StringUtil.join(myGroupPath, ".");
+  }
+
+  @Override
   public String toString() {
     return myGroupPath.get(myGroupPath.size() - 1);
   }

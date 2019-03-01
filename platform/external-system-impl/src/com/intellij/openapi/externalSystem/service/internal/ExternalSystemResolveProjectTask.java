@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * Thread-safe.
  *
  * @author Denis Zhdanov
- * @since 1/24/12 7:21 AM
  */
 public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask {
 
@@ -66,23 +65,36 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
     myArguments = arguments;
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   protected void doExecute() throws Exception {
-    final ExternalSystemFacadeManager manager = ServiceManager.getService(ExternalSystemFacadeManager.class);
-    Project ideProject = getIdeProject();
-    RemoteExternalSystemProjectResolver resolver = manager.getFacade(ideProject, myProjectPath, getExternalSystemId()).getResolver();
-    ExternalSystemExecutionSettings settings = ExternalSystemApiUtil.getExecutionSettings(ideProject, myProjectPath, getExternalSystemId());
-    if(StringUtil.isNotEmpty(myVmOptions)) {
-      settings.withVmOptions(ParametersListUtil.parse(myVmOptions));
-    }
-    if(StringUtil.isNotEmpty(myArguments)) {
-      settings.withArguments(ParametersListUtil.parse(myArguments));
-    }
-
     ExternalSystemProgressNotificationManagerImpl progressNotificationManager =
       (ExternalSystemProgressNotificationManagerImpl)ServiceManager.getService(ExternalSystemProgressNotificationManager.class);
     ExternalSystemTaskId id = getId();
-    progressNotificationManager.onStart(id, myProjectPath);
+
+    Project ideProject;
+    RemoteExternalSystemProjectResolver resolver;
+    ExternalSystemExecutionSettings settings;
+    try {
+      progressNotificationManager.onStart(id, myProjectPath);
+
+      final ExternalSystemFacadeManager manager = ServiceManager.getService(ExternalSystemFacadeManager.class);
+      ideProject = getIdeProject();
+      resolver = manager.getFacade(ideProject, myProjectPath, getExternalSystemId()).getResolver();
+      settings = ExternalSystemApiUtil.getExecutionSettings(ideProject, myProjectPath, getExternalSystemId());
+      if (StringUtil.isNotEmpty(myVmOptions)) {
+        settings.withVmOptions(ParametersListUtil.parse(myVmOptions));
+      }
+      if (StringUtil.isNotEmpty(myArguments)) {
+        settings.withArguments(ParametersListUtil.parse(myArguments));
+      }
+    }
+    catch (Exception e) {
+      progressNotificationManager.onFailure(id, e);
+      progressNotificationManager.onEnd(id);
+      throw e;
+    }
+
     try {
       DataNode<ProjectData> project = resolver.resolveProjectInfo(id, myProjectPath, myIsPreviewMode, settings);
       if (project != null) {
@@ -110,6 +122,7 @@ public class ExternalSystemResolveProjectTask extends AbstractExternalSystemTask
     }
   }
 
+  @Override
   protected boolean doCancel() throws Exception {
     final ExternalSystemFacadeManager manager = ServiceManager.getService(ExternalSystemFacadeManager.class);
     Project ideProject = getIdeProject();

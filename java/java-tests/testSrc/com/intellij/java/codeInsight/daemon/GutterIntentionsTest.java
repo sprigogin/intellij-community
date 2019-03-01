@@ -1,27 +1,19 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.daemon;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.daemon.impl.IntentionsUI;
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.CachedIntentions;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.intellij.testFramework.assertions.Assertions.assertThat;
 
 /**
  * @author Dmitry Avdeev
@@ -44,11 +36,30 @@ public class GutterIntentionsTest extends LightCodeInsightFixtureTestCase {
                                                      "}");
     assertSize(1, myFixture.findGuttersAtCaret());
 
-    ShowIntentionsPass.IntentionsInfo intentions = new ShowIntentionsPass.IntentionsInfo();
-    ShowIntentionsPass.getActionsToShow(getEditor(), getFile(), intentions, -1);
-    final HighlightInfo.IntentionActionDescriptor intentionActionDescriptor = assertOneElement(intentions.guttersToShow);
-    List<IntentionAction> options = intentionActionDescriptor.getOptions(myFixture.getElementAtCaret(), getEditor());
-    assertNotNull(options);
-    assertNotEmpty(options);
+    ShowIntentionsPass.IntentionsInfo intentions = ShowIntentionsPass.getActionsToShow(getEditor(), getFile(), false);
+    assertThat(intentions.guttersToShow.size()).isGreaterThan(1);
+  }
+
+  public void testRunLineMarker() {
+    myFixture.addClass("package junit.framework; public class TestCase {}");
+    myFixture.configureByText("MainTest.java", "public class Main<caret>Test extends junit.framework.TestCase {\n" +
+                                               "    public void testFoo() {\n" +
+                                               "    }\n" +
+                                               "}");
+    myFixture.doHighlighting();
+    CachedIntentions intentions = IntentionsUI.getInstance(getProject()).getCachedIntentions(getEditor(), getFile());
+    assertThat(intentions.getAllActions().get(0).getText()).startsWith("Run ");
+  }
+
+  public void testDoNotIncludeActionGroup() {
+    myFixture.configureByText(JavaFileType.INSTANCE, "public class Foo {\n" +
+                                                     "  public static void <caret>main(String[] args) {}" +
+                                                     "}");
+    assertSize(1, myFixture.findGuttersAtCaret());
+
+    ShowIntentionsPass.IntentionsInfo intentions = ShowIntentionsPass.getActionsToShow(getEditor(), getFile(), false);
+    List<HighlightInfo.IntentionActionDescriptor> descriptors = intentions.guttersToShow;
+    Set<String> names = descriptors.stream().map(descriptor -> descriptor.getDisplayName()).collect(Collectors.toSet());
+    assertEquals(descriptors.size(), names.size());
   }
 }

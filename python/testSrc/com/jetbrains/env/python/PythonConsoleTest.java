@@ -18,16 +18,15 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author traff
  */
+@Staging
 public class PythonConsoleTest extends PyEnvTestCase {
   @Test
-  @Staging
   public void testConsolePrint() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
         exec("x = 96");
-        exec("x += 1");
-        exec("print(1)");
+        exec("x = x + 1");
         exec("print(x)");
         waitForOutput("97");
       }
@@ -40,8 +39,8 @@ public class PythonConsoleTest extends PyEnvTestCase {
       @Override
       public void testing() throws Exception {
         exec("if True:\n" +
-             "  x=1\n" +
-             "y=x+100\n" +
+             "  x = 1\n" +
+             "y = x + 100\n" +
              "for i in range(1):\n" +
              "  print(y)\n");
         waitForOutput("101");
@@ -56,7 +55,6 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
   public void testInterruptAsync() {
     runPythonTest(new PyConsoleTask() {
       @Override
@@ -81,13 +79,12 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
   public void testLineByLineInput() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
         exec("x = 96");
-        exec("x +=1");
+        exec("x = x + 1");
         exec("if True:\n" +
              "  print(x)\n");
         waitForOutput("97");

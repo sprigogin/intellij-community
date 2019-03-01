@@ -1,21 +1,20 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.process.OSProcessHandler;
+import com.intellij.execution.process.CapturingProcessHandler;
 import com.intellij.execution.util.ExecUtil;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
@@ -32,7 +31,11 @@ import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Consumer;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.io.BaseOutputReader;
 import com.intellij.util.ui.EmptyIcon;
+import com.sun.jna.Native;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.WinDef;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.ide.PooledThreadExecutor;
@@ -43,6 +46,7 @@ import javax.swing.filechooser.FileSystemView;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.io.*;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,14 +55,21 @@ import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.text.StringUtil.defaultIfEmpty;
 
-public class ShowFilePathAction extends AnAction {
+public class ShowFilePathAction extends DumbAwareAction {
   private static final Logger LOG = Logger.getInstance(ShowFilePathAction.class);
 
   public static final NotificationListener FILE_SELECTING_LISTENER = new NotificationListener.Adapter() {
     @Override
     protected void hyperlinkActivated(@NotNull Notification notification, @NotNull HyperlinkEvent e) {
       URL url = e.getURL();
-      if (url != null) openFile(new File(url.getPath()));
+      if (url != null) {
+        try {
+          openFile(new File(url.toURI()));
+        }
+        catch (URISyntaxException ex) {
+          LOG.warn("invalid URL: " + url, ex);
+        }
+      }
       notification.expire();
     }
   };
@@ -134,14 +145,16 @@ public class ShowFilePathAction extends AnAction {
       show(file, popup -> {
         DataManager dataManager = DataManager.getInstance();
         if (dataManager != null) {
-          dataManager.getDataContextFromFocus().doWhenDone(((Consumer<DataContext>)popup::showInBestPositionFor));
+          dataManager
+            .getDataContextFromFocusAsync()
+            .onSuccess((popup::showInBestPositionFor));
         }
       });
     }
   }
 
   @Nullable
-  private static VirtualFile getFile(AnActionEvent e) {
+  private static VirtualFile getFile(@NotNull AnActionEvent e) {
     VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(e.getDataContext());
     return files == null || files.length == 1 ? CommonDataKeys.VIRTUAL_FILE.getData(e.getDataContext()) : null;
   }
@@ -154,7 +167,7 @@ public class ShowFilePathAction extends AnAction {
     });
   }
 
-  private static void show(@NotNull VirtualFile file, @NotNull Consumer<ListPopup> action) {
+  private static void show(@NotNull VirtualFile file, @NotNull Consumer<? super ListPopup> action) {
     if (!isSupported()) return;
 
     List<VirtualFile> files = new ArrayList<>();
@@ -187,7 +200,7 @@ public class ShowFilePathAction extends AnAction {
     return url;
   }
 
-  private static ListPopup createPopup(List<VirtualFile> files, List<Icon> icons) {
+  private static ListPopup createPopup(List<? extends VirtualFile> files, List<Icon> icons) {
     BaseListPopupStep<VirtualFile> step = new BaseListPopupStep<VirtualFile>(RevealFileAction.getActionName(), files, icons) {
       @NotNull
       @Override
@@ -269,12 +282,10 @@ public class ShowFilePathAction extends AnAction {
     String toSelect = _toSelect != null ? FileUtil.toSystemDependentName(FileUtil.toCanonicalPath(_toSelect.getPath())) : null;
 
     if (SystemInfo.isWindows) {
-      String call = toSelect != null ? "explorer /select,\"" + toSelect + '"' : "explorer /root,\"" + dir + '"';
-      LOG.debug(call);
-      File script = ExecUtil.createTempExecutableScript("idea_show_file_", ".bat", call);
-      GeneralCommandLine cmd = new GeneralCommandLine(script.getPath());
-      OSProcessHandler.deleteFileOnTermination(cmd, script);
-      ExecUtil.execAndGetOutput(cmd).checkSuccess(LOG);
+      String cmd = toSelect != null ? "explorer /select,\"" + shortPath(toSelect) + '"' : "explorer /root,\"" + shortPath(dir) + '"';
+      LOG.debug(cmd);
+      Process process = Runtime.getRuntime().exec(cmd);  // no advanced quoting/escaping is needed
+      new CapturingProcessHandler(process, null, cmd).runProcess().checkSuccess(LOG);
     }
     else if (SystemInfo.isMac) {
       GeneralCommandLine cmd = toSelect != null ? new GeneralCommandLine("open", "-R", toSelect) : new GeneralCommandLine("open", dir);
@@ -296,11 +307,31 @@ public class ShowFilePathAction extends AnAction {
     }
   }
 
+  private static String shortPath(String path) {
+    if (path.contains("  ")) {
+      // On the way from Runtime.exec() to CreateProcess(), a command line goes through couple rounds of merging and splitting
+      // which breaks paths containing a sequence of two or more spaces.
+      // Conversion to a short format is an ugly hack allowing to open such paths in Explorer.
+      char[] result = new char[WinDef.MAX_PATH];
+      if (Kernel32.INSTANCE.GetShortPathName(path, result, result.length) <= result.length) {
+        return Native.toString(result);
+      }
+    }
+
+    return path;
+  }
+
   private static void schedule(GeneralCommandLine cmd) {
     PooledThreadExecutor.INSTANCE.submit(() -> {
       try {
         LOG.debug(cmd.toString());
-        ExecUtil.execAndGetOutput(cmd).checkSuccess(LOG);
+        new CapturingProcessHandler(cmd) {
+          @NotNull
+          @Override
+          protected BaseOutputReader.Options readerOptions() {
+            return BaseOutputReader.Options.forMostlySilentProcess();
+          }
+        }.runProcess().checkSuccess(LOG);
       }
       catch (Exception e) {
         LOG.warn(e);

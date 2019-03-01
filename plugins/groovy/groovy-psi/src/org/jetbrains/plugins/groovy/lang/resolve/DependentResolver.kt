@@ -1,15 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.psi.PsiPolyVariantReference
-import com.intellij.psi.ResolveResult
-import com.intellij.psi.impl.source.resolve.ResolveCache
 import com.intellij.util.Consumer
 import com.intellij.util.SmartList
+import org.jetbrains.plugins.groovy.lang.psi.api.GroovyReference
+import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult
 
-abstract class DependentResolver<T : PsiPolyVariantReference> : ResolveCache.PolyVariantResolver<T> {
+abstract class DependentResolver<T : GroovyReference> : GroovyResolver<T> {
 
   companion object {
     /**
@@ -24,7 +22,7 @@ abstract class DependentResolver<T : PsiPolyVariantReference> : ResolveCache.Pol
     private val resolvingDependencies = ThreadLocal.withInitial { mutableSetOf<PsiPolyVariantReference>() }
   }
 
-  override final fun resolve(ref: T, incomplete: Boolean): Array<out ResolveResult> {
+  final override fun resolve(ref: T, incomplete: Boolean): Collection<GroovyResolveResult> {
     val dependencies = resolveDependencies(ref, incomplete)
     val result = doResolve(ref, incomplete)
     dependencies?.clear()
@@ -33,7 +31,8 @@ abstract class DependentResolver<T : PsiPolyVariantReference> : ResolveCache.Pol
 
   private fun resolveDependencies(ref: T, incomplete: Boolean): MutableCollection<Any>? {
     if (ref in resolvingDependencies.get()) return null
-    return collectDependencies(ref)?.mapNotNullTo(mutableListOf()) {
+    val dependencies = collectDependencies(ref)
+    return dependencies?.mapNotNullTo(mutableListOf()) {
       if (ref === it) return@mapNotNullTo null
       try {
         resolvingDependencies.get().add(it)
@@ -55,5 +54,5 @@ abstract class DependentResolver<T : PsiPolyVariantReference> : ResolveCache.Pol
 
   protected open fun collectDependencies(ref: T, consumer: Consumer<in PsiPolyVariantReference>) {}
 
-  protected abstract fun doResolve(ref: T, incomplete: Boolean): Array<out ResolveResult>
+  protected abstract fun doResolve(ref: T, incomplete: Boolean): Collection<GroovyResolveResult>
 }

@@ -145,6 +145,13 @@ public class VisibilityInspectionTest extends InspectionTestCase {
     myTool.SUGGEST_PRIVATE_FOR_INNERS = true;
     doTest("visibility/usedFromAnnotationsExtendsList", myTool, false, true);
   }
+
+  public void testOverrideInInnerClass() {
+    myTool.SUGGEST_PACKAGE_LOCAL_FOR_MEMBERS = true;
+    myTool.SUGGEST_PACKAGE_LOCAL_FOR_TOP_CLASSES = true;
+    myTool.SUGGEST_PRIVATE_FOR_INNERS = true;
+    doTest("visibility/overrideInInnerClass", myTool, false, true);
+  }
   
   public void testUsedQualifiedFromAnotherPackage() {
     myTool.SUGGEST_PACKAGE_LOCAL_FOR_MEMBERS = true;
@@ -201,7 +208,7 @@ public class VisibilityInspectionTest extends InspectionTestCase {
 
       @Override
       public int getMinVisibilityLevel(PsiMember member) {
-        return member instanceof PsiMethod && isEntryPoint(member) ? PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL : -1;
+        return member instanceof PsiMethod && isEntryPoint(member) ? PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL : ACCESS_LEVEL_INVALID;
       }
 
       @Override

@@ -16,7 +16,9 @@
 package com.jetbrains.python.debugger;
 
 import com.google.common.collect.Lists;
-import com.intellij.execution.*;
+import com.intellij.execution.ExecutionException;
+import com.intellij.execution.ExecutionResult;
+import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.console.LanguageConsoleBuilder;
 import com.intellij.execution.executors.DefaultDebugExecutor;
@@ -45,6 +47,7 @@ import com.jetbrains.python.console.PythonDebugConsoleCommunication;
 import com.jetbrains.python.console.PythonDebugLanguageConsoleView;
 import com.jetbrains.python.console.pydev.ConsoleCommunicationListener;
 import com.jetbrains.python.debugger.settings.PyDebuggerSettings;
+import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.run.AbstractPythonRunConfiguration;
 import com.jetbrains.python.run.CommandLinePatcher;
 import com.jetbrains.python.run.DebugAwareConfiguration;
@@ -79,6 +82,7 @@ public class PyDebugRunner extends GenericProgramRunner {
   public static final String GEVENT_SUPPORT = "GEVENT_SUPPORT";
   public static final String PYDEVD_FILTERS = "PYDEVD_FILTERS";
   public static final String PYDEVD_FILTER_LIBRARIES = "PYDEVD_FILTER_LIBRARIES";
+  public static final String PYDEVD_USE_CYTHON = "PYDEVD_USE_CYTHON";
   public static final String CYTHON_EXTENSIONS_DIR = new File(PathManager.getSystemPath(), "cythonExtensions").toString();
 
   @Override
@@ -236,7 +240,8 @@ public class PyDebugRunner extends GenericProgramRunner {
   public CommandLinePatcher[] createCommandLinePatchers(final Project project, final PythonCommandLineState state,
                                                         RunProfile profile,
                                                         final int serverLocalPort) {
-    return new CommandLinePatcher[]{createDebugServerPatcher(project, state, serverLocalPort), createRunConfigPatcher(state, profile)};
+    return new CommandLinePatcher[]{createDebugServerPatcher(project, state, serverLocalPort, profile),
+      createRunConfigPatcher(state, profile)};
   }
 
   public static boolean patchExeParams(ParametersList parametersList) {
@@ -266,7 +271,8 @@ public class PyDebugRunner extends GenericProgramRunner {
 
   private CommandLinePatcher createDebugServerPatcher(final Project project,
                                                       final PythonCommandLineState pyState,
-                                                      final int serverLocalPort) {
+                                                      final int serverLocalPort,
+                                                      final RunProfile profile) {
     return new CommandLinePatcher() {
       @Override
       public void patchCommandLine(GeneralCommandLine commandLine) {
@@ -278,7 +284,8 @@ public class PyDebugRunner extends GenericProgramRunner {
         assert debugParams != null;
 
         boolean isModule = patchExeParams(parametersList);
-        fillDebugParameters(project, debugParams, serverLocalPort, pyState, commandLine, isModule);
+
+        fillDebugParameters(project, debugParams, serverLocalPort, pyState, commandLine, profile, isModule);
 
         @SuppressWarnings("ConstantConditions") @NotNull
         ParamsGroup exeParams = parametersList.getParamsGroup(PythonCommandLineState.GROUP_EXE_OPTIONS);
@@ -299,6 +306,7 @@ public class PyDebugRunner extends GenericProgramRunner {
                                    int serverLocalPort,
                                    @NotNull PythonCommandLineState pyState,
                                    @NotNull GeneralCommandLine cmd,
+                                   @Nullable RunProfile runProfile,
                                    boolean isModule) {
     PythonHelper.DEBUGGER.addToGroup(debugParams, cmd);
 
@@ -309,12 +317,13 @@ public class PyDebugRunner extends GenericProgramRunner {
 
     configureDebugParameters(project, debugParams, pyState, cmd);
 
-    configureDebugEnvironment(project, cmd.getEnvironment());
+    configureDebugEnvironment(project, cmd.getEnvironment(), runProfile);
 
     configureDebugConnectionParameters(debugParams, serverLocalPort);
   }
 
-  public static void configureDebugEnvironment(@NotNull Project project, Map<String, String> environment) {
+  public static void configureDebugEnvironment(@NotNull Project project, Map<String, String> environment,
+                                               @Nullable RunProfile runProfile) {
     if (PyDebuggerOptionsProvider.getInstance(project).isSupportGeventDebugging()) {
       environment.put(GEVENT_SUPPORT, "True");
     }
@@ -326,8 +335,8 @@ public class PyDebugRunner extends GenericProgramRunner {
     if (debuggerSettings.isLibrariesFilterEnabled()) {
       environment.put(PYDEVD_FILTER_LIBRARIES, "True");
     }
-    if (debuggerSettings.isLoadValuesAsync()) {
-      environment.put(PyVariableViewSettings.PYDEVD_LOAD_VALUES_ASYNC, "True");
+    if (debuggerSettings.getValuesPolicy() != PyDebugValue.ValuesPolicy.SYNC) {
+      environment.put(PyDebugValue.POLICY_ENV_VARS.get(debuggerSettings.getValuesPolicy()), "True");
     }
 
     PydevConsoleRunnerFactory.putIPythonEnvFlag(project, environment);
@@ -335,7 +344,25 @@ public class PyDebugRunner extends GenericProgramRunner {
     PythonEnvUtil.addToPythonPath(environment, CYTHON_EXTENSIONS_DIR);
 
     addProjectRootsToEnv(project, environment);
-    addSdkRootsToEnv(project, environment);
+
+    final AbstractPythonRunConfiguration runConfiguration = runProfile instanceof AbstractPythonRunConfiguration ?
+                                                            (AbstractPythonRunConfiguration)runProfile : null;
+    if (runConfiguration != null) {
+      final Sdk sdk = runConfiguration.getSdk();
+      if (sdk != null) {
+        final PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(sdk);
+        if (flavor != null) {
+          final LanguageLevel langLevel = flavor.getLanguageLevel(sdk);
+          // PY-28457 Disable Cython extensions in Python 3.4 and Python 3.5 because of crash in generated C code
+          if (langLevel == LanguageLevel.PYTHON34 || langLevel == LanguageLevel.PYTHON35) {
+            environment.put(PYDEVD_USE_CYTHON, "NO");
+          }
+        }
+      }
+
+      addSdkRootsToEnv(environment, runConfiguration);
+      PythonEnvUtil.addToPythonPath(environment, runConfiguration.getWorkingDirectorySafe());
+    }
   }
 
   protected void configureDebugParameters(@NotNull Project project,
@@ -366,6 +393,17 @@ public class PyDebugRunner extends GenericProgramRunner {
     }
   }
 
+  public static void disableBuiltinBreakpoint(@Nullable Sdk sdk, Map<String, String> env) {
+    if (sdk != null) {
+      final PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(sdk);
+      if (flavor != null) {
+        if (flavor.getLanguageLevel(sdk) == LanguageLevel.PYTHON37) {
+          env.put("PYTHONBREAKPOINT", "0");
+        }
+      }
+    }
+  }
+
   private static void configureDebugConnectionParameters(@NotNull ParamsGroup debugParams, int serverLocalPort) {
     final String[] debuggerArgs = new String[]{
       CLIENT_PARAM, "127.0.0.1",
@@ -387,22 +425,15 @@ public class PyDebugRunner extends GenericProgramRunner {
     environment.put(IDE_PROJECT_ROOTS, StringUtil.join(roots, File.pathSeparator));
   }
 
-  private static void addSdkRootsToEnv(@NotNull Project project, @NotNull Map<String, String> environment) {
-    final RunManager runManager = RunManager.getInstance(project);
-    final RunnerAndConfigurationSettings selectedConfiguration = runManager.getSelectedConfiguration();
-    if (selectedConfiguration != null) {
-      final RunConfiguration configuration = selectedConfiguration.getConfiguration();
-      if (configuration instanceof AbstractPythonRunConfiguration) {
-        AbstractPythonRunConfiguration runConfiguration = (AbstractPythonRunConfiguration)configuration;
-        final Sdk sdk = runConfiguration.getSdk();
-        if (sdk != null) {
-          List<String> roots = Lists.newArrayList();
-          for (VirtualFile contentRoot : sdk.getRootProvider().getFiles(OrderRootType.CLASSES)) {
-            roots.add(contentRoot.getPath());
-          }
-          environment.put(LIBRARY_ROOTS, StringUtil.join(roots, File.pathSeparator));
-        }
+  private static void addSdkRootsToEnv(@NotNull Map<String, String> environment,
+                                       @NotNull AbstractPythonRunConfiguration runConfiguration) {
+    final Sdk sdk = runConfiguration.getSdk();
+    if (sdk != null) {
+      List<String> roots = Lists.newArrayList();
+      for (VirtualFile contentRoot : sdk.getRootProvider().getFiles(OrderRootType.CLASSES)) {
+        roots.add(contentRoot.getPath());
       }
+      environment.put(LIBRARY_ROOTS, StringUtil.join(roots, File.pathSeparator));
     }
   }
 }

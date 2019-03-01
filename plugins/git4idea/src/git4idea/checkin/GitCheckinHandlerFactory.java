@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.checkin;
 
 import com.intellij.CommonBundle;
@@ -26,10 +12,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vcs.CheckinProjectPanel;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.CommitExecutor;
 import com.intellij.openapi.vcs.checkin.CheckinHandler;
@@ -42,10 +25,7 @@ import com.intellij.xml.util.XmlStringUtil;
 import git4idea.GitUtil;
 import git4idea.GitVcs;
 import git4idea.commands.Git;
-import git4idea.config.GitConfigUtil;
-import git4idea.config.GitVcsSettings;
-import git4idea.config.GitVersion;
-import git4idea.config.GitVersionSpecialty;
+import git4idea.config.*;
 import git4idea.crlf.GitCrlfDialog;
 import git4idea.crlf.GitCrlfProblemsDetector;
 import git4idea.crlf.GitCrlfUtil;
@@ -62,7 +42,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Prohibits committing with an empty messages, warns if committing into detached HEAD, checks if user name and correct CRLF attributes
  * are set.
-*/
+ */
 public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
 
   private static final Logger LOG = Logger.getInstance(GitCheckinHandlerFactory.class);
@@ -82,7 +62,7 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
     @NotNull private final Project myProject;
 
 
-    public MyCheckinHandler(@NotNull CheckinProjectPanel panel) {
+    MyCheckinHandler(@NotNull CheckinProjectPanel panel) {
       myPanel = panel;
       myProject = myPanel.getProject();
     }
@@ -94,7 +74,11 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
       }
 
       if (commitOrCommitAndPush(executor)) {
-        ReturnResult result = checkUserName();
+        ReturnResult result = checkGitVersionAndEnv();
+        if (result != ReturnResult.COMMIT) {
+          return result;
+        }
+        result = checkUserName();
         if (result != ReturnResult.COMMIT) {
           return result;
         }
@@ -169,6 +153,22 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
       }
     }
 
+    private ReturnResult checkGitVersionAndEnv() {
+      GitVersion version = GitExecutableManager.getInstance().getVersionOrCancel(myProject);
+      if (System.getenv("HOME") == null && GitVersionSpecialty.DOESNT_DEFINE_HOME_ENV_VAR.existsIn(version)) {
+        Messages.showErrorDialog(myProject,
+                                 "You are using Git " +
+                                 version.getPresentation() +
+                                 " which doesn't define %HOME% environment variable properly.\n" +
+                                 "Consider updating Git to a newer version " +
+                                 "or define %HOME% to point to the place where the global .gitconfig is stored \n" +
+                                 "(it is usually %USERPROFILE% or %HOMEDRIVE%%HOMEPATH%).",
+                                 "HOME Variable Is Not Defined");
+        return ReturnResult.CANCEL;
+      }
+      return ReturnResult.COMMIT;
+    }
+
     private ReturnResult checkUserName() {
       final Project project = myPanel.getProject();
       GitVcs vcs = GitVcs.getInstance(project);
@@ -182,17 +182,6 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
 
       if (notDefined.isEmpty()) {
         return ReturnResult.COMMIT;
-      }
-
-      GitVersion version = vcs.getVersion();
-      if (System.getenv("HOME") == null && GitVersionSpecialty.DOESNT_DEFINE_HOME_ENV_VAR.existsIn(version)) {
-        Messages.showErrorDialog(project,
-          "You are using Git " + version.getPresentation() + " which doesn't define %HOME% environment variable properly.\n" +
-          "Consider updating Git to a newer version " +
-          "or define %HOME% to point to the place where the global .gitconfig is stored \n" +
-          "(it is usually %USERPROFILE% or %HOMEDRIVE%%HOMEPATH%).",
-          "HOME Variable Is Not Defined");
-        return ReturnResult.CANCEL;
       }
 
       // try to find a root with defined user name among other roots - to propose this user name in the dialog
@@ -308,7 +297,7 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
                   "<b>" + rootPath + "</b><br>" +
                   "You probably want to <b>continue rebase</b> instead of committing. <br/>" +
                   "Committing during rebase may lead to the commit loss. <br/>" +
-                  readMore("http://www.kernel.org/pub/software/scm/git/docs/git-rebase.html", "Read more about Git rebase");
+                  readMore("https://www.kernel.org/pub/software/scm/git/docs/git-rebase.html", "Read more about Git rebase");
       } else {
         title = "Commit in Detached HEAD";
         message = messageCommonStart + " is in the <b>detached HEAD</b> state: <br/>" +
@@ -372,11 +361,15 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
     @NotNull
     private Collection<VirtualFile> getSelectedRoots() {
       ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(myProject);
+      GitVcs git = GitVcs.getInstance(myProject);
       Collection<VirtualFile> result = new HashSet<>();
       for (FilePath path : ChangesUtil.getPaths(myPanel.getSelectedChanges())) {
-        VirtualFile root = vcsManager.getVcsRootFor(path);
-        if (root != null) {
-          result.add(root);
+        VcsRoot vcsRoot = vcsManager.getVcsRootObjectFor(path);
+        if (vcsRoot != null) {
+          VirtualFile root = vcsRoot.getPath();
+          if (git.equals(vcsRoot.getVcs()) && root != null) {
+            result.add(root);
+          }
         }
       }
       return result;
@@ -386,7 +379,7 @@ public class GitCheckinHandlerFactory extends VcsCheckinHandlerFactory {
       final VirtualFile myRoot;
       final boolean myRebase; // rebase in progress, or just detached due to a checkout of a commit.
 
-      public DetachedRoot(@NotNull VirtualFile root, boolean rebase) {
+      DetachedRoot(@NotNull VirtualFile root, boolean rebase) {
         myRoot = root;
         myRebase = rebase;
       }

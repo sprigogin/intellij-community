@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.util;
 
 import com.intellij.codeInsight.ExceptionUtil;
@@ -65,7 +51,7 @@ public class LambdaGenerationUtil {
    * @return true if this expression or statement can be converted to lambda
    */
   @Contract("null, _ -> false")
-  public static boolean canBeUncheckedLambda(@Nullable PsiElement lambdaCandidate, @NotNull Predicate<PsiVariable> variableAllowedPredicate) {
+  public static boolean canBeUncheckedLambda(@Nullable PsiElement lambdaCandidate, @NotNull Predicate<? super PsiVariable> variableAllowedPredicate) {
     if(!(lambdaCandidate instanceof PsiExpression) && !(lambdaCandidate instanceof PsiStatement)) return false;
     if(!ExceptionUtil.getThrownCheckedExceptions(lambdaCandidate).isEmpty()) return false;
     CanBeLambdaBodyVisitor visitor = new CanBeLambdaBodyVisitor(lambdaCandidate, variableAllowedPredicate);
@@ -77,9 +63,9 @@ public class LambdaGenerationUtil {
     // Throws is not handled here: it's usually not a problem to move "throws <UncheckedException>" inside lambda.
     private boolean myCanBeLambdaBody = true;
     private final PsiElement myRoot;
-    private final Predicate<PsiVariable> myVariableAllowedPredicate;
+    private final Predicate<? super PsiVariable> myVariableAllowedPredicate;
 
-    CanBeLambdaBodyVisitor(PsiElement root, Predicate<PsiVariable> variableAllowedPredicate) {
+    CanBeLambdaBodyVisitor(PsiElement root, Predicate<? super PsiVariable> variableAllowedPredicate) {
       myRoot = root;
       myVariableAllowedPredicate = variableAllowedPredicate;
     }
@@ -111,10 +97,12 @@ public class LambdaGenerationUtil {
     }
 
     private boolean isAllowedInLambda(PsiReferenceExpression expression, PsiVariable variable) {
-      return variable instanceof PsiField ||
-             myVariableAllowedPredicate.test(variable) ||
-             PsiTreeUtil.isAncestor(myRoot, variable, true) ||
-             !PsiUtil.isAccessedForWriting(expression) && HighlightControlFlowUtil.isEffectivelyFinal(variable, myRoot, null);
+      if (myVariableAllowedPredicate.test(variable)) return true;
+      if (PsiTreeUtil.isAncestor(myRoot, variable, true)) return true;
+      if (variable instanceof PsiField) {
+        return !variable.hasModifierProperty(PsiModifier.FINAL) || !PsiUtil.isAccessedForWriting(expression);
+      }
+      return !PsiUtil.isAccessedForWriting(expression) && HighlightControlFlowUtil.isEffectivelyFinal(variable, myRoot, null);
     }
 
     @Override

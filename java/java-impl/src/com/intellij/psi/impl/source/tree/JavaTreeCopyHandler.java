@@ -118,7 +118,7 @@ public class JavaTreeCopyHandler implements TreeCopyHandler {
     else if (shallDecodeEscapedTexts && element instanceof LeafElement && !(element instanceof OuterLanguageElement)) {
       if (!isInCData(element)) {
         String original = element.getText();
-        String escaped = StringUtil.escapeXml(original);
+        String escaped = StringUtil.escapeXmlEntities(original);
         if (!Comparing.equal(original, escaped) && element.getCopyableUserData(ALREADY_ESCAPED) == null) {
           LeafElement copy = ((LeafElement)element).replaceWithText(escaped);
           copy.putCopyableUserData(ALREADY_ESCAPED, Boolean.TRUE);
@@ -168,7 +168,7 @@ public class JavaTreeCopyHandler implements TreeCopyHandler {
              !(original instanceof OuterLanguageElement) &&
              !isInCData(original)) {
       String originalText = element.getText();
-      String unescapedText = StringUtil.unescapeXml(originalText);
+      String unescapedText = StringUtil.unescapeXmlEntities(originalText);
       if (!Comparing.equal(originalText, unescapedText)) {
         LeafElement replaced = ((LeafElement)element).rawReplaceWithText(unescapedText);
         element.putCopyableUserData(ALREADY_ESCAPED, null);
@@ -217,20 +217,21 @@ public class JavaTreeCopyHandler implements TreeCopyHandler {
       }
     }
     else if (originalType == JavaElementType.JAVA_CODE_REFERENCE) {
-      int kind = ((PsiJavaCodeReferenceElementImpl)original).getKind(((PsiJavaCodeReferenceElementImpl)original).getContainingFile());
+      PsiJavaCodeReferenceElementImpl.Kind
+        kind = ((PsiJavaCodeReferenceElementImpl)original).getKindEnum(((PsiJavaCodeReferenceElementImpl)original).getContainingFile());
       switch (kind) {
-        case PsiJavaCodeReferenceElementImpl.CLASS_NAME_KIND:
-        case PsiJavaCodeReferenceElementImpl.CLASS_OR_PACKAGE_NAME_KIND:
-        case PsiJavaCodeReferenceElementImpl.CLASS_IN_QUALIFIED_NEW_KIND:
+        case CLASS_NAME_KIND:
+        case CLASS_OR_PACKAGE_NAME_KIND:
+        case CLASS_IN_QUALIFIED_NEW_KIND:
           PsiElement target = SourceTreeToPsiMap.<PsiJavaCodeReferenceElement>treeToPsiNotNull(original).resolve();
           if (target instanceof PsiClass) {
             ref.putCopyableUserData(JavaTreeGenerator.REFERENCED_CLASS_KEY, (PsiClass)target);
           }
           break;
 
-        case PsiJavaCodeReferenceElementImpl.PACKAGE_NAME_KIND:
-        case PsiJavaCodeReferenceElementImpl.CLASS_FQ_NAME_KIND:
-        case PsiJavaCodeReferenceElementImpl.CLASS_FQ_OR_PACKAGE_NAME_KIND:
+        case PACKAGE_NAME_KIND:
+        case CLASS_FQ_NAME_KIND:
+        case CLASS_FQ_OR_PACKAGE_NAME_KIND:
           break;
 
         default:

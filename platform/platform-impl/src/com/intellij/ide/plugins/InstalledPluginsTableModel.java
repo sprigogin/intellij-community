@@ -36,7 +36,6 @@ import java.util.List;
 
 /**
  * @author stathik
- * @since Dec 26, 2003
  */
 public class InstalledPluginsTableModel extends PluginTableModel {
   private static final InstalledPluginsState ourState = InstalledPluginsState.getInstance();
@@ -233,7 +232,7 @@ public class InstalledPluginsTableModel extends PluginTableModel {
 
   private class EnabledPluginInfo extends ColumnInfo<IdeaPluginDescriptor, Boolean> {
 
-    public EnabledPluginInfo() {
+    EnabledPluginInfo() {
       super(/*IdeBundle.message("plugin.manager.enable.column.title")*/"");
     }
 
@@ -368,13 +367,13 @@ public class InstalledPluginsTableModel extends PluginTableModel {
         }
 
         updatePluginDependencies();
-        hideNotApplicablePlugins(newVal, pluginDependencies.toArray(new IdeaPluginDescriptor[pluginDependencies.size()]));
+        hideNotApplicablePlugins(newVal, pluginDependencies.toArray(new IdeaPluginDescriptor[0]));
       }
     }
   }
 
   private class MyPluginManagerColumnInfo extends PluginManagerColumnInfo {
-    public MyPluginManagerColumnInfo() {
+    MyPluginManagerColumnInfo() {
       super(PluginManagerColumnInfo.COLUMN_NAME, InstalledPluginsTableModel.this);
     }
 
@@ -441,11 +440,6 @@ public class InstalledPluginsTableModel extends PluginTableModel {
         }
         return comparator.compare(o1, o2);
       };
-    }
-
-    @Override
-    public int getWidth(JTable table) {
-      return super.getWidth(table);
     }
   }
 }

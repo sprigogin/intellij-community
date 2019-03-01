@@ -83,8 +83,7 @@ public class ProjectPatternProvider extends PatternDialectProvider {
   public PackageSet createPackageSet(final PackageDependenciesNode node, final boolean recursively) {
     if (node instanceof ModuleGroupNode) {
       if (!recursively) return null;
-      @NonNls final String modulePattern = "group:" + ((ModuleGroupNode)node).getModuleGroup().toString();
-      return new FilePatternPackageSet(modulePattern, "*//*");
+      return new FilePatternPackageSet(getGroupModulePattern((ModuleGroupNode)node), "*//*");
     }
     else if (node instanceof ModuleNode) {
       if (!recursively) return null;
@@ -137,12 +136,12 @@ public class ProjectPatternProvider extends PatternDialectProvider {
     }
 
     @Override
-    public boolean isSelected(AnActionEvent event) {
+    public boolean isSelected(@NotNull AnActionEvent event) {
       return DependencyUISettings.getInstance().UI_COMPACT_EMPTY_MIDDLE_PACKAGES;
     }
 
     @Override
-    public void setSelected(AnActionEvent event, boolean flag) {
+    public void setSelected(@NotNull AnActionEvent event, boolean flag) {
       DependencyUISettings.getInstance().UI_COMPACT_EMPTY_MIDDLE_PACKAGES = flag;
       myUpdate.run();
     }

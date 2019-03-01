@@ -7,7 +7,7 @@ import com.intellij.execution.configurations.RuntimeConfigurationWarning;
 import com.jetbrains.env.EnvTestTagsRequired;
 import com.jetbrains.env.PyEnvTestCase;
 import com.jetbrains.env.PyProcessWithConsoleTestTask;
-import com.jetbrains.env.python.testing.CreateConfigurationTestTask.PyConfigurationCreationTask;
+import com.jetbrains.env.python.testing.CreateConfigurationTestTask.PyConfigurationValidationTask;
 import com.jetbrains.env.ut.PyNoseTestProcessRunner;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.testing.PyNoseTestConfiguration;
@@ -41,16 +41,16 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyNoseTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals("Nose genenerator produced bad tree", "Test tree:\n" +
-                                "[root]\n" +
-                                ".test_nose_generator\n" +
-                                "..test_evens\n" +
-                                "...(0, 0)(+)\n" +
-                                "...(1, 3)(-)\n" +
-                                "...(2, 6)(+)\n" +
-                                "...(3, 9)(-)\n" +
-                                "...(4, 12)(+)\n", runner.getFormattedTestTree());
+                                                           "[root](-)\n" +
+                                                           ".test_nose_generator(-)\n" +
+                                                           "..test_evens(-)\n" +
+                                                           "...(0, 0)(+)\n" +
+                                                           "...(1, 3)(-)\n" +
+                                                           "...(2, 6)(+)\n" +
+                                                           "...(3, 9)(-)\n" +
+                                                           "...(4, 12)(+)\n", runner.getFormattedTestTree());
       }
     });
   }
@@ -72,7 +72,7 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
    */
   @Test
   public void testRunModuleAsFile() {
-    runPythonTest(new RunModuleAsFileTask<PyNoseTestProcessRunner>(){
+    runPythonTest(new RunModuleAsFileTask<PyNoseTestProcessRunner>() {
       @NotNull
       @Override
       protected PyNoseTestProcessRunner createProcessRunner() {
@@ -97,10 +97,12 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
   public void testMarkerWithSlow() {
     runPythonTest(new SlowRunnerTask("--attr=\"!slow\" -vvv"));
   }
+
   @Test
   public void testMarkerWithSlowSingleQuotes() {
     runPythonTest(new SlowRunnerTask("--attr='!slow' -vvv"));
   }
+
   @Test
   public void testMarkerWithSlowRegexp() {
     runPythonTest(new SlowRunnerTask("--attr='!slow' -vvv -m \"(?:^|[\\b_\\./-])[Tt]est\""));
@@ -158,18 +160,15 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
 
 
   @Test(expected = RuntimeConfigurationWarning.class)
-  public void testValidation() {
-
-    final PyConfigurationCreationTask<PyNoseTestConfiguration> task =
-      new PyConfigurationCreationTask<PyNoseTestConfiguration>() {
+  public void testValidation() throws Throwable {
+    runPythonTestWithException(
+      new PyConfigurationValidationTask<PyNoseTestConfiguration>() {
         @NotNull
         @Override
         protected PyNoseTestFactory createFactory() {
           return PyNoseTestFactory.INSTANCE;
         }
-      };
-    runPythonTest(task);
-    task.checkEmptyTarget();
+      });
   }
 
   @Test
@@ -208,7 +207,7 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyNoseTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(4, runner.getAllTestsCount());
         assertEquals(3, runner.getPassedTestsCount());
       }
@@ -228,7 +227,7 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyNoseTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(8, runner.getAllTestsCount());
         assertEquals(5, runner.getPassedTestsCount());
         assertEquals(3, runner.getFailedTestsCount());
@@ -250,7 +249,7 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyNoseTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(1, runner.getAllTestsCount());
         assertEquals(0, runner.getPassedTestsCount());
         assertEquals(1, runner.getFailedTestsCount());
@@ -284,12 +283,12 @@ public final class PythonNoseTestingTest extends PyEnvTestCase {
     protected void checkTestResults(@NotNull PyNoseTestProcessRunner runner,
                                     @NotNull String stdout,
                                     @NotNull String stderr,
-                                    @NotNull String all) {
+                                    @NotNull String all, int exitCode) {
       assertEquals("--slow runner broken on arguments" + myArguments, "Test tree:\n" +
-                                                  "[root]\n" +
-                                                  ".test_with_slow\n" +
-                                                  "..test_fast(+)\n",
-                          runner.getFormattedTestTree());
+                                                                      "[root](+)\n" +
+                                                                      ".test_with_slow(+)\n" +
+                                                                      "..test_fast(+)\n",
+                   runner.getFormattedTestTree());
     }
   }
 }

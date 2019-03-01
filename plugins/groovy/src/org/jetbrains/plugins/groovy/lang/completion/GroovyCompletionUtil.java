@@ -1,7 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.lang.completion;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightUtilCore;
 import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.completion.*;
@@ -19,7 +20,6 @@ import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.filters.FilterPositionUtil;
 import com.intellij.psi.impl.source.tree.LeafPsiElement;
@@ -72,6 +72,8 @@ import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+
+import static org.jetbrains.plugins.groovy.lang.resolve.ReferencesKt.resolvePackageFqn;
 
 /**
  * @author ilyas
@@ -235,7 +237,7 @@ public class GroovyCompletionUtil {
     return result;
   }
 
-  public static List<LookupElement> getCompletionVariants(List<GroovyResolveResult> candidates,
+  public static List<LookupElement> getCompletionVariants(List<? extends GroovyResolveResult> candidates,
                                                           boolean afterNew,
                                                           PrefixMatcher matcher,
                                                           PsiElement position) {
@@ -374,7 +376,7 @@ public class GroovyCompletionUtil {
 
 
   private static boolean showSpaceAfterComma(PsiClass element) {
-    return CodeStyleSettingsManager.getSettings(element.getProject()).getCommonSettings(GroovyLanguage.INSTANCE).SPACE_AFTER_COMMA;
+    return CodeStyle.getLanguageSettings(element.getContainingFile(), GroovyLanguage.INSTANCE).SPACE_AFTER_COMMA;
   }
 
 
@@ -406,7 +408,7 @@ public class GroovyCompletionUtil {
     for (GroovyResolveResult result : constructors) {
       final PsiElement element = result.getElement();
       if (element instanceof PsiMethod) {
-        if (((PsiMethod)element).getParameterList().getParametersCount() > 0) {
+        if (!((PsiMethod)element).getParameterList().isEmpty()) {
           hasParameters = true;
         }
         if (result.isAccessible()) {
@@ -481,7 +483,7 @@ public class GroovyCompletionUtil {
       newStartOffset = marker.getStartOffset();
     }
 
-    if (toDelete.isValid()) {
+    if (toDelete != null && toDelete.isValid()) {
       document.deleteString(toDelete.getStartOffset(), toDelete.getEndOffset());
     }
 
@@ -664,5 +666,10 @@ public class GroovyCompletionUtil {
       }
     }
     return qualifierType;
+  }
+
+  static boolean canResolveToPackage(@NotNull PsiElement qualifier) {
+    return qualifier instanceof GrReferenceExpression
+           && resolvePackageFqn((GrReferenceElement<?>)qualifier) != null;
   }
 }

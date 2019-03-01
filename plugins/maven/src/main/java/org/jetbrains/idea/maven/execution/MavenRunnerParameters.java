@@ -30,7 +30,7 @@ import java.io.File;
 import java.util.*;
 
 public class MavenRunnerParameters implements Cloneable {
-  private boolean isPomExecution;
+  private final boolean isPomExecution;
   private Path myWorkingDirPath;
   private String myPomFileName;
   private final List<String> myGoals = new ArrayList<>();
@@ -221,6 +221,7 @@ public class MavenRunnerParameters implements Cloneable {
    * @deprecated use getProfileMap()
    * @return
    */
+  @Deprecated
   @Transient
   public Collection<String> getProfiles() {
     return Maps.filterValues(myProfilesMap, Predicates.equalTo(true)).keySet();
@@ -231,6 +232,7 @@ public class MavenRunnerParameters implements Cloneable {
    * @deprecated use getProfileMap()
    * @param profiles
    */
+  @Deprecated
   public void setProfiles(@Nullable Collection<String> profiles) {
     if (profiles != null) {
       for (String profile : profiles) {
@@ -247,6 +249,7 @@ public class MavenRunnerParameters implements Cloneable {
     myResolveToWorkspace = resolveToWorkspace;
   }
 
+  @Override
   public MavenRunnerParameters clone() {
     return new MavenRunnerParameters(this);
   }

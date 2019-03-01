@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.lookup.impl;
 
@@ -230,14 +216,11 @@ public abstract class LookupActionHandler extends EditorActionHandler {
       }
 
       if (!lookup.performGuardedChange(() -> {
-        CaretAction action = new CaretAction() {
-          @Override
-          public void perform(Caret caret1) {
-            caret1.removeSelection();
-            int caretOffset = caret1.getOffset();
-            if (caretOffset < seq.length()) {
-              caret1.moveToOffset(caretOffset + 1);
-            }
+        CaretAction action = lookupCaret -> {
+          lookupCaret.removeSelection();
+          int caretOffset = lookupCaret.getOffset();
+          if (caretOffset < seq.length()) {
+            lookupCaret.moveToOffset(caretOffset + 1);
           }
         };
         if (caret == null) {
@@ -250,8 +233,9 @@ public abstract class LookupActionHandler extends EditorActionHandler {
         return;
       }
 
+      lookup.fireBeforeAppendPrefix(c);
       lookup.appendPrefix(c);
-      final CompletionProgressIndicator completion = CompletionServiceImpl.getCompletionService().getCurrentCompletion();
+      final CompletionProgressIndicator completion = CompletionServiceImpl.getCurrentCompletionProgressIndicator();
       if (completion != null) {
         completion.prefixUpdated();
       }

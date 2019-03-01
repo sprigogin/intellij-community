@@ -17,7 +17,6 @@ package org.jetbrains.plugins.terminal.vfs;
 
 import com.google.common.collect.Lists;
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
-import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorLocation;
@@ -44,7 +43,7 @@ import java.util.List;
  */
 public class TerminalSessionEditor extends UserDataHolderBase implements FileEditor {
 
-  private Project myProject;
+  private final Project myProject;
   private final TerminalSessionVirtualFileImpl myFile;
   private final TtyConnectorWaitFor myWaitFor;
 
@@ -54,7 +53,7 @@ public class TerminalSessionEditor extends UserDataHolderBase implements FileEdi
 
     final TabbedSettingsProvider settings = myFile.getSettingsProvider();
 
-    myFile.getTerminal().setNextProvider(new TerminalActionProviderBase() {
+    myFile.getTerminalWidget().setNextProvider(new TerminalActionProviderBase() {
       @Override
       public List<TerminalAction> getActions() {
         return Lists.newArrayList(
@@ -66,7 +65,7 @@ public class TerminalSessionEditor extends UserDataHolderBase implements FileEdi
       }
     });
 
-    myWaitFor = new TtyConnectorWaitFor(myFile.getTerminal().getTtyConnector(), ConcurrencyUtil.newSingleThreadExecutor("Terminal session"));
+    myWaitFor = new TtyConnectorWaitFor(myFile.getTerminalWidget().getTtyConnector(), ConcurrencyUtil.newSingleThreadExecutor("Terminal session"));
 
     myWaitFor
       .setTerminationCallback(integer -> {
@@ -77,19 +76,19 @@ public class TerminalSessionEditor extends UserDataHolderBase implements FileEdi
   }
 
   private void handleCloseSession() {
-    myFile.getTerminal().close();
+    myFile.getTerminalWidget().close();
   }
 
   @NotNull
   @Override
   public JComponent getComponent() {
-    return myFile.getTerminal();
+    return myFile.getTerminalWidget();
   }
 
   @Nullable
   @Override
   public JComponent getPreferredFocusedComponent() {
-    return myFile.getTerminal();
+    return myFile.getTerminalWidget();
   }
 
   @NotNull
@@ -145,18 +144,12 @@ public class TerminalSessionEditor extends UserDataHolderBase implements FileEdi
     return null;
   }
 
-  @Nullable
-  @Override
-  public StructureViewBuilder getStructureViewBuilder() {
-    return null;
-  }
-
   @Override
   public void dispose() {
     Boolean closingToReopen = myFile.getUserData(FileEditorManagerImpl.CLOSING_TO_REOPEN);
     myWaitFor.detach();
     if (closingToReopen == null || !closingToReopen) {
-      myFile.getTerminal().close();
+      myFile.getTerminalWidget().close();
     }
   }
 }

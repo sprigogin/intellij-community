@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.siyeh.ig.style;
 
@@ -21,7 +9,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.FileTypeUtils;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -61,19 +49,6 @@ public class SingleStatementInBlockInspection extends BaseInspection {
     return null;
   }
 
-  private static void doFixImpl(@NotNull PsiBlockStatement blockStatement) {
-    final PsiCodeBlock codeBlock = blockStatement.getCodeBlock();
-    final PsiStatement[] statements = codeBlock.getStatements();
-
-    CommentTracker commentTracker = new CommentTracker();
-    final String text = commentTracker.markUnchanged(statements[0]).getText();
-    PsiElement parent = blockStatement.getParent();
-    final Project project = blockStatement.getProject();
-    final PsiElement replacementExp = commentTracker.replace(blockStatement, text);
-    CodeStyleManager.getInstance(project).reformat(replacementExp);
-    commentTracker.insertCommentsBefore(parent);
-  }
-
   private static class SingleStatementInBlockVisitor extends ControlFlowStatementVisitorBase {
 
     @Contract("null->false")
@@ -86,6 +61,9 @@ public class SingleStatementInBlockInspection extends BaseInspection {
         }
         final PsiStatement[] statements = codeBlock.getStatements();
         if (statements.length == 1 && !(statements[0] instanceof PsiDeclarationStatement) && !isDanglingElseProblem(statements[0], body)) {
+          if (PsiUtilCore.hasErrorElementChild(statements[0])) {
+            return false;
+          }
           final PsiFile file = body.getContainingFile();
           //this inspection doesn't work in JSP files, as it can't tell about tags
           // inside the braces
@@ -105,8 +83,8 @@ public class SingleStatementInBlockInspection extends BaseInspection {
         final PsiStatement[] statements = codeBlock.getStatements();
         if (statements.length == 1) {
           final PsiStatement statement = statements[0];
-          if (statement instanceof PsiLoopStatement || statement instanceof PsiIfStatement) {
-            return Pair.create(codeBlock.getLBrace(), codeBlock.getRBrace());
+          if (statement.textContains('\n')) {
+            return Pair.create(statement, statement);
           }
         }
       }
@@ -156,7 +134,7 @@ public class SingleStatementInBlockInspection extends BaseInspection {
   private static class SingleStatementInBlockFix extends InspectionGadgetsFix {
     private final String myKeywordText;
 
-    private SingleStatementInBlockFix(String keywordText) {
+    SingleStatementInBlockFix(String keywordText) {
       myKeywordText = keywordText;
     }
 
@@ -176,31 +154,29 @@ public class SingleStatementInBlockInspection extends BaseInspection {
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiElement startElement = descriptor.getStartElement();
-      final PsiElement startParent = startElement.getParent();
+      PsiStatement statement = PsiTreeUtil.getNonStrictParentOfType(descriptor.getStartElement(), PsiStatement.class);
+      if (statement instanceof PsiBlockStatement) {
+        statement = PsiTreeUtil.getNonStrictParentOfType(statement.getParent(), PsiStatement.class);
+      }
       final PsiElement body;
-      if (startElement instanceof PsiLoopStatement) {
-        body = ((PsiLoopStatement)startElement).getBody();
+      if (statement instanceof PsiLoopStatement) {
+        body = ((PsiLoopStatement)statement).getBody();
       }
-      else if (startParent instanceof PsiLoopStatement) {
-        body = ((PsiLoopStatement)startParent).getBody();
-      }
-      else if (startElement instanceof PsiKeyword) {
-        assert startParent instanceof PsiIfStatement;
-        PsiIfStatement ifStatement = (PsiIfStatement)startParent;
-        body = ((PsiKeyword)startElement).getTokenType() == JavaTokenType.IF_KEYWORD
-               ? ifStatement.getThenBranch()
-               : ifStatement.getElseBranch();
-      }
-      else if (PsiUtil.isJavaToken(startElement, JavaTokenType.RBRACE)) { // at the end of the omitted body
-        assert startParent instanceof PsiCodeBlock;
-        body = startParent.getParent();
+      else if (statement instanceof PsiIfStatement) {
+        body = myKeywordText.equals("else") ? ((PsiIfStatement)statement).getElseBranch() : ((PsiIfStatement)statement).getThenBranch();
       }
       else {
         return;
       }
-      assert body instanceof PsiBlockStatement;
-      doFixImpl((PsiBlockStatement)body);
+      if (!(body instanceof PsiBlockStatement)) return;
+      final PsiStatement[] statements = ((PsiBlockStatement)body).getCodeBlock().getStatements();
+      if (statements.length != 1) return;
+
+      CommentTracker commentTracker = new CommentTracker();
+      final String text = commentTracker.text(statements[0]);
+      final PsiElement replacementExp = commentTracker.replace(body, text);
+      CodeStyleManager.getInstance(project).reformat(replacementExp);
+      commentTracker.insertCommentsBefore(statement);
     }
   }
 }

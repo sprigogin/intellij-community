@@ -32,7 +32,7 @@ import java.util.Set;
  * <p/>
  * Custom providers are registered via {@link FileViewProviderFactory}.
  * <p/>
- * Please see <a href="http://confluence.jetbrains.net/display/IDEADEV/IntelliJ+IDEA+Architectural+Overview">IntelliJ IDEA Architectural Overview </a>
+ * Please see <a href="https://www.jetbrains.org/intellij/sdk/docs/basics/architectural_overview.html">IntelliJ Platform Architectural Overview</a>
  * for high-level overview.
  *
  * @see PsiFile#getViewProvider()
@@ -88,6 +88,14 @@ public interface FileViewProvider extends Cloneable, UserDataHolderEx {
    */
   @NotNull
   Set<Language> getLanguages();
+
+  /**
+   * Check if given language is supported.
+   * Implementations may provide more effective way to check without getting all languages.
+   */
+  default boolean hasLanguage(@NotNull Language language) {
+    return getLanguages().contains(language);
+  }
 
   /**
    * @param target target language

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.table;
 
 import com.intellij.openapi.Disposable;
@@ -27,14 +13,16 @@ import com.intellij.ui.EditorSettingsProvider;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.TableUtil;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.ui.*;
+import com.intellij.util.ui.AbstractTableCellEditor;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.MouseEventHandler;
+import com.intellij.util.ui.UIUtil;
 import gnu.trove.TIntArrayList;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TIntObjectProcedure;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
@@ -99,7 +87,7 @@ public abstract class JBListTable {
   protected boolean isRowEditable(int row) {
     return true;
   }
-  
+
   protected boolean isRowEmpty(int row) {
     return false;
   }
@@ -138,7 +126,7 @@ public abstract class JBListTable {
   private class MyCellEditor extends AbstractTableCellEditor {
     private final JBTableRowEditor myEditor;
 
-    public MyCellEditor(JBTableRowEditor editor) {
+    MyCellEditor(JBTableRowEditor editor) {
       myEditor = editor;
     }
 
@@ -162,6 +150,7 @@ public abstract class JBListTable {
           }
         }
 
+        @Override
         public void removeNotify() {
           if (myCellEditor != null) myCellEditor.saveFocusIndex();
           super.removeNotify();
@@ -225,7 +214,7 @@ public abstract class JBListTable {
     private final Timer myAnimationTimer = UIUtil.createNamedTimer("JBListTableTimer",ANIMATION_STEP_MILLIS, this);
     private final JTable myTable;
 
-    public RowResizeAnimator(JTable table) {
+    RowResizeAnimator(JTable table) {
       myTable = table;
     }
 
@@ -281,7 +270,7 @@ public abstract class JBListTable {
       private final int myTargetHeight;
       private long myLastUpdateTime;
 
-      public RowAnimationState(int row, int targetHeight) {
+      RowAnimationState(int row, int targetHeight) {
         myRow = row;
         myTargetHeight = targetHeight;
         myLastUpdateTime = System.currentTimeMillis();
@@ -310,23 +299,13 @@ public abstract class JBListTable {
 
   private class MyTable extends JBTable {
 
-    public MyTable() {
+    MyTable() {
       super(new MyTableModel(myInternalTable.getModel()));
     }
 
     @Override
     public MyTableModel getModel() {
       return (MyTableModel)super.getModel();
-    }
-
-    @Override
-    public void editingStopped(ChangeEvent e) {
-      super.editingStopped(e);
-    }
-
-    @Override
-    public void editingCanceled(ChangeEvent e) {
-      super.editingCanceled(e);
     }
 
     @Override
@@ -485,11 +464,6 @@ public abstract class JBListTable {
       Object value = getValueAt(row, column);
       boolean isSelected = isCellSelected(row, column);
       return editor.getTableCellEditorComponent(this, value, isSelected, row, column);
-    }
-
-    @Override
-    public void addNotify() {
-      super.addNotify();
     }
 
     @Override

@@ -1,6 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.editor;
 
 import com.intellij.icons.AllIcons;
@@ -28,6 +26,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.Collections;
 
 /**
 * @author Dmitry Batkovich
@@ -39,17 +38,17 @@ class NewPropertyAction extends AnAction {
 
   private final boolean myEnabledForce;
 
-  public NewPropertyAction() {
+  NewPropertyAction() {
     this(false);
   }
 
-  public NewPropertyAction(final boolean enabledForce) {
+  NewPropertyAction(final boolean enabledForce) {
     super("New Property", null, AllIcons.General.Add);
     myEnabledForce = enabledForce;
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = getEventProject(e);
     if (project == null) {
       return;
@@ -76,7 +75,8 @@ class NewPropertyAction extends AnAction {
 
     final ResourceBundle bundle = resourceBundleEditor.getResourceBundle();
     final VirtualFile file = bundle.getDefaultPropertiesFile().getVirtualFile();
-    final ReadonlyStatusHandler.OperationStatus status = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(file);
+    final ReadonlyStatusHandler.OperationStatus status =
+      ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(Collections.singletonList(file));
     if (status.hasReadonlyFiles()) {
       Messages.showErrorDialog(bundle.getProject(),
                                String.format("Resource bundle '%s' has read-only default properties file", bundle.getBaseName()),
@@ -100,7 +100,7 @@ class NewPropertyAction extends AnAction {
         prefix = group.getPrefix();
         separator = group.getSeparator();
       }
-      else if (selectedElement instanceof ResourceBundlePropertyStructureViewElement ||
+      else if (selectedElement instanceof PropertyStructureViewElement ||
                selectedElement instanceof ResourceBundleFileStructureViewElement) {
         prefix = null;
         separator = null;
@@ -159,7 +159,7 @@ class NewPropertyAction extends AnAction {
       resourceBundleEditor.updateTreeRoot();
       resourceBundleEditor.getStructureViewComponent()
         .select(keyToInsert, false)
-        .processed(p -> finalResourceBundleEditor.selectProperty(keyToInsert));
+        .onProcessed(p -> finalResourceBundleEditor.selectProperty(keyToInsert));
     }
   }
 
@@ -190,7 +190,7 @@ class NewPropertyAction extends AnAction {
     private final @Nullable String mySeparator;
 
 
-    public NewPropertyNameValidator(final @NotNull ResourceBundleEditor resourceBundleEditor,
+    NewPropertyNameValidator(final @NotNull ResourceBundleEditor resourceBundleEditor,
                                     final @Nullable String prefix,
                                     final @Nullable String separator) {
       myResourceBundleEditor = resourceBundleEditor;

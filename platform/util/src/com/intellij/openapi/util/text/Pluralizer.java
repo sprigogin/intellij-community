@@ -26,10 +26,10 @@
 package com.intellij.openapi.util.text;
 
 import com.intellij.openapi.util.Pair;
-import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.text.CaseInsensitiveStringHashingStrategy;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -42,7 +42,7 @@ import static com.intellij.openapi.util.text.StringUtil.notNullize;
 
 /**
  * A java version of http://github.com/blakeembrey/pluralize
- * Revision: 90d82f88428f057c4b7a1d46aa38fc7c44d2d869
+ * Revision: de7b35e700caccfb4e74923d98ab9b40006eda04 (Nov 19, 2017)
  *
  * It tries to preserve the original structure for future sync.
  *
@@ -51,6 +51,7 @@ import static com.intellij.openapi.util.text.StringUtil.notNullize;
  * (a java implementation: https://github.com/atteo/evo-inflector)
  *
  * @author gregsh
+ * @noinspection SpellCheckingInspection
  */
 class Pluralizer {
 
@@ -135,7 +136,8 @@ class Pluralizer {
   /**
    * Pluralize or singularize a word based on the passed in count.
    */
-  public String pluralize(String word, int count, boolean inclusive) {
+  @NotNull
+  public String pluralize(@NotNull String word, int count, boolean inclusive) {
     String pluralized = count == 1 ? singular(word) : plural(word);
 
     return (inclusive ? count + " " : "") + notNullize(pluralized, word);
@@ -238,12 +240,7 @@ class Pluralizer {
       {"groove", "grooves"},
       {"pickaxe", "pickaxes"},
       {"whiskey", "whiskies"}
-    }).consumeEach(new Consumer<String[]>() {
-      @Override
-      public void consume(String[] o) {
-        pluralizer.addIrregularRule(o[0], o[1]);
-      }
-    });
+    }).consumeEach(o -> pluralizer.addIrregularRule(o[0], o[1]));
 
     /*
      * Pluralization rules.
@@ -252,9 +249,9 @@ class Pluralizer {
       {"/s?$", "s"},
       {"/([^aeiou]ese)$", "$1"},
       {"/(ax|test)is$", "$1es"},
-      {"/(alias|[^aou]us|tlas|gas|ris)$", "$1es"},
+      {"/(alias|[^aou]us|t[lm]as|gas|ris)$", "$1es"},
       {"/(e[mn]u)s?$", "$1s"},
-      {"/([^l]ias|[aeiou]las|[emjzr]as|[iu]am)$", "$1"},
+      {"/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$", "$1"},
       {"/(alumn|syllab|octop|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$", "$1i"},
       {"/(alumn|alg|vertebr)(?:a|ae)$", "$1ae"},
       {"/(seraph|cherub)(?:im)?$", "$1im"},
@@ -267,17 +264,12 @@ class Pluralizer {
       {"/([^ch][ieo][ln])ey$", "$1ies"},
       {"/(x|ch|ss|sh|zz)$", "$1es"},
       {"/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$", "$1ices"},
-      {"/(m|l)(?:ice|ouse)$", "$1ice"},
+      {"(m|l)(?:ice|ouse)", "$1ice"},
       {"/(pe)(?:rson|ople)$", "$1ople"},
       {"/(child)(?:ren)?$", "$1ren"},
       {"/eaux$", "$0"},
       {"/m[ae]n$", "men"},
-    }).consumeEach(new Consumer<String[]>() {
-      @Override
-      public void consume(String[] o) {
-        pluralizer.addPluralRule(o[0], o[1]);
-      }
-    });
+    }).consumeEach(o -> pluralizer.addPluralRule(o[0], o[1]));
 
     /*
      * Singularization rules.
@@ -285,15 +277,17 @@ class Pluralizer {
     JBIterable.of(new String[][]{
       {"/(.)s$", "$1"},
       {"/([^aeiou]s)es$", "$1"},
-      {"/(analy|^ba|diagno|parenthe|progno|synop|the)(?:sis|ses)$", "$1sis"},
-      {"/(^analy)(?:sis|ses)$", "$1sis"},
       {"/(wi|kni|(?:after|half|high|low|mid|non|night|[^\\w]|^)li)ves$", "$1fe"},
       {"/(ar|(?:wo|[ae])l|[eo][ao])ves$", "$1f"},
       {"/ies$", "y"},
       {"/\\b([pl]|zomb|(?:neck|cross)?t|coll|faer|food|gen|goon|group|lass|talk|goal|cut)ies$", "$1ie"},
       {"/\\b(mon|smil)ies$", "$1ey"},
-      {"/(m|l)ice$", "$1ouse"},
+      {"(m|l)ice", "$1ouse"},
       {"/(seraph|cherub)im$", "$1"},
+      {"/.(x|ch|ss|sh|zz|tto|go|cho|alias|[^aou]us|t[lm]as|gas|(?:her|at|gr)o|ris)(?:es)?$", "$1"},
+      {"/(analy|^ba|diagno|parenthe|progno|synop|the|empha|cri)(?:sis|ses)$", "$1sis"},
+      {"/(movie|twelve|abuse|e[mn]u)s$", "$1"},
+      {"/(test)(?:is|es)$", "$1is"},
       {"/(x|ch|.ss|sh|zz|tto|go|cho|alias|[^aou]us|tlas|gas|(?:her|at|gr)o|ris)(?:es)?$", "$1"},
       {"/(e[mn]u)s?$", "$1"},
       {"/(cookie|movie|twelve)s$", "$1"},
@@ -308,24 +302,21 @@ class Pluralizer {
       {"/(child)ren$", "$1"},
       {"/(eau)x?$", "$1"},
       {"/men$", "man"}
-    }).consumeEach(new Consumer<String[]>() {
-      @Override
-      public void consume(String[] o) {
-        pluralizer.addSingularRule(o[0], o[1]);
-      }
-    });
+    }).consumeEach(o -> pluralizer.addSingularRule(o[0], o[1]));
     /*
      * Uncountable rules.
      */
     JBIterable.of(
       // Singular words with no plurals.
-      "advice",
       "adulthood",
+      "advice",
       "agenda",
       "aid",
       "alcohol",
       "ammo",
+      "anime",
       "athletics",
+      "audio",
       "bison",
       "blood",
       "bream",
@@ -336,16 +327,16 @@ class Pluralizer {
       "chassis",
       "chess",
       "clothing",
-      "commerce",
       "cod",
+      "commerce",
       "cooperation",
       "corps",
-      "digestion",
       "debris",
       "diabetes",
+      "digestion",
+      "elk",
       "energy",
       "equipment",
-      "elk",
       "excretion",
       "expertise",
       "flounder",
@@ -376,6 +367,7 @@ class Pluralizer {
       "pike",
       "plankton",
       "pliers",
+      "police",
       "pollution",
       "premises",
       "rain",
@@ -391,9 +383,9 @@ class Pluralizer {
       "staff",
       "swine",
       "tennis",
-      "trout",
       "traffic",
       "transportation",
+      "trout",
       "tuna",
       "wealth",
       "welfare",
@@ -402,19 +394,14 @@ class Pluralizer {
       "wildlife",
       "you",
       // Regexes.
-      "/pox$", // "chickpox", "smallpox"
-      "/ois$",
+      "/[^aeiou]ese$/i", // "chinese", "japanese"
       "/deer$", // "deer", "reindeer"
       "/fish$", // "fish", "blowfish", "angelfish"
-      "/sheep$",
       "/measles$",
-      "/[^aeiou]ese$/i" // "chinese", "japanese"
-    ).consumeEach(new Consumer<String>() {
-      @Override
-      public void consume(String o) {
-        pluralizer.addUncountableRule(o);
-      }
-    });
+      "/o[iu]s$", // "carnivorous"
+      "/pox$", // "chickpox", "smallpox"
+      "/sheep$"
+    ).consumeEach(pluralizer::addUncountableRule);
 
     PLURALIZER = pluralizer;
   }

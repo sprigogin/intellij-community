@@ -31,8 +31,6 @@ class GitIndexTest : GitPlatformTest() {
 
   private lateinit var repository: GitRepository
 
-  override fun runInDispatchThread(): Boolean = true
-
   public override fun setUp() {
     super.setUp()
 
@@ -109,7 +107,7 @@ class GitIndexTest : GitPlatformTest() {
   }
 
   private fun readFileContent(path: String): String {
-    val stagedFile = GitIndexUtil.list(repository, path.path)
+    val stagedFile = GitIndexUtil.listStaged(repository, path.path)
     val bytes = GitIndexUtil.read(repository, stagedFile!!.blobHash)
     return String(bytes, CharsetToolkit.UTF8_CHARSET)
   }
@@ -119,7 +117,7 @@ class GitIndexTest : GitPlatformTest() {
     GitIndexUtil.write(repository, path.path, bytes, executable)
   }
 
-  private fun readFilePermissions() = GitIndexUtil.list(repository, FILE.path)!!.isExecutable
+  private fun readFilePermissions() = GitIndexUtil.listStaged(repository, FILE.path)!!.isExecutable
 
   private val String.path: FilePath get() = VcsUtil.getFilePath(repository.root, this)
 

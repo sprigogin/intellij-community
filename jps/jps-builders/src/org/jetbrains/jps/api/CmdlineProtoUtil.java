@@ -117,12 +117,8 @@ public class CmdlineProtoUtil {
     }
     if (cause != null) {
       final ByteArrayOutputStream baos = new ByteArrayOutputStream();
-      final PrintStream stream = new PrintStream(baos);
-      try {
+      try (PrintStream stream = new PrintStream(baos)) {
         cause.printStackTrace(stream);
-      }
-      finally {
-        stream.close();
       }
       final String stacktrace = new String(baos.toByteArray());
       builder.setStacktrace(stacktrace);
@@ -165,6 +161,9 @@ public class CmdlineProtoUtil {
         break;
       case JPS_INFO:
         builder.setKind(BuilderMessage.CompileMessage.Kind.JPS_INFO);
+        break;
+      case INTERNAL_BUILDER_ERROR:
+        builder.setKind(BuilderMessage.CompileMessage.Kind.INTERNAL_BUILDER_ERROR);
         break;
       case OTHER:
         builder.setKind(BuilderMessage.CompileMessage.Kind.OTHER);

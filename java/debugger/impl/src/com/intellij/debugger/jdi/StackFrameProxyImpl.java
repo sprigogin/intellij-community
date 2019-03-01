@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Eugene Zhuravlev
@@ -27,6 +13,7 @@ import com.intellij.debugger.engine.jdi.StackFrameProxy;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.ThreeState;
+import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.*;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NonNls;
@@ -77,7 +64,7 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
         clearCaches();
       }
       catch (InternalException e) {
-        if (e.errorCode() == 23 /*INVALID_METHODID according to JDI sources*/) {
+        if (e.errorCode() == JvmtiError.INVALID_METHODID) {
           myIsObsolete = ThreeState.YES;
           return true;
         }
@@ -229,7 +216,7 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
     }
     catch (InternalException e) {
       // suppress some internal errors caused by bugs in specific JDI implementations
-      if (e.errorCode() != 23 && e.errorCode() != 35) {
+      if (e.errorCode() != JvmtiError.INVALID_METHODID && e.errorCode() != JvmtiError.INVALID_SLOT) {
         throw EvaluateExceptionUtil.createEvaluateException(e);
       }
       else {
@@ -238,6 +225,14 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
     }
     catch (IllegalArgumentException e) {
         LOG.info("Exception while getting this object", e);
+    }
+    catch (Exception e) {
+      if (!getVirtualMachine().canBeModified()) { // do not care in read only vms
+        LOG.debug(e);
+      }
+      else {
+        throw e;
+      }
     }
     return myThisReference;
   }
@@ -302,7 +297,7 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
 
   public Value getValue(LocalVariableProxyImpl localVariable) throws EvaluateException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    InvalidStackFrameException error = null;
+    Exception error = null;
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
         Map<LocalVariable, Value> values = getAllValues();
@@ -318,11 +313,24 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
         error = e;
         clearCaches();
       }
+      catch (InconsistentDebugInfoException ignored) {
+        clearCaches();
+        throw EvaluateExceptionUtil.INCONSISTEND_DEBUG_INFO;
+      }
       catch (InternalException e) {
-        if (e.errorCode() == 35 || e.errorCode() == 101) {
+        if (e.errorCode() == JvmtiError.INVALID_SLOT || e.errorCode() == JvmtiError.ABSENT_INFORMATION) {
           throw new EvaluateException(DebuggerBundle.message("error.corrupt.debug.info", e.getMessage()), e);
         }
         else throw e;
+      }
+      catch (Exception e) {
+        if (!getVirtualMachine().canBeModified()) { // do not care in read only vms
+          LOG.debug(e);
+          throw new EvaluateException("Debug data corrupted");
+        }
+        else {
+          throw e;
+        }
       }
     }
     throw new EvaluateException(error.getMessage(), error);
@@ -335,18 +343,7 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
         final StackFrame stackFrame = getStackFrame();
-        return stackFrame != null? stackFrame.getArgumentValues() : Collections.emptyList();
-      }
-      catch (InternalException e) {
-        // From Oracle's forums:
-        // This could be a JPDA bug. Unexpected JDWP Error: 32 means that an 'opaque' frame was detected at the lower JPDA levels,
-        // typically a native frame.
-        if (e.errorCode() == 32 /*opaque frame JDI bug*/ ) {
-          return Collections.emptyList();
-        }
-        else {
-          throw e;
-        }
+        return stackFrame != null ? ContainerUtil.notNullize(DebuggerUtilsEx.getArgumentValues(stackFrame)) : Collections.emptyList();
       }
       catch (InvalidStackFrameException e) {
         error = e;
@@ -364,20 +361,25 @@ public class StackFrameProxyImpl extends JdiProxy implements StackFrameProxy {
         StackFrame stackFrame = getStackFrame();
         myAllValues = new THashMap<>(stackFrame.getValues(stackFrame.visibleVariables()));
       }
-      catch (InconsistentDebugInfoException ignored) {
-        clearCaches();
-        throw EvaluateExceptionUtil.INCONSISTEND_DEBUG_INFO;
-      }
       catch (AbsentInformationException e) {
         throw EvaluateExceptionUtil.createEvaluateException(e);
       }
       catch (InternalException e) {
         // extra logging for IDEA-141270
-        if (e.errorCode() == 35 || e.errorCode() == 101) {
+        if (e.errorCode() == JvmtiError.INVALID_SLOT || e.errorCode() == JvmtiError.ABSENT_INFORMATION) {
           LOG.info(e);
-          myAllValues = Collections.emptyMap();
+          myAllValues = new THashMap<>();
         }
         else throw e;
+      }
+      catch (Exception e) {
+        if (!getVirtualMachine().canBeModified()) { // do not care in read only vms
+          LOG.debug(e);
+          myAllValues = new THashMap<>();
+        }
+        else {
+          throw e;
+        }
       }
     }
     return myAllValues;

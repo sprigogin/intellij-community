@@ -15,7 +15,6 @@
  */
 package org.jetbrains.jps.incremental;
 
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildTarget;
 import org.jetbrains.jps.builders.BuildTargetType;
@@ -26,6 +25,7 @@ import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -71,13 +71,18 @@ public class CompileScopeImpl extends CompileScope {
   }
 
   @Override
+  public boolean isAllTargetsOfTypeAffected(@NotNull BuildTargetType<?> type) {
+    return myTypes.contains(type) && myFiles.isEmpty();
+  }
+
+  @Override
   public boolean isBuildForced(@NotNull BuildTarget<?> target) {
-    return myTypesToForceBuild.contains(target.getTargetType()) && myFiles.isEmpty() && isWholeTargetAffected(target);
+    return myFiles.isEmpty() && myTypesToForceBuild.contains(target.getTargetType()) && isWholeTargetAffected(target);
   }
 
   @Override
   public boolean isBuildForcedForAllTargets(@NotNull BuildTargetType<?> targetType) {
-    return myTypesToForceBuild.contains(targetType) && myTypes.contains(targetType) && myFiles.isEmpty();
+    return myTypesToForceBuild.contains(targetType) && isAllTargetsOfTypeAffected(targetType);
   }
 
   @Override
@@ -88,10 +93,13 @@ public class CompileScopeImpl extends CompileScope {
   @Override
   public boolean isAffected(BuildTarget<?> target, @NotNull File file) {
     if (myFiles.isEmpty()) {//optimization
-      return isAffected(target);
+      return isWholeTargetAffected(target);
     }
     final Set<File> files = myFiles.get(target);
-    return files != null && files.contains(file);
+    if (files == null) {
+      return isWholeTargetAffected(target);
+    }
+    return files.contains(file);
   }
 
   private boolean isAffectedByAssociatedModule(BuildTarget<?> target) {

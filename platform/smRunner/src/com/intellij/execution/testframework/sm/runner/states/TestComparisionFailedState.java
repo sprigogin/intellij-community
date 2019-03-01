@@ -33,7 +33,7 @@ import java.io.File;
 public class TestComparisionFailedState extends TestFailedState {
   private final String myErrorMsgPresentation;
   private final String myStacktracePresentation;
-  private DiffHyperlink myHyperlink;
+  private final DiffHyperlink myHyperlink;
   private boolean myToDeleteExpectedFile;
   private boolean myToDeleteActualFile;
 
@@ -52,7 +52,7 @@ public class TestComparisionFailedState extends TestFailedState {
                                     @Nullable final String filePath) {
     this(localizedMessage, stackTrace, actualText, expectedText, filePath, null);
   }
-  
+
   public TestComparisionFailedState(@Nullable final String localizedMessage,
                                     @Nullable final String stackTrace,
                                     @NotNull final String actualText,
@@ -96,6 +96,7 @@ public class TestComparisionFailedState extends TestFailedState {
     myToDeleteActualFile = actualTemp;
   }
 
+  @Override
   public void dispose() {
     if (myToDeleteActualFile) {
       FileUtil.delete(new File(myHyperlink.getActualFilePath()));

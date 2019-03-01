@@ -1,15 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.gdpr;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.ex.ApplicationInfoEx;
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,33 +27,43 @@ import java.util.stream.Stream;
  */
 public final class ConsentOptions {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.gdpr.ConsentOptions");
-  
-  private static final String BUNDLED_RESOURCE_PATH = "/consents.json";
+  private static final String CONSENTS_CONFIRMATION_PROPERTY = "jb.consents.confirmation.enabled";
   private static final String STATISTICS_OPTION_ID = "rsch.send.usage.stat";
+
+  @NotNull
+  private static String getBundledResourcePath() {
+    final ApplicationInfoEx appInfo = ApplicationInfoImpl.getShadowInstance();
+    return appInfo.isVendorJetBrains() ? "/consents.json" : "/consents-" + appInfo.getShortCompanyName() + ".json";
+  }
 
   private static final class InstanceHolder {
     static final ConsentOptions ourInstance = new ConsentOptions(new IOBackend() {
       private final File DEFAULT_CONSENTS_FILE = new File(Locations.getDataRoot(), ApplicationNamesInfo.getInstance().getLowercaseProductName() + "/consentOptions/cached");
       private final File CONFIRMED_CONSENTS_FILE = new File(Locations.getDataRoot(), "/consentOptions/accepted");
 
+      @Override
       public void writeDefaultConsents(@NotNull String data) throws IOException {
         FileUtil.writeToFile(DEFAULT_CONSENTS_FILE, data);
       }
 
+      @Override
       @NotNull
       public String readDefaultConsents() throws IOException {
         return loadText(new FileInputStream(DEFAULT_CONSENTS_FILE));
       }
 
+      @Override
       @NotNull
       public String readBundledConsents() {
-        return loadText(ConsentOptions.class.getResourceAsStream(BUNDLED_RESOURCE_PATH));
+        return loadText(ConsentOptions.class.getResourceAsStream(getBundledResourcePath()));
       }
 
+      @Override
       public void writeConfirmedConsents(@NotNull String data) throws IOException {
         FileUtil.writeToFile(CONFIRMED_CONSENTS_FILE, data);
       }
 
+      @Override
       @NotNull
       public String readConfirmedConsents() throws IOException {
         return loadText(new FileInputStream(CONFIRMED_CONSENTS_FILE));
@@ -59,19 +71,14 @@ public final class ConsentOptions {
 
       @NotNull
       private String loadText(InputStream stream) {
-        try {
-          if (stream != null) {
-            final Reader reader = new InputStreamReader(new BufferedInputStream(stream), StandardCharsets.UTF_8);
-            try {
-              return new String(FileUtil.adaptiveLoadText(reader));
-            }
-            finally {
-              reader.close();
-            }
+        if (stream != null) {
+          try (Reader reader = new InputStreamReader(CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(stream)),
+                                                     StandardCharsets.UTF_8)) {
+            return new String(FileUtil.adaptiveLoadText(reader));
           }
-        }
-        catch (IOException e) {
-          LOG.info(e);
+          catch (IOException e) {
+            LOG.info(e);
+          }
         }
         return "";
       }
@@ -96,6 +103,15 @@ public final class ConsentOptions {
   public Permission isSendingUsageStatsAllowed() {
     final ConfirmedConsent confirmedConsent = getConfirmedConsent(STATISTICS_OPTION_ID);
     return confirmedConsent == null? Permission.UNDEFINED : confirmedConsent.isAccepted()? Permission.YES : Permission.NO;
+  }
+
+  public boolean setSendingUsageStatsAllowed(boolean allowed) {
+    final Consent defConsent = loadDefaultConsents().get(STATISTICS_OPTION_ID);
+    if (defConsent != null && !defConsent.isDeleted()) {
+      saveConfirmedConsents(Collections.singleton(new ConfirmedConsent(defConsent.getId(), defConsent.getVersion(), allowed, 0L)));
+      return true;
+    }
+    return false;
   }
 
   @Nullable
@@ -135,7 +151,7 @@ public final class ConsentOptions {
     }
   }
 
-  public Pair<Collection<Consent>, Boolean> getConsents() {
+  public Pair<List<Consent>, Boolean> getConsents() {
     final Map<String, Consent> allDefaults = loadDefaultConsents();
     if (allDefaults.isEmpty()) {
       return Pair.create(Collections.emptyList(), Boolean.FALSE);
@@ -150,14 +166,13 @@ public final class ConsentOptions {
       }
     }
     Collections.sort(result, Comparator.comparing(o -> o.getId()));
-    return Pair.create(result, needReconfirm(allDefaults, allConfirmed));
+    final Boolean confirmationEnabled = Boolean.valueOf(System.getProperty(CONSENTS_CONFIRMATION_PROPERTY, "true"));
+    return Pair.create(result, confirmationEnabled && needReconfirm(allDefaults, allConfirmed));
   }
 
   public void setConsents(Collection<Consent> confirmedByUser) {
     saveConfirmedConsents(
-      confirmedByUser.stream().map(
-        c -> new ConfirmedConsent(c.getId(), c.getVersion(), c.isAccepted(), 0L)
-      ).collect(Collectors.toList())
+      ContainerUtil.map(confirmedByUser, c -> new ConfirmedConsent(c.getId(), c.getVersion(), c.isAccepted(), 0L))
     );
   }
 
@@ -206,7 +221,7 @@ public final class ConsentOptions {
     return false;
   }
 
-  private static boolean applyServerChangesToConfirmedConsents(Map<String, ConfirmedConsent> base, Collection<ConsentAttributes> fromServer) {
+  private static boolean applyServerChangesToConfirmedConsents(Map<String, ConfirmedConsent> base, Collection<? extends ConsentAttributes> fromServer) {
     boolean changes = false;
     for (ConsentAttributes update : fromServer) {
       final ConfirmedConsent current = base.get(update.consentId);
@@ -221,7 +236,7 @@ public final class ConsentOptions {
     return changes;
   }
 
-  private static boolean applyServerChangesToDefaults(Map<String, Consent> base, Collection<ConsentAttributes> fromServer) {
+  private static boolean applyServerChangesToDefaults(Map<String, Consent> base, Collection<? extends ConsentAttributes> fromServer) {
     boolean changes = false;
     for (ConsentAttributes update : fromServer) {
       final Consent newConsent = new Consent(update);
@@ -236,19 +251,27 @@ public final class ConsentOptions {
 
   @NotNull
   private static Collection<ConsentAttributes> fromJson(String json) {
-    final ConsentAttributes[] data = StringUtil.isEmptyOrSpaces(json)? null : new GsonBuilder().disableHtmlEscaping().create().fromJson(json, ConsentAttributes[].class);
-    return data != null ? Arrays.asList(data) : Collections.emptyList();
+    try {
+      final ConsentAttributes[] data = StringUtil.isEmptyOrSpaces(json)? null : new GsonBuilder().disableHtmlEscaping().create().fromJson(json, ConsentAttributes[].class);
+      if (data != null) {
+        return Arrays.asList(data);
+      }
+    }
+    catch (Throwable e) {
+      LOG.info(e);
+    }
+    return Collections.emptyList();
   }
 
   private static String consentsToJson(Stream<Consent> consents) {
     return consentAttributesToJson(consents.map(consent -> consent.toConsentAttributes()));
   }
-  
+
   private static String consentAttributesToJson(Stream<ConsentAttributes> attributes) {
     final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     return gson.toJson(attributes.toArray());
   }
-  
+
   private static String confirmedConsentToExternalString(Stream<ConfirmedConsent> consents) {
     return StringUtil.join(consents/*.sorted(Comparator.comparing(confirmedConsent -> confirmedConsent.getId()))*/.map(c -> c.toExternalString()).collect(Collectors.toList()), ";");
   }

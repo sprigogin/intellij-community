@@ -15,11 +15,16 @@
  */
 package com.intellij.execution.junit
 
-import com.intellij.execution.RunManager
+import com.intellij.execution.ShortenCommandLine
+import com.intellij.execution.configurations.ConfigurationFactory
 import com.intellij.execution.configurations.ConfigurationTypeUtil
+import com.intellij.execution.configurations.RunConfiguration
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider
 import com.intellij.openapi.externalSystem.service.project.settings.RunConfigurationImporter
-import com.intellij.openapi.module.Module
+import com.intellij.openapi.project.Project
 import com.intellij.rt.execution.junit.RepeatCount
+import com.intellij.util.ObjectUtils.consumeIfCast
 import java.util.*
 
 /**
@@ -27,57 +32,83 @@ import java.util.*
  * date: 11.09.2017.
  */
 class JUnitRunConfigurationImporter : RunConfigurationImporter {
-  override fun canHandle(typeName: String): Boolean = "junit" == typeName
 
-  override fun process(module: Module, name: String, cfg: MutableMap<String, *>) {
-    val cfgType = ConfigurationTypeUtil.findConfigurationType<JUnitConfigurationType>(JUnitConfigurationType::class.java)
-    val runManager = RunManager.getInstance(module.project)
-    val runnerAndConfigurationSettings = runManager.createConfiguration(name, cfgType.configurationFactories[0])
-    val junitConfig = runnerAndConfigurationSettings.configuration as JUnitConfiguration
-    junitConfig.setModule(module)
+  private enum class TestKind(val dslName: String) {
+    PACKAGE_NAME("packageName"),
+    DIRECTORY("directory"),
+    PATTERN("pattern"),
+    CLASS("class"),
+    METHOD("method"),
+    CATEGORY("category");
 
+    companion object {
+      fun byDslName(dslName: String): TestKind? = TestKind.values().find { it.dslName == dslName }
+    }
+  }
 
-    val testKind = cfg.keys.firstOrNull { it in listOf("package", "directory", "pattern", "class", "method", "category") }
-    val testKindValue = cfg[testKind] as? String
+  override fun canImport(typeName: String): Boolean = "junit" == typeName
 
-    if (testKindValue == null) {
-      return
+  override fun process(project: Project, runConfig: RunConfiguration, cfg: MutableMap<String, *>, modelsProvider: IdeModifiableModelsProvider) {
+    if (runConfig !is JUnitConfiguration) {
+      throw IllegalArgumentException("Unexpected type of run configuration: ${runConfig::class.java}")
     }
 
-    val data = junitConfig.persistentData
-    when (testKind) {
-      "package"   -> { data.TEST_OBJECT = JUnitConfiguration.TEST_PACKAGE; data.PACKAGE_NAME = testKindValue }
-      "directory" -> { data.TEST_OBJECT = JUnitConfiguration.TEST_DIRECTORY; data.dirName = testKindValue  }
-      "pattern"   -> { data.TEST_OBJECT = JUnitConfiguration.TEST_PATTERN; data.setPatterns(LinkedHashSet(testKindValue.split(delimiters = ','))) }
-      "class"     -> {
-        data.TEST_OBJECT = JUnitConfiguration.TEST_CLASS
-        data.MAIN_CLASS_NAME = testKindValue
+    val data = runConfig.persistentData
+    val testKindName = cfg.keys.firstOrNull { it in TestKind.values().map { testKind -> testKind.dslName } && cfg[it] != null }
+    if (testKindName != null) {
+      consumeIfCast(cfg[testKindName], String::class.java) { testKindValue ->
+        data.TEST_OBJECT = when (TestKind.byDslName(testKindName)) {
+          TestKind.PACKAGE_NAME -> JUnitConfiguration.TEST_PACKAGE.also { data.PACKAGE_NAME = testKindValue }
+          TestKind.DIRECTORY -> JUnitConfiguration.TEST_DIRECTORY.also { data.dirName = testKindValue }
+          TestKind.PATTERN -> JUnitConfiguration.TEST_PATTERN.also { data.setPatterns(LinkedHashSet(testKindValue.split(','))) }
+          TestKind.CLASS -> JUnitConfiguration.TEST_CLASS.also { data.MAIN_CLASS_NAME = testKindValue }
+          TestKind.METHOD -> JUnitConfiguration.TEST_METHOD.also {
+            val className = testKindValue.substringBefore('#')
+            val methodName = testKindValue.substringAfter('#')
+            data.MAIN_CLASS_NAME = className
+            data.METHOD_NAME = methodName
+          }
+          TestKind.CATEGORY -> JUnitConfiguration.TEST_CATEGORY.also { data.setCategoryName(testKindValue) }
+          null -> data.TEST_OBJECT
+        }
       }
-      "method"    -> {
-        data.TEST_OBJECT = JUnitConfiguration.TEST_METHOD
-        val className = testKindValue.substringBefore('#')
-        val methodName = testKindValue.substringAfter('#')
-        data.MAIN_CLASS_NAME = className
-        data.METHOD_NAME = methodName
-      }
-      "category"  -> {
-        data.TEST_OBJECT = JUnitConfiguration.TEST_CATEGORY
-        data.setCategoryName(testKindValue)
-      }
-      null -> return
     }
 
     val repeatValue = cfg["repeat"]
-    junitConfig.repeatMode = when {
-      repeatValue == null           -> { RepeatCount.ONCE }
-      repeatValue == "untilStop"    -> { RepeatCount.UNLIMITED }
-      repeatValue == "untilFailure" -> { RepeatCount.UNTIL_FAILURE }
-      repeatValue is Number         -> { junitConfig.repeatCount = repeatValue.toInt(); RepeatCount.N }
-      else                          -> { RepeatCount.ONCE }
+    runConfig.repeatMode = when (repeatValue) {
+      "untilStop"    -> RepeatCount.UNLIMITED
+      "untilFailure" -> RepeatCount.UNTIL_FAILURE
+      is Number      -> RepeatCount.N.also { runConfig.repeatCount = repeatValue.toInt() }
+      else           -> runConfig.repeatMode
     }
 
-    (cfg["jvmArgs"] as? String)?.let { junitConfig.vmParameters = it }
+    consumeIfCast(cfg["vmParameters"], String::class.java) { runConfig.vmParameters = it }
+    consumeIfCast(cfg["workingDirectory"], String::class.java) { runConfig.workingDirectory = it }
+    consumeIfCast(cfg["passParentEnvs"], Boolean::class.java) { runConfig.isPassParentEnvs = it }
+    consumeIfCast(cfg["envs"], Map::class.java) { runConfig.envs = it as Map<String, String> }
 
-    runManager.addConfiguration(runnerAndConfigurationSettings)
+    consumeIfCast(cfg["moduleName"], String::class.java) {
+      val module = modelsProvider.modifiableModuleModel.findModuleByName(it)
+      if (module != null) {
+        runConfig.setModule(module)
+      }
+    }
+
+    consumeIfCast(cfg["shortenCommandLine"], String::class.java) {
+      try {
+        runConfig.shortenCommandLine = ShortenCommandLine.valueOf(it)
+      } catch (e: IllegalArgumentException) {
+        LOG.warn("Illegal value of 'shortenCommandLine': $it", e)
+      }
+    }
+  }
+
+  override fun getConfigurationFactory(): ConfigurationFactory =
+    ConfigurationTypeUtil
+      .findConfigurationType<JUnitConfigurationType>(JUnitConfigurationType::class.java)
+      .configurationFactories[0]
+
+  companion object {
+    val LOG = Logger.getInstance(JUnitRunConfigurationImporter::class.java)
   }
 }

@@ -44,7 +44,7 @@ public class CommitMessageInspectionsPanel extends BorderLayoutPanel implements 
   @NotNull private final InspectionConfigTreeNode myRoot = new InspectionConfigTreeNode.Group("");
   private InspectionProfileModifiableModel myModifiableModel;
   private InspectionsConfigTreeTable myInspectionsTable;
-  private Wrapper myDetailsPanel = new Wrapper() {
+  private final Wrapper myDetailsPanel = new Wrapper() {
     @Override
     public boolean isNull() {
       // make inspections table not to occupy all available width if there is no current details
@@ -82,7 +82,7 @@ public class CommitMessageInspectionsPanel extends BorderLayoutPanel implements 
   }
 
   private void init() {
-    myInspectionsTable = InspectionsConfigTreeTable.create(new MyInspectionsTableSettings(myProject, myRoot), this);
+    myInspectionsTable = InspectionsConfigTreeTable.create(new MyInspectionsTableSettings(myRoot, myProject), this);
     myInspectionsTable.setRootVisible(false);
     myInspectionsTable.setTreeCellRenderer(new MyInspectionsTreeRenderer());
     myInspectionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -170,7 +170,7 @@ public class CommitMessageInspectionsPanel extends BorderLayoutPanel implements 
   }
 
   private class MyInspectionsTableSettings extends InspectionsConfigTreeTable.InspectionsConfigTreeTableSettings {
-    public MyInspectionsTableSettings(@NotNull Project project, @NotNull InspectionConfigTreeNode root) {
+    MyInspectionsTableSettings(@NotNull InspectionConfigTreeNode root, @NotNull Project project) {
       super(root, project);
     }
 
@@ -191,7 +191,7 @@ public class CommitMessageInspectionsPanel extends BorderLayoutPanel implements 
   }
 
   private static class MyInspectionTreeNode extends InspectionConfigTreeNode.Tool {
-    public MyInspectionTreeNode(@NotNull ToolDescriptors descriptors) {
+    MyInspectionTreeNode(@NotNull ToolDescriptors descriptors) {
       super(() -> descriptors);
     }
 

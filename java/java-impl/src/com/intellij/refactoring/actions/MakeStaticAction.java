@@ -24,14 +24,17 @@ import com.intellij.refactoring.makeStatic.MakeStaticHandler;
 import org.jetbrains.annotations.NotNull;
 
 public class MakeStaticAction extends BaseRefactoringAction {
+  @Override
   protected boolean isAvailableInEditorOnly() {
     return false;
   }
 
+  @Override
   protected boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
     return (elements.length == 1) && (elements[0] instanceof PsiMethod) && !((PsiMethod)elements[0]).isConstructor();
   }
 
+  @Override
   protected boolean isAvailableOnElementInEditorAndFile(@NotNull PsiElement element, @NotNull final Editor editor, @NotNull PsiFile file, @NotNull DataContext context) {
     if (element instanceof PsiIdentifier) {
       element = element.getParent();
@@ -40,6 +43,7 @@ public class MakeStaticAction extends BaseRefactoringAction {
            MakeStaticHandler.validateTarget((PsiTypeParameterListOwner) element) == null;
   }
 
+  @Override
   protected RefactoringActionHandler getHandler(@NotNull DataContext dataContext) {
     return new MakeStaticHandler();
   }

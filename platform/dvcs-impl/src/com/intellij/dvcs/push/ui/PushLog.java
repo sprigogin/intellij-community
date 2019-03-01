@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.dvcs.push.ui;
 
 import com.intellij.openapi.actionSystem.*;
@@ -33,7 +19,6 @@ import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.ui.treeStructure.actions.CollapseAllAction;
 import com.intellij.ui.treeStructure.actions.ExpandAllAction;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.ThreeStateCheckBox;
@@ -53,8 +38,8 @@ import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.intellij.openapi.actionSystem.IdeActions.ACTION_COLLAPSE_ALL;
 import static com.intellij.openapi.actionSystem.IdeActions.ACTION_EXPAND_ALL;
@@ -83,10 +68,12 @@ public class PushLog extends JPanel implements DataProvider {
     myTreeCellRenderer = new MyTreeCellRenderer();
     myTree = new CheckboxTree(myTreeCellRenderer, root) {
 
+      @Override
       protected boolean shouldShowBusyIconIfNeeded() {
         return true;
       }
 
+      @Override
       public boolean isPathEditable(TreePath path) {
         return isEditable() && path.getLastPathComponent() instanceof DefaultMutableTreeNode;
       }
@@ -105,7 +92,7 @@ public class PushLog extends JPanel implements DataProvider {
           return "";
         }
         Object node = path.getLastPathComponent();
-        if (node == null || (!(node instanceof DefaultMutableTreeNode))) {
+        if ((!(node instanceof DefaultMutableTreeNode))) {
           return "";
         }
         if (node instanceof TooltipNode) {
@@ -156,7 +143,6 @@ public class PushLog extends JPanel implements DataProvider {
     myTree.setUI(new MyTreeUi());
     myTree.setBorder(new EmptyBorder(2, 0, 0, 0));  //additional vertical indent
     myTree.setEditable(true);
-    myTree.setHorizontalAutoScrollingEnabled(false);
     myTree.setShowsRootHandles(root.getChildCount() > 1);
     MyTreeCellEditor treeCellEditor = new MyTreeCellEditor();
     myTree.setCellEditor(treeCellEditor);
@@ -164,7 +150,7 @@ public class PushLog extends JPanel implements DataProvider {
       @Override
       public void editingStopped(ChangeEvent e) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode)myTree.getLastSelectedPathComponent();
-        if (node != null && node instanceof EditableTreeNode) {
+        if (node instanceof EditableTreeNode) {
           JComponent editedComponent = (JComponent)node.getUserObject();
           InputVerifier verifier = editedComponent.getInputVerifier();
           if (verifier != null && !verifier.verify(editedComponent)) {
@@ -190,7 +176,7 @@ public class PushLog extends JPanel implements DataProvider {
       @Override
       public void editingCanceled(ChangeEvent e) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode)myTree.getLastSelectedPathComponent();
-        if (node != null && node instanceof EditableTreeNode) {
+        if (node instanceof EditableTreeNode) {
           ((EditableTreeNode)node).fireOnCancel();
         }
         resetEditSync();
@@ -216,7 +202,7 @@ public class PushLog extends JPanel implements DataProvider {
       @Override
       public void focusLost(FocusEvent e) {
         DefaultMutableTreeNode node = (DefaultMutableTreeNode)myTree.getLastSelectedPathComponent();
-        if (node != null && node instanceof RepositoryNode && myTree.isEditing()) {
+        if (node instanceof RepositoryNode && myTree.isEditing()) {
           //need to force repaint foreground  for non-focused editing node
           myTree.getCellEditor().getTreeCellEditorComponent(myTree, node, true, false, false, myTree.getRowForPath(
             TreeUtil.getPathFromRoot(node)));
@@ -289,12 +275,12 @@ public class PushLog extends JPanel implements DataProvider {
 
   private class MyShowCommitInfoAction extends DumbAwareAction {
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myBalloon.showCommitDetails();
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(getSelectedCommitNodes().size() == 1);
     }
   }
@@ -418,17 +404,17 @@ public class PushLog extends JPanel implements DataProvider {
   // Make changes available for diff action; revisionNumber for create patch and copy revision number actions
   @Nullable
   @Override
-  public Object getData(String id) {
+  public Object getData(@NotNull String id) {
     if (VcsDataKeys.CHANGES.is(id)) {
       List<CommitNode> commitNodes = getSelectedCommitNodes();
-      return ArrayUtil.toObjectArray(collectAllChanges(commitNodes), Change.class);
+      return collectAllChanges(commitNodes).toArray(new Change[0]);
     }
     else if (VcsDataKeys.VCS_REVISION_NUMBERS.is(id)) {
       List<CommitNode> commitNodes = getSelectedCommitNodes();
-      return ArrayUtil.toObjectArray(ContainerUtil.map(commitNodes, commitNode -> {
+      return ContainerUtil.map2Array(commitNodes, VcsRevisionNumber.class, commitNode -> {
         Hash hash = commitNode.getUserObject().getId();
         return new TextRevisionNumber(hash.asString(), hash.toShortString());
-      }), VcsRevisionNumber.class);
+      });
     }
     return null;
   }
@@ -669,6 +655,7 @@ public class PushLog extends JPanel implements DataProvider {
       return treeNode instanceof EditableTreeNode && ((EditableTreeNode)treeNode).isEditableNow();
     }
 
+    @Override
     public Object getCellEditorValue() {
       return myValue;
     }
@@ -731,7 +718,7 @@ public class PushLog extends JPanel implements DataProvider {
 
     final int myHeightToReduce;
 
-    public MyTreeViewPort(@Nullable Component view, int heightToReduce) {
+    MyTreeViewPort(@Nullable Component view, int heightToReduce) {
       super();
       setView(view);
       myHeightToReduce = heightToReduce;

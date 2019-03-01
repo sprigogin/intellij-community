@@ -1,19 +1,6 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
-
 package com.intellij.diagnostic.logging;
 
 import com.intellij.execution.process.ProcessOutputTypes;
@@ -42,7 +29,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @State(name = "LogFilters", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
-@SuppressWarnings({"AssignmentToStaticFieldFromInstanceMethod"})
 public class LogConsolePreferences extends LogFilterRegistrar {
   private final SortedMap<LogFilter, Boolean> myRegisteredLogFilters = new TreeMap<>((o1, o2) -> -1);
   @NonNls private static final String FILTER = "filter";
@@ -61,22 +47,8 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   @NonNls public static final String DEBUG = "DEBUG";
   @NonNls public static final String CUSTOM = "CUSTOM";
 
-  @Deprecated
-  public final static Pattern ERROR_PATTERN = Pattern.compile(".*(" + ERROR + "|FATAL).*");
-  @Deprecated
-  public final static Pattern WARNING_PATTERN = Pattern.compile(".*" + WARNING + ".*");
-  @Deprecated
-  public final static Pattern WARN_PATTERN = Pattern.compile(".*" + WARN + ".*");
-  @Deprecated
-  public final static Pattern INFO_PATTERN = Pattern.compile(".*" + INFO + ".*");
-  @Deprecated
-  public static final Pattern DEBUG_PATTERN = Pattern.compile(".*" + DEBUG + ".*");
-
-  @NonNls public final static Pattern EXCEPTION_PATTERN = Pattern.compile(".*at .*");
-
   /**
-   * Set of patterns to assign severity to given message. Replaces deprecated patterns {@link LogConsolePreferences#ERROR_PATTERN},
-   * {@link LogConsolePreferences#DEBUG_PATTERN}, etc with the versions which don't contain ".*"
+   * Set of patterns to assign severity to given message.
    */
   private enum LevelPattern {
 
@@ -206,7 +178,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   }
 
   @Override
-  public void loadState(final Element object) {
+  public void loadState(@NotNull final Element object) {
     try {
       final List children = object.getChildren(FILTER);
       for (Object child : children) {
@@ -245,7 +217,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   }
 
   @Override
-  public void setFilterSelected(LogFilter filter, boolean state) {
+  public void setFilterSelected(@NotNull LogFilter filter, boolean state) {
     if (filter instanceof IndependentLogFilter) {
       ((IndependentLogFilter)filter).selectFilter();
     }
@@ -264,7 +236,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
     }
   }
 
-  private void fireStateChanged(final LogFilter filter) {
+  private void fireStateChanged(@NotNull LogFilter filter) {
     for (LogFilterListener listener : myListeners) {
       listener.onFilterStateChange(filter);
     }

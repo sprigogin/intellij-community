@@ -1,33 +1,18 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.progress.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
+import com.intellij.openapi.progress.*;
 import com.intellij.openapi.progress.util.PingProgress;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.progress.util.ProgressWindow;
-import com.intellij.openapi.progress.util.SmoothProgressAdapter;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.ui.SystemNotifications;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
@@ -44,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 
 public class ProgressManagerImpl extends CoreProgressManager implements Disposable {
+  private static final Key<Boolean> SAFE_PROGRESS_INDICATOR = Key.create("SAFE_PROGRESS_INDICATOR");
   private final Set<CheckCanceledHook> myHooks = ContainerUtil.newConcurrentSet();
 
   public ProgressManagerImpl() {
@@ -70,26 +56,28 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
       }
 
     }, this);
+    ExtensionPointImpl.setCheckCanceledAction(ProgressManager::checkCanceled);
   }
 
   @Override
-  public void setCancelButtonText(String cancelButtonText) {
-    ProgressIndicator progressIndicator = getProgressIndicator();
-    if (progressIndicator != null) {
-      if (progressIndicator instanceof SmoothProgressAdapter && cancelButtonText != null) {
-        ProgressIndicator original = ((SmoothProgressAdapter)progressIndicator).getOriginalProgressIndicator();
-        if (original instanceof ProgressWindow) {
-          ((ProgressWindow)original).setCancelButtonText(cancelButtonText);
-        }
-      }
-    }
+  public boolean hasUnsafeProgressIndicator() {
+    return super.hasUnsafeProgressIndicator() || ContainerUtil.exists(getCurrentIndicators(), ProgressManagerImpl::isUnsafeIndicator);
+  }
+
+  private static boolean isUnsafeIndicator(ProgressIndicator indicator) {
+    return indicator instanceof ProgressWindow && ((ProgressWindow)indicator).getUserData(SAFE_PROGRESS_INDICATOR) == null;
+  }
+
+  /**
+   * The passes progress won't count in {@link #hasUnsafeProgressIndicator()} and won't stop from application exiting.
+   */
+  public void markProgressSafe(@NotNull ProgressWindow progress) {
+    progress.putUserData(SAFE_PROGRESS_INDICATOR, true);
   }
 
   @Override
   public void executeProcessUnderProgress(@NotNull Runnable process, ProgressIndicator progress) throws ProcessCanceledException {
-    if (progress instanceof ProgressWindow) myCurrentUnsafeProgressCount.incrementAndGet();
-
-    CheckCanceledHook hook = progress instanceof PingProgress && ApplicationManager.getApplication().isDispatchThread() 
+    CheckCanceledHook hook = progress instanceof PingProgress && ApplicationManager.getApplication().isDispatchThread()
                              ? p -> { ((PingProgress)progress).interact(); return true; } 
                              : null;
     if (hook != null) addCheckCanceledHook(hook);
@@ -98,7 +86,6 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
       super.executeProcessUnderProgress(process, progress);
     }
     finally {
-      if (progress instanceof ProgressWindow) myCurrentUnsafeProgressCount.decrementAndGet();
       if (hook != null) removeCheckCanceledHook(hook);
     }
   }
@@ -184,7 +171,7 @@ public class ProgressManagerImpl extends CoreProgressManager implements Disposab
   protected CheckCanceledHook createCheckCanceledHook() {
     if (myHooks.isEmpty()) return null;
 
-    CheckCanceledHook[] activeHooks = ArrayUtil.stripTrailingNulls(myHooks.toArray(new CheckCanceledHook[0]));
+    CheckCanceledHook[] activeHooks = myHooks.toArray(new CheckCanceledHook[0]);
     return activeHooks.length == 1 ? activeHooks[0] : indicator -> {
       boolean result = false;
       for (CheckCanceledHook hook : activeHooks) {

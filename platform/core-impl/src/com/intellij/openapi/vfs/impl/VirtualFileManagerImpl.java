@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl;
 
 import com.intellij.openapi.Disposable;
@@ -27,6 +13,7 @@ import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.ex.VirtualFileManagerEx;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.CachingVirtualFileSystem;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.containers.ContainerUtil;
@@ -37,11 +24,11 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 
-public class VirtualFileManagerImpl extends VirtualFileManagerEx {
+public class VirtualFileManagerImpl extends VirtualFileManagerEx implements Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.VirtualFileManagerImpl");
 
   private final KeyedExtensionCollector<VirtualFileSystem, String> myCollector =
-    new KeyedExtensionCollector<VirtualFileSystem, String>("com.intellij.virtualFileSystem") {
+    new KeyedExtensionCollector<VirtualFileSystem, String>("com.intellij.virtualFileSystem", this) {
       @NotNull
       @Override
       protected String keyToString(@NotNull String key) {
@@ -69,6 +56,10 @@ public class VirtualFileManagerImpl extends VirtualFileManagerEx {
     }
 
     bus.connect().subscribe(VFS_CHANGES, new BulkVirtualFileListenerAdapter(myVirtualFileListenerMulticaster.getMulticaster()));
+  }
+
+  @Override
+  public void dispose() {
   }
 
   @Override
@@ -171,7 +162,7 @@ public class VirtualFileManagerImpl extends VirtualFileManagerEx {
   }
 
   @Override
-  public void addVirtualFileManagerListener(@NotNull final VirtualFileManagerListener listener, @NotNull Disposable parentDisposable) {
+  public void addVirtualFileManagerListener(@NotNull VirtualFileManagerListener listener, @NotNull Disposable parentDisposable) {
     addVirtualFileManagerListener(listener);
     Disposer.register(parentDisposable, () -> removeVirtualFileManagerListener(listener));
   }
@@ -182,26 +173,18 @@ public class VirtualFileManagerImpl extends VirtualFileManagerEx {
   }
 
   @Override
-  public void notifyPropertyChanged(@NotNull final VirtualFile virtualFile, @NotNull final String property, final Object oldValue, final Object newValue) {
-    final Application application = ApplicationManager.getApplication();
-    final Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        if (virtualFile.isValid() && !application.isDisposed()) {
-          application.runWriteAction(new Runnable() {
-            @Override
-            public void run() {
-              List<VFilePropertyChangeEvent> events = Collections
-                .singletonList(new VFilePropertyChangeEvent(this, virtualFile, property, oldValue, newValue, false));
-              BulkFileListener listener = application.getMessageBus().syncPublisher(VirtualFileManager.VFS_CHANGES);
-              listener.before(events);
-              listener.after(events);
-            }
-          });
-        }
+  public void notifyPropertyChanged(@NotNull VirtualFile virtualFile, @VirtualFile.PropName @NotNull String property, Object oldValue, Object newValue) {
+    Application app = ApplicationManager.getApplication();
+    app.invokeLater(() -> {
+      if (virtualFile.isValid() && !app.isDisposed()) {
+        app.runWriteAction(() -> {
+          List<VFileEvent> events = Collections.singletonList(new VFilePropertyChangeEvent(this, virtualFile, property, oldValue, newValue, false));
+          BulkFileListener listener = app.getMessageBus().syncPublisher(VirtualFileManager.VFS_CHANGES);
+          listener.before(events);
+          listener.after(events);
+        });
       }
-    };
-    application.invokeLater(runnable, ModalityState.NON_MODAL);
+    }, ModalityState.NON_MODAL);
   }
 
   @Override

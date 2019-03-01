@@ -40,13 +40,13 @@ import java.util.Collections;
 /**
  * @author konstantin.aleev
  */
-class RunConfigurationNode extends AbstractTreeNode<Pair<RunnerAndConfigurationSettings, Content>>
+public class RunConfigurationNode extends AbstractTreeNode<Pair<RunnerAndConfigurationSettings, Content>>
   implements RunDashboardRunConfigurationNode {
 
   @Nullable private final RunDashboardContributor myContributor;
   private final UserDataHolder myUserDataHolder = new UserDataHolderBase();
 
-  RunConfigurationNode(Project project, @NotNull Pair<RunnerAndConfigurationSettings, RunContentDescriptor> value,
+  public RunConfigurationNode(Project project, @NotNull Pair<RunnerAndConfigurationSettings, RunContentDescriptor> value,
                        @Nullable RunDashboardContributor contributor) {
     super(project, Pair.create(value.first, value.second == null ? null : value.second.getAttachedContent()));
     myContributor = contributor;
@@ -76,7 +76,7 @@ class RunConfigurationNode extends AbstractTreeNode<Pair<RunnerAndConfigurationS
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
     RunnerAndConfigurationSettings configurationSettings = getConfigurationSettings();
     //noinspection ConstantConditions
     boolean isStored = RunManager.getInstance(getProject()).hasSettings(configurationSettings);

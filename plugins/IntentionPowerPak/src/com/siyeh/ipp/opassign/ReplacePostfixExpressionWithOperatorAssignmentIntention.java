@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 Bas Leijdekkers
+ * Copyright 2009-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
  */
 package com.siyeh.ipp.opassign;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
-import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ipp.base.MutablyNamedIntention;
@@ -42,9 +41,7 @@ public class ReplacePostfixExpressionWithOperatorAssignmentIntention
       replacementText = "-=";
     }
     final String signText = sign.getText();
-    return IntentionPowerPackBundle.message(
-      "replace.some.operator.with.other.intention.name",
-      signText, replacementText);
+    return CommonQuickFixBundle.message("fix.replace.x.with.y", signText, replacementText);
   }
 
   @NotNull
@@ -54,15 +51,13 @@ public class ReplacePostfixExpressionWithOperatorAssignmentIntention
   }
 
   @Override
-  protected void processIntention(@NotNull PsiElement element)
-    throws IncorrectOperationException {
+  protected void processIntention(@NotNull PsiElement element) {
     final PsiPostfixExpression postfixExpression =
       (PsiPostfixExpression)element;
     final PsiExpression operand = postfixExpression.getOperand();
     CommentTracker commentTracker = new CommentTracker();
-    final String operandText = commentTracker.markUnchanged(operand).getText();
-    final IElementType tokenType =
-      postfixExpression.getOperationTokenType();
+    final String operandText = commentTracker.text(operand);
+    final IElementType tokenType = postfixExpression.getOperationTokenType();
     if (JavaTokenType.PLUSPLUS.equals(tokenType)) {
       PsiReplacementUtil.replaceExpression(postfixExpression, operandText + "+=1", commentTracker);
     }

@@ -3,8 +3,8 @@ package com.intellij.execution.junit;
 
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.execution.ExecutionException;
-import com.intellij.execution.JavaExecutionUtil;
 import com.intellij.execution.Location;
+import com.intellij.execution.ProgramRunnerUtil;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.configurations.RuntimeConfigurationException;
 import com.intellij.execution.runners.ExecutionEnvironment;
@@ -17,7 +17,6 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.testIntegration.TestFramework;
 import com.intellij.util.Function;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 
@@ -58,7 +57,7 @@ public class TestUniqueId extends TestObject {
       }
       else {
         PsiClass containingClass = PsiTreeUtil.getParentOfType(psiElement, PsiClass.class);
-        if (containingClass != null && TestFrameworks.detectFramework(containingClass) == null) {
+        if (containingClass == null || TestFrameworks.detectFramework(containingClass) == null) {
           return nodeId;
         }
       }
@@ -74,16 +73,9 @@ public class TestUniqueId extends TestObject {
     return null;
   }
 
-  @NotNull
-  @Override
-  protected String getForkMode() {
-    return super.getForkMode();
-  }
-
   @Override
   public String suggestActionName() {
-    String[] ids = getConfiguration().getPersistentData().getUniqueIds();
-    return JavaExecutionUtil.getShortClassName(ids.length > 0 ? ids[0] : "<empty>");
+    return ProgramRunnerUtil.shortenName(getConfiguration().getName(), 2);
   }
 
   @Override

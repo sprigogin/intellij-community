@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
 import com.google.common.collect.Collections2;
@@ -32,13 +33,13 @@ public class MultiProcessDebugger implements ProcessDebugger {
   private final ServerSocket myServerSocket;
   private final int myTimeoutInMillis;
 
-  private RemoteDebugger myMainDebugger;
+  private final RemoteDebugger myMainDebugger;
   private final List<RemoteDebugger> myOtherDebuggers = Lists.newArrayList();
   private ServerSocket myDebugServerSocket;
   private DebuggerProcessAcceptor myDebugProcessAcceptor;
-  private List<DebuggerProcessListener> myOtherDebuggerCloseListener = Lists.newArrayList();
+  private final List<DebuggerProcessListener> myOtherDebuggerCloseListener = Lists.newArrayList();
 
-  private ThreadRegistry myThreadRegistry = new ThreadRegistry();
+  private final ThreadRegistry myThreadRegistry = new ThreadRegistry();
 
   public MultiProcessDebugger(@NotNull final IPyDebugProcess debugProcess,
                               @NotNull final ServerSocket serverSocket,
@@ -63,31 +64,25 @@ public class MultiProcessDebugger implements ProcessDebugger {
 
   @Override
   public void waitForConnect() throws Exception {
-    try {
-      //noinspection SocketOpenedButNotSafelyClosed
-      final Socket socket = myServerSocket.accept();
+    //noinspection SocketOpenedButNotSafelyClosed
+    final Socket socket = myServerSocket.accept();
 
-      ApplicationManager.getApplication().executeOnPooledThread(() -> {
-        try {
-          //do we need any synchronization here with myMainDebugger.waitForConnect() ??? TODO
-          sendDebuggerPort(socket, myDebugServerSocket, myDebugProcess);
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      });
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      try {
+        //do we need any synchronization here with myMainDebugger.waitForConnect() ??? TODO
+        sendDebuggerPort(socket, myDebugServerSocket, myDebugProcess);
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    });
 
-      myMainDebugger.waitForConnect();
+    myMainDebugger.waitForConnect();
 
+    disposeAcceptor();
 
-      disposeAcceptor();
-
-      myDebugProcessAcceptor = new DebuggerProcessAcceptor(this, myServerSocket);
-      ApplicationManager.getApplication().executeOnPooledThread(myDebugProcessAcceptor);
-    }
-    finally {
-
-    }
+    myDebugProcessAcceptor = new DebuggerProcessAcceptor(this, myServerSocket);
+    ApplicationManager.getApplication().executeOnPooledThread(myDebugProcessAcceptor);
   }
 
   private static void sendDebuggerPort(Socket socket, ServerSocket serverSocket, IPyDebugProcess processHandler) throws IOException {
@@ -181,6 +176,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     return debugger(threadId).loadVariable(threadId, frameId, var);
   }
 
+  @Override
   public ArrayChunk loadArrayItems(String threadId,
                                    String frameId,
                                    PyDebugValue var,
@@ -238,7 +234,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
 
 
   private static class ThreadRegistry {
-    private Map<String, RemoteDebugger> myThreadIdToDebugger = Maps.newHashMap();
+    private final Map<String, RemoteDebugger> myThreadIdToDebugger = Maps.newHashMap();
 
     public void register(String id, RemoteDebugger debugger) {
       myThreadIdToDebugger.put(id, debugger);
@@ -422,7 +418,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     private final MultiProcessDebugger myMultiProcessDebugger;
     private ServerSocket myServerSocket;
 
-    public DebuggerProcessAcceptor(@NotNull MultiProcessDebugger multiProcessDebugger, @NotNull ServerSocket serverSocket) {
+    DebuggerProcessAcceptor(@NotNull MultiProcessDebugger multiProcessDebugger, @NotNull ServerSocket serverSocket) {
       myMultiProcessDebugger = multiProcessDebugger;
       myServerSocket = serverSocket;
     }
@@ -522,6 +518,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     }
   }
 
+  @Override
   public void addCloseListener(RemoteDebuggerCloseListener listener) {
     myMainDebugger.addCloseListener(listener);
   }

@@ -36,10 +36,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 public class TestDiffRequestProcessor extends DiffRequestProcessor {
-  @NotNull private final List<DiffHyperlink> myRequests;
+  @NotNull private final List<? extends DiffHyperlink> myRequests;
   private int myIndex;
 
-  public TestDiffRequestProcessor(@Nullable Project project, @NotNull List<DiffHyperlink> requests, int index) {
+  public TestDiffRequestProcessor(@Nullable Project project, @NotNull List<? extends DiffHyperlink> requests, int index) {
     super(project, DiffPlaces.TESTS_FAILED_ASSERTIONS);
     myRequests = requests;
     myIndex = index;
@@ -114,12 +114,12 @@ public class TestDiffRequestProcessor extends DiffRequestProcessor {
 
   @Override
   protected boolean hasNextChange() {
-    return true; // TODO: disable looping ?
+    return myIndex + 1 < myRequests.size();
   }
 
   @Override
   protected boolean hasPrevChange() {
-    return true;
+    return myIndex > 0;
   }
 
   @Override

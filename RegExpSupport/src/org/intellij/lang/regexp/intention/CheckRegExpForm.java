@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.lang.regexp.intention;
 
 import com.intellij.ide.util.PropertiesComponent;
@@ -35,6 +21,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiDocumentManager;
@@ -53,12 +40,15 @@ import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class CheckRegExpForm {
+  public static final Key<Boolean> CHECK_REG_EXP_EDITOR = Key.create("CHECK_REG_EXP_EDITOR");
+
   private static final String LAST_EDITED_REGEXP = "last.edited.regexp";
 
   private static final JBColor BACKGROUND_COLOR_MATCH = new JBColor(0xe7fadb, 0x445542);
@@ -90,9 +80,29 @@ public class CheckRegExpForm {
       // for correct syntax highlighting
       fileType = new RegExpFileType(language);
     }
-    myRegExp = new EditorTextField(document, myProject, fileType);
+    myRegExp = new EditorTextField(document, myProject, fileType, false, false) {
+      @Override
+      protected EditorEx createEditor() {
+        final EditorEx editor = super.createEditor();
+        editor.putUserData(CHECK_REG_EXP_EDITOR, Boolean.TRUE);
+        editor.setEmbeddedIntoDialogWrapper(true);
+        return editor;
+      }
+
+      @Override
+      protected void updateBorder(@NotNull EditorEx editor) {
+        setupBorder(editor);
+      }
+    };
     final String sampleText = PropertiesComponent.getInstance(myProject).getValue(LAST_EDITED_REGEXP, "Sample Text");
     mySampleText = new EditorTextField(sampleText, myProject, PlainTextFileType.INSTANCE) {
+      @Override
+      protected EditorEx createEditor() {
+        final EditorEx editor = super.createEditor();
+        editor.setEmbeddedIntoDialogWrapper(true);
+        return editor;
+      }
+
       @Override
       protected void updateBorder(@NotNull EditorEx editor) {
         setupBorder(editor);
@@ -114,17 +124,15 @@ public class CheckRegExpForm {
 
         IdeFocusManager.getGlobalInstance().requestFocus(mySampleText, true);
 
-        new AnAction(){
-          @Override
-          public void actionPerformed(AnActionEvent e) {
-            IdeFocusManager.findInstance().requestFocus(myRegExp.getFocusTarget(), true);
-          }
-        }.registerCustomShortcutSet(CustomShortcutSet.fromString("shift TAB"), mySampleText);
+        registerFocusShortcut(myRegExp, "shift TAB", mySampleText);
+        registerFocusShortcut(myRegExp, "TAB", mySampleText);
+        registerFocusShortcut(mySampleText, "shift TAB", myRegExp);
+        registerFocusShortcut(mySampleText, "TAB", myRegExp);
 
         updater = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, disposable);
         DocumentListener documentListener = new DocumentListener() {
           @Override
-          public void documentChanged(DocumentEvent e) {
+          public void documentChanged(@NotNull DocumentEvent e) {
             update();
           }
         };
@@ -133,6 +141,16 @@ public class CheckRegExpForm {
 
         update();
         mySampleText.selectAll();
+      }
+
+      private void registerFocusShortcut(JComponent source, String shortcut, EditorTextField target) {
+        AnAction action = new AnAction() {
+          @Override
+          public void actionPerformed(@NotNull AnActionEvent e) {
+            IdeFocusManager.findInstance().requestFocus(target.getFocusTarget(), true);
+          }
+        };
+        action.registerCustomShortcutSet(CustomShortcutSet.fromString(shortcut), source);
       }
 
       public void update() {
@@ -171,6 +189,11 @@ public class CheckRegExpForm {
       case BAD_REGEXP:
         myMessage.setText("Bad pattern");
         break;
+      case INCOMPLETE:
+        myMessage.setText("More input expected");
+        break;
+      default:
+        throw new AssertionError();
     }
     myRootPanel.revalidate();
     Balloon balloon = JBPopupFactory.getInstance().getParentBalloonFor(myRootPanel);
@@ -189,8 +212,7 @@ public class CheckRegExpForm {
 
   @TestOnly
   public static boolean isMatchingTextTest(@NotNull PsiFile regexpFile, @NotNull String sampleText) {
-    final RegExpMatchResult result = isMatchingText(regexpFile, sampleText);
-    return result != null && result == RegExpMatchResult.MATCHES;
+    return isMatchingText(regexpFile, sampleText) == RegExpMatchResult.MATCHES;
   }
   static RegExpMatchResult isMatchingText(@NotNull final PsiFile regexpFile, @NotNull String sampleText) {
     final String regExp = regexpFile.getText();
@@ -224,10 +246,18 @@ public class CheckRegExpForm {
 
     try {
       //noinspection MagicConstant
-      return Pattern.compile(regExp, patternFlags).matcher(StringUtil.newBombedCharSequence(sampleText, 1000)).matches()
-             ? RegExpMatchResult.MATCHES
-             : RegExpMatchResult.NO_MATCH;
-    } catch (ProcessCanceledException pc) {
+      final Matcher matcher = Pattern.compile(regExp, patternFlags).matcher(StringUtil.newBombedCharSequence(sampleText, 1000));
+      if (matcher.matches()) {
+        return RegExpMatchResult.MATCHES;
+      }
+      else if (matcher.hitEnd()) {
+        return RegExpMatchResult.INCOMPLETE;
+      }
+      else {
+        return RegExpMatchResult.NO_MATCH;
+      }
+    }
+    catch (ProcessCanceledException ignore) {
       return RegExpMatchResult.TIMEOUT;
     }
     catch (Exception ignore) {}

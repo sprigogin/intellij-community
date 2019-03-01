@@ -22,6 +22,7 @@ import org.jetbrains.annotations.NotNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -43,26 +44,51 @@ public class DataInputOutputUtilRt {
     }
   }
 
-  public static void writeINT(@NotNull DataOutput record, int val) throws IOException {
-    if (0 <= val && val < 192) {
-      record.writeByte(val);
+  public static int readINT(@NotNull ByteBuffer byteBuffer) {
+    final int val = byteBuffer.get() & 0xFF;
+    if (val < 192) {
+      return val;
     }
-    else {
+
+    int res = val - 192;
+    for (int sh = 6; ; sh += 7) {
+      int next = byteBuffer.get() & 0xFF;
+      res |= (next & 0x7F) << sh;
+      if ((next & 0x80) == 0) {
+        return res;
+      }
+    }
+  }
+
+  public static void writeINT(@NotNull DataOutput record, int val) throws IOException {
+    if (0 > val || val >= 192) {
       record.writeByte(192 + (val & 0x3F));
       val >>>= 6;
       while (val >= 128) {
         record.writeByte((val & 0x7F) | 0x80);
         val >>>= 7;
       }
-      record.writeByte(val);
     }
+    record.writeByte(val);
+  }
+
+  public static void writeINT(@NotNull ByteBuffer byteBuffer, int val) {
+    if (0 > val || val >= 192) {
+      byteBuffer.put( (byte)(192 + (val & 0x3F)));
+      val >>>= 6;
+      while (val >= 128) {
+        byteBuffer.put((byte)((val & 0x7F) | 0x80));
+        val >>>= 7;
+      }
+    }
+    byteBuffer.put((byte)val);
   }
 
   /**
    * Writes the given collection to the output using the given procedure to write each element.
    * Should be coupled with {@link #readSeq}
    */
-  public static <T> void writeSeq(@NotNull DataOutput out, @NotNull Collection<T> collection, @NotNull ThrowableConsumer<T, IOException> writeElement) throws IOException {
+  public static <T> void writeSeq(@NotNull DataOutput out, @NotNull Collection<? extends T> collection, @NotNull ThrowableConsumer<T, IOException> writeElement) throws IOException {
     writeINT(out, collection.size());
     for (T t : collection) {
       writeElement.consume(t);
@@ -74,7 +100,7 @@ public class DataInputOutputUtilRt {
    * Should be coupled with {@link #writeSeq}
    */
   @NotNull
-  public static <T> List<T> readSeq(@NotNull DataInput in, @NotNull ThrowableComputable<T, IOException> readElement) throws IOException {
+  public static <T> List<T> readSeq(@NotNull DataInput in, @NotNull ThrowableComputable<? extends T, IOException> readElement) throws IOException {
     int size = readINT(in);
     List<T> result = new ArrayList<T>(size);
     for (int i = 0; i < size; i++) {

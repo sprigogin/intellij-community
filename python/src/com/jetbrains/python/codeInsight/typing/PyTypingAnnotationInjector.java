@@ -17,7 +17,6 @@ package com.jetbrains.python.codeInsight.typing;
 
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.MultiHostRegistrar;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiLanguageInjectionHost;
@@ -33,7 +32,6 @@ import com.jetbrains.python.psi.PyStringLiteralExpression;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -50,8 +48,10 @@ public class PyTypingAnnotationInjector extends PyInjectorBase {
     // Handles only string literals containing quoted types
     final PyInjectionUtil.InjectionResult result = super.registerInjection(registrar, context);
     
-    if (result == PyInjectionUtil.InjectionResult.EMPTY && context.getContainingFile() instanceof PyFile && 
-        context instanceof PsiComment && context instanceof PsiLanguageInjectionHost) {
+    if (result == PyInjectionUtil.InjectionResult.EMPTY &&
+        context instanceof PsiComment &&
+        context instanceof PsiLanguageInjectionHost &&
+        context.getContainingFile() instanceof PyFile) {
       return registerCommentInjection(registrar, (PsiLanguageInjectionHost)context);
     }
     return result;
@@ -73,30 +73,24 @@ public class PyTypingAnnotationInjector extends PyInjectorBase {
   private static PyInjectionUtil.InjectionResult registerCommentInjection(@NotNull MultiHostRegistrar registrar,
                                                                           @NotNull PsiLanguageInjectionHost host) {
     final String text = host.getText();
-    final Matcher m = PyTypingTypeProvider.TYPE_COMMENT_PATTERN.matcher(text);
-    if (m.matches()) {
-      final String annotationText = m.group(1);
-      if (annotationText != null) {
-        final int start = m.start(1);
-        final int end = m.end(1);
-        if (start < end) {
-          final Language language;
-          if ("ignore".equals(annotationText)) {
-            language = null;
-          }
-          else if (isFunctionTypeComment(host)) {
-            language = PyFunctionTypeAnnotationDialect.INSTANCE;
-          }
-          else {
-            language = PyDocstringLanguageDialect.getInstance();
-          }
-          if (language != null) {
-            registrar.startInjecting(language);
-            registrar.addPlace("", "", host, TextRange.create(start, end));
-            registrar.doneInjecting();
-            return new PyInjectionUtil.InjectionResult(true, true);
-          }
-        }
+    final String annotationText = PyTypingTypeProvider.getTypeCommentValue(text);
+    if (annotationText != null) {
+      final Language language;
+      if (PyTypingTypeProvider.IGNORE.equals(annotationText)) {
+        language = null;
+      }
+      else if (isFunctionTypeComment(host)) {
+        language = PyFunctionTypeAnnotationDialect.INSTANCE;
+      }
+      else {
+        language = PyDocstringLanguageDialect.getInstance();
+      }
+      if (language != null) {
+        registrar.startInjecting(language);
+        //noinspection ConstantConditions
+        registrar.addPlace("", "", host, PyTypingTypeProvider.getTypeCommentValueRange(text));
+        registrar.doneInjecting();
+        return new PyInjectionUtil.InjectionResult(true, true);
       }
     }
     return PyInjectionUtil.InjectionResult.EMPTY;

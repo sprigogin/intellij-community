@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.ui;
 
@@ -25,12 +23,6 @@ public class MasterDetailsStateService implements PersistentStateComponent<Maste
 
   public static MasterDetailsStateService getInstance(@NotNull Project project) {
     return ServiceManager.getService(project, MasterDetailsStateService.class);
-  }
-
-  /**
-   * @deprecated override {@link MasterDetailsComponent#getComponentStateKey()} and {@link MasterDetailsComponent#getStateService()} instead
-   */
-  public void register(String key, MasterDetailsComponent component) {
   }
 
   @Nullable
@@ -58,7 +50,7 @@ public class MasterDetailsStateService implements PersistentStateComponent<Maste
   }
 
   @Override
-  public void loadState(States states) {
+  public void loadState(@NotNull States states) {
     myStates.clear();
     for (ComponentState state : states.getStates()) {
       myStates.put(state.myKey, state);

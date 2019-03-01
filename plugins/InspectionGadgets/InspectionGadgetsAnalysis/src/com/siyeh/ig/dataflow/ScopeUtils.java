@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,16 +60,21 @@ class ScopeUtils {
   public static PsiElement getCommonParent(@NotNull List<? extends PsiElement> referenceElements) {
     PsiElement commonParent = null;
     for (PsiElement referenceElement : referenceElements) {
-      final PsiElement parent = PsiTreeUtil.getParentOfType(referenceElement, PsiCodeBlock.class, PsiForStatement.class);
+      final PsiElement parent = PsiTreeUtil.getParentOfType(referenceElement, PsiCodeBlock.class, PsiForStatement.class, PsiTryStatement.class);
       if (parent != null && commonParent != null) {
         if (!commonParent.equals(parent)) {
           commonParent = PsiTreeUtil.findCommonParent(commonParent, parent);
-          commonParent = PsiTreeUtil.getNonStrictParentOfType(commonParent, PsiCodeBlock.class, PsiForStatement.class);
+          commonParent = PsiTreeUtil.getNonStrictParentOfType(commonParent, PsiCodeBlock.class, PsiForStatement.class, PsiTryStatement.class);
         }
       }
       else {
         commonParent = parent;
       }
+    }
+
+    // don't narrow inside resource variable, only resource expression
+    if (commonParent instanceof PsiTryStatement && !(referenceElements.get(0).getParent() instanceof PsiResourceExpression)) {
+      commonParent = PsiTreeUtil.getParentOfType(commonParent, PsiCodeBlock.class, PsiForStatement.class);
     }
 
     // make common parent may only be for-statement if first reference is

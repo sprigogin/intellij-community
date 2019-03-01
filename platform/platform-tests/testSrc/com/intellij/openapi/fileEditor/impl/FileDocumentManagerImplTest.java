@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl;
 
 import com.intellij.AppTopics;
@@ -26,7 +12,6 @@ import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.FileDocumentManagerAdapter;
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
@@ -40,7 +25,9 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.MemoryDumpHelper;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ref.GCUtil;
+import com.intellij.util.ref.GCWatcher;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
@@ -240,8 +227,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     //noinspection UnusedAssignment
     document = null;
 
-    System.gc();
-    System.gc();
+    GCUtil.tryGcSoftlyReachableObjects();
 
     document = myDocumentManager.getDocument(file);
     assertEquals(idCode, System.identityHashCode(document));
@@ -253,17 +239,14 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     assertNotNull(file.toString(), document);
     WriteCommandAction.runWriteCommandAction(myProject, () -> ObjectUtils.assertNotNull(myDocumentManager.getDocument(file)).insertString(0, "xxx"));
 
-    int idCode = System.identityHashCode(document);
     //noinspection UnusedAssignment
     document = null;
 
     myDocumentManager.saveAllDocuments();
 
-    System.gc();
-    System.gc();
+    GCWatcher.tracking(myDocumentManager.getDocument(file)).tryGc();
 
-    document = myDocumentManager.getDocument(file);
-    assertTrue(idCode != System.identityHashCode(document));
+    assertNull(myDocumentManager.getCachedDocument(file));
   }
 
   public void testSaveDocument_DocumentWasNotChanged() throws Exception {
@@ -333,7 +316,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
 
   private VirtualFile createFile(String name, String content) throws IOException {
     File file = createTempFile(name, content);
-    VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByIoFile(file);
+    VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
     assertNotNull(virtualFile);
     return virtualFile;
   }
@@ -428,7 +411,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
       document.setModificationStamp(file.getModificationStamp());
     });
 
-    getProject().getMessageBus().connect(getTestRootDisposable()).subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerAdapter() {
+    getProject().getMessageBus().connect(getTestRootDisposable()).subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerListener() {
       @Override
       public void beforeDocumentSaving(@NotNull Document documentToSave) {
         assertNotSame(document, documentToSave);
@@ -465,7 +448,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     assertEquals(0, myDocumentManager.getUnsavedDocuments().length);
   }
 
-  public void testContentChanged_doNotReloadChangedDocumentOnSave() throws Exception {
+  public void testContentChanged_doNotReloadChangedDocumentOnSave() {
     final MockVirtualFile file =
     new MockVirtualFile("test.txt", "test") {
       @Override
@@ -505,7 +488,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
       myDocumentManager.saveDocument(document);
 
       getProject().getMessageBus().connect(getTestRootDisposable())
-        .subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerAdapter() {
+        .subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerListener() {
           @Override
           public void beforeDocumentSaving(@NotNull Document documentToSave) {
             assertNotSame(document, documentToSave);
@@ -549,7 +532,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
 
     renameFile(file, "test.wtf");
     Document afterRename = documentManager.getDocument(file);
-    assertTrue(afterRename + " != " + original, afterRename == original);
+    assertSame(afterRename + " != " + original, afterRename, original);
   }
 
   public void testFileTypeChangeDocumentDetach() throws Exception {
@@ -584,7 +567,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
 
     final PsiFile file = getPsiFile(original);
     assertNotNull(file);
-    FileDocumentManagerListener saveListener = new FileDocumentManagerAdapter() {
+    FileDocumentManagerListener saveListener = new FileDocumentManagerListener() {
       @Override
       public void beforeDocumentSaving(@NotNull Document document) {
         WriteCommandAction.runWriteCommandAction(getProject(), () -> {
@@ -616,12 +599,12 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     AtomicBoolean expectUnsaved = new AtomicBoolean(true);
     DocumentListener listener = new DocumentListener() {
       @Override
-      public void beforeDocumentChange(DocumentEvent e) {
+      public void beforeDocumentChange(@NotNull DocumentEvent e) {
         assertFalse(manager.isDocumentUnsaved(document));
       }
 
       @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChanged(@NotNull DocumentEvent event) {
         invoked.incrementAndGet();
         assertEquals(expectUnsaved.get(), manager.isDocumentUnsaved(document));
       }
@@ -638,7 +621,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     FileDocumentManager.getInstance().saveAllDocuments();
     FileUtil.writeToFile(VfsUtilCore.virtualToIoFile(file), "something");
     file.refresh(false, false);
-    
+
     assertEquals("something", document.getText());
     assertFalse(manager.isDocumentUnsaved(document));
     assertEquals(4, invoked.get());
@@ -651,7 +634,7 @@ public class FileDocumentManagerImplTest extends PlatformTestCase {
     }
 
     for (int iteration = 0; iteration < 10; iteration++) {
-      GCUtil.tryGcSoftlyReachableObjects();
+      GCWatcher.tracking(ContainerUtil.mapNotNull(physicalFiles, f -> FileDocumentManager.getInstance().getCachedDocument(f))).tryGc();
 
       checkDocumentFiles(physicalFiles);
       checkDocumentFiles(createNonPhysicalFiles());

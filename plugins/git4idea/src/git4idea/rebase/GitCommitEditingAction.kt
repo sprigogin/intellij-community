@@ -23,11 +23,12 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.vcs.log.Hash
-import com.intellij.vcs.log.VcsLogDataKeys
+import com.intellij.vcs.log.*
 import com.intellij.vcs.log.data.VcsLogData
 import git4idea.GitUtil.HEAD
 import git4idea.GitUtil.getRepositoryManager
+import git4idea.findProtectedRemoteBranch
+import git4idea.repo.GitRepository
 
 /**
  * Base class for Git action which is going to edit existing commits,
@@ -91,7 +92,7 @@ abstract class GitCommitEditingAction : DumbAwareAction() {
     e.presentation.isEnabledAndVisible = true
   }
 
-  override fun actionPerformed(e: AnActionEvent) {
+  final override fun actionPerformed(e: AnActionEvent) {
     val project = e.getRequiredData(CommonDataKeys.PROJECT)
     val data = e.getRequiredData(VcsLogDataKeys.VCS_LOG_DATA_PROVIDER) as VcsLogData
     val log = e.getRequiredData(VcsLogDataKeys.VCS_LOG)
@@ -112,17 +113,21 @@ abstract class GitCommitEditingAction : DumbAwareAction() {
       Messages.showErrorDialog(project, commitPushedToProtectedBranchError(protectedBranch), getFailureTitle())
       return
     }
+
+    actionPerformedAfterChecks(e)
   }
 
-  protected fun getLog(e: AnActionEvent) = e.getRequiredData(VcsLogDataKeys.VCS_LOG)
+  abstract fun actionPerformedAfterChecks(e: AnActionEvent)
 
-  protected fun getLogData(e: AnActionEvent) = e.getRequiredData(VcsLogDataKeys.VCS_LOG_DATA_PROVIDER) as VcsLogData
+  protected fun getLog(e: AnActionEvent): VcsLog = e.getRequiredData(VcsLogDataKeys.VCS_LOG)
 
-  protected fun getUi(e: AnActionEvent) = e.getRequiredData(VcsLogDataKeys.VCS_LOG_UI)
+  protected fun getLogData(e: AnActionEvent): VcsLogData = e.getRequiredData(VcsLogDataKeys.VCS_LOG_DATA_PROVIDER) as VcsLogData
 
-  protected fun getSelectedCommit(e: AnActionEvent) = getLog(e).selectedShortDetails[0]!!
+  protected fun getUi(e: AnActionEvent): VcsLogUi = e.getRequiredData(VcsLogDataKeys.VCS_LOG_UI)
 
-  protected fun getRepository(e: AnActionEvent) = getRepositoryManager(e.project!!).getRepositoryForRoot(getSelectedCommit(e).root)!!
+  protected fun getSelectedCommit(e: AnActionEvent): VcsShortCommitDetails = getLog(e).selectedShortDetails[0]!!
+
+  protected fun getRepository(e: AnActionEvent): GitRepository = getRepositoryManager(e.project!!).getRepositoryForRoot(getSelectedCommit(e).root)!!
 
   protected abstract fun getFailureTitle(): String
 
@@ -134,23 +139,30 @@ abstract class GitCommitEditingAction : DumbAwareAction() {
            }, "Searching for branches containing the selected commit", true, data.project)
   }
 
-  private fun commitPushedToProtectedBranchError(protectedBranch: String)
+  protected fun commitPushedToProtectedBranchError(protectedBranch: String)
     = "The commit is already pushed to protected branch '$protectedBranch'"
 
   protected fun prohibitRebaseDuringRebase(e: AnActionEvent, operation: String, allowRebaseIfHeadCommit: Boolean = false) {
     if (e.presentation.isEnabledAndVisible) {
-      val state = getRepository(e).state
-      if (state == NORMAL || state == DETACHED) return
-      if (state == REBASING && allowRebaseIfHeadCommit && isHeadCommit(e)) return
+      val message = getProhibitedStateMessage(e, operation, allowRebaseIfHeadCommit)
+      if (message != null) {
+        e.presentation.isEnabled = false
+        e.presentation.description = message
+      }
+    }
+  }
 
-      e.presentation.isEnabled = false
-      e.presentation.description = when (state) {
-        REBASING -> "Can't $operation during rebase"
-        MERGING -> "Can't $operation during merge"
-        else -> {
-          LOG.error(IllegalStateException("Unexpected state: $state"))
-          "Can't $operation during $state"
-        }
+  protected fun getProhibitedStateMessage(e: AnActionEvent, operation: String, allowRebaseIfHeadCommit: Boolean = false): String? {
+    val state = getRepository(e).state
+    if (state == NORMAL || state == DETACHED) return null
+    if (state == REBASING && allowRebaseIfHeadCommit && isHeadCommit(e)) return null
+
+    return when (state) {
+      REBASING -> "Can't $operation during rebase"
+      MERGING -> "Can't $operation during merge"
+      else -> {
+        LOG.error(IllegalStateException("Unexpected state: $state"))
+        "Can't $operation during $state"
       }
     }
   }

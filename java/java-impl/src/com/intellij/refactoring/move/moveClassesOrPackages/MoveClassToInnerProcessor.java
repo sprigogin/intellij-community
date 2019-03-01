@@ -90,11 +90,13 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     return new MoveMultipleElementsViewDescriptor(myClassesToMove, myTargetClass.getQualifiedName());
   }
 
+  @Override
   @NotNull
   public UsageInfo[] findUsages() {
     final List<UsageInfo> usages = new ArrayList<>();
@@ -102,14 +104,16 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
       final String newName = myTargetClass.getQualifiedName() + "." + classToMove.getName();
       Collections.addAll(usages, MoveClassesOrPackagesUtil.findUsages(classToMove, mySearchInComments, mySearchInNonJavaFiles, newName));
     }
-    return usages.toArray(new UsageInfo[usages.size()]);
+    return usages.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
     final UsageInfo[] usages = refUsages.get();
     return showConflicts(getConflicts(usages), usages);
   }
 
+  @Override
   protected void refreshElements(@NotNull final PsiElement[] elements) {
     ApplicationManager.getApplication().runReadAction(() -> {
       final PsiClass[] classesToMove = new PsiClass[elements.length];
@@ -120,6 +124,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     });
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
     MoveClassToInnerHandler[] handlers = MoveClassToInnerHandler.EP_NAME.getExtensions();
 
@@ -129,7 +134,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
       importStatements.addAll(handler.filterImports(usageList, myProject));
     }
 
-    usages = usageList.toArray(new UsageInfo[usageList.size()]);
+    usages = usageList.toArray(UsageInfo.EMPTY_ARRAY);
 
     saveNonCodeUsages(usages);
     final Map<PsiElement, PsiElement> oldToNewElementsMapping = new HashMap<>();
@@ -198,6 +203,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
   protected void performPsiSpoilingRefactoring() {
     if (myNonCodeUsages != null) {
       RenameUtil.renameNonCodeUsages(myProject, myNonCodeUsages);
@@ -210,12 +216,15 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return RefactoringBundle.message("move.class.to.inner.command.name",
                                      (myClassesToMove.length > 1 ? "classes " : "class ") + StringUtil.join(myClassesToMove, psiClass -> psiClass.getName(), ", "),
                                      myTargetClass.getQualifiedName());
   }
 
+  @Override
   @NotNull
   protected Collection<? extends PsiElement> getElementsToWrite(@NotNull final UsageViewDescriptor descriptor) {
     List<PsiElement> result = new ArrayList<>(super.getElementsToWrite(descriptor));
@@ -295,7 +304,8 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
 
   private static PsiElement[] collectPackageLocalMembers(PsiElement classToMove) {
     return PsiTreeUtil.collectElements(classToMove, new PsiElementFilter() {
-      public boolean isAccepted(final PsiElement element) {
+      @Override
+      public boolean isAccepted(@NotNull final PsiElement element) {
         if (element instanceof PsiMember) {
           PsiMember member = (PsiMember) element;
           if (VisibilityUtil.getVisibilityModifier(member.getModifierList()) == PsiModifier.PACKAGE_LOCAL) {
@@ -316,7 +326,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     private final MultiMap<PsiElement, String> myConflicts;
     private final Set<PsiElement> myReportedContainers = new HashSet<>();
 
-    public ConflictsCollector(PsiClass classToMove, final MultiMap<PsiElement, String> conflicts) {
+    ConflictsCollector(PsiClass classToMove, final MultiMap<PsiElement, String> conflicts) {
       myClassToMove = classToMove;
       myConflicts = conflicts;
     }

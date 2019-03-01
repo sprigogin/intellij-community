@@ -41,7 +41,6 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -89,11 +88,13 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     return myTargetClass;
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     return new MoveInstanceMethodViewDescriptor(myMethod, myTargetParameter, myTargetClass);
   }
 
+  @Override
   protected void refreshElements(@NotNull PsiElement[] elements) {
     LOG.assertTrue(elements.length > 1);
     myMethod = (PsiMethod)elements[0];
@@ -101,6 +102,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     myTargetClass = (PsiClass)elements[elements.length - 1];
   }
 
+  @Override
   @NotNull
   protected UsageInfo[] findUsages() {
     LOG.assertTrue(myTargetParameter == null || myTargetParameter.getDeclarationScope() == myMethod);
@@ -142,7 +144,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     }
 
 
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
 
@@ -168,18 +170,19 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     return data;
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
     MultiMap<PsiElement, String> conflicts = new MultiMap<>();
-    final Set<PsiMember> methods = Collections.singleton((PsiMember)myMethod);
-    if (!myTargetClass.isInterface()) {
-      RefactoringConflictsUtil.analyzeAccessibilityConflicts(methods, myTargetClass, conflicts, myNewVisibility);
-    }
-    else {
+    final Set<PsiMember> methods = Collections.singleton(myMethod);
+    //check that method to call would be still accessible from the call places
+    RefactoringConflictsUtil.analyzeAccessibilityConflicts(methods, myTargetClass, conflicts, myNewVisibility);
+    //additionally check that body of method contains only accessible in the inheritors references
+    if (myTargetClass.isInterface() && !PsiUtil.isLanguageLevel8OrHigher(myTargetClass)) {
       for (final UsageInfo usage : usagesIn) {
         if (usage instanceof ImplementingClassUsageInfo) {
-          RefactoringConflictsUtil
-            .analyzeAccessibilityConflicts(methods, ((ImplementingClassUsageInfo)usage).getPsiClass(), conflicts, PsiModifier.PUBLIC);
+          PsiClass targetClass = ((ImplementingClassUsageInfo)usage).getPsiClass();
+          RefactoringConflictsUtil.checkUsedElements(myMethod, myMethod, methods, null, targetClass, targetClass, conflicts);
         }
       }
     }
@@ -218,6 +221,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     return showConflicts(conflicts, usagesIn);
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
     LocalHistoryAction a = LocalHistory.getInstance().startAction(getCommandName());
     try {
@@ -408,7 +412,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
       }
       else {
         final PsiExpression expression =
-          JavaPsiFacade.getInstance(myMethod.getProject()).getElementFactory().createExpressionFromText("this", null);
+          JavaPsiFacade.getElementFactory(myMethod.getProject()).createExpressionFromText("this", null);
         referenceExpression.replace(expression);
       }
     } else {
@@ -431,7 +435,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
   }
 
   private void processMethodCall(final PsiMethodCallExpression methodCall) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myMethod.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myMethod.getProject());
     final PsiReferenceExpression methodExpression = methodCall.getMethodExpression();
     PsiExpression argument;
     if (myTargetParameter != null) {
@@ -474,6 +478,7 @@ public class ConvertToInstanceMethodProcessor extends BaseRefactoringProcessor {
     return PsiTreeUtil.isAncestor(myTargetClass, expression, false) && PsiUtil.getEnclosingStaticElement(expression, myTargetClass) == null;
   }
 
+  @Override
   @NotNull
   protected String getCommandName() {
     return ConvertToInstanceMethodHandler.REFACTORING_NAME;

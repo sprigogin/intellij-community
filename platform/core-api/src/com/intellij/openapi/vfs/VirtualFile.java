@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
 import com.intellij.openapi.application.Application;
@@ -22,11 +8,11 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.encoding.EncodingRegistry;
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.LineSeparator;
+import com.intellij.util.text.CharArrayUtil;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,7 +41,7 @@ import java.nio.charset.Charset;
  * @see VirtualFileManager
  */
 public abstract class VirtualFile extends UserDataHolderBase implements ModificationTracker {
-  public static final Key<Object> REQUESTOR_MARKER = Key.create("REQUESTOR_MARKER");
+  static final Key<Object> REQUESTOR_MARKER = Key.create("REQUESTOR_MARKER");
   public static final VirtualFile[] EMPTY_ARRAY = new VirtualFile[0];
 
   /**
@@ -104,8 +90,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   public static final String PROP_SYMLINK_TARGET = "symlink";
 
   /**
-   * Acceptable values for "propertyName" argument in
-   * {@link VFilePropertyChangeEvent#VFilePropertyChangeEvent(Object, VirtualFile, String, Object, Object, boolean)}
+   * Acceptable values for "propertyName" argument of {@link VFilePropertyChangeEvent#VFilePropertyChangeEvent VFilePropertyChangeEvent()}.
    */
   @MagicConstant(stringValues = {PROP_NAME, PROP_ENCODING, PROP_HIDDEN, PROP_WRITABLE, PROP_SYMLINK_TARGET})
   public @interface PropName {}
@@ -140,12 +125,11 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   /**
    * Gets the path of this file. Path is a string which uniquely identifies file within given
    * <code>{@link VirtualFileSystem}</code>. Format of the path depends on the concrete file system.
-   * For <code>{@link com.intellij.openapi.vfs.LocalFileSystem}</code> it is an absolute file path with file separator characters
+   * For {@code com.intellij.openapi.vfs.LocalFileSystem} it is an absolute file path with file separator characters
    * (File.separatorChar) replaced to the forward slash ('/').
    *
    * @return the path
    */
-  @SuppressWarnings("JavadocReference")
   @NotNull
   public abstract String getPath();
 
@@ -181,7 +165,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
 
   /**
    * Gets the extension of this file. If file name contains '.' extension is the substring from the last '.'
-   * to the end of the name, otherwise extension is null.
+   * to the end of the name (not including the '.'), otherwise extension is null.
    *
    * @return the extension or null if file name doesn't contain '.'
    */
@@ -247,7 +231,6 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    * Checks whether this file has a specific property.
    *
    * @return {@code true} if the file has a specific property, {@code false} otherwise
-   * @since 13.0
    */
   public boolean is(@NotNull VFileProperty property) {
     return false;
@@ -262,7 +245,6 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    * @return {@code getPath()} if there are no symbolic links in a file's path;
    *         {@code getCanonicalFile().getPath()} if the link was successfully resolved;
    *         {@code null} otherwise
-   * @since 11.1
    */
   @Nullable
   public String getCanonicalPath() {
@@ -278,7 +260,6 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    * @return {@code this} if there are no symbolic links in a file's path;
    *         instance of {@code VirtualFile} if the link was successfully resolved;
    *         {@code null} otherwise
-   * @since 11.1
    */
   @Nullable
   public VirtualFile getCanonicalFile() {
@@ -288,7 +269,8 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   /**
    * Checks whether this {@code VirtualFile} is valid. File can be invalidated either by deleting it or one of its
    * parents with {@link #delete} method or by an external change.
-   * If file is not valid only {@link #equals}, {@link #hashCode} and methods from
+   * If file is not valid only {@link #equals}, {@link #hashCode},
+   * {@link #getName()}, {@link #getPath()}, {@link #getUrl()}, {@link #getPresentableUrl()} and methods from
    * {@link UserDataHolder} can be called for it. Using any other methods for an invalid {@link VirtualFile} instance
    * produce unpredictable results.
    *
@@ -338,9 +320,8 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   /**
    * @return the {@link FileType} of this file.
    *         When IDEA has no idea what the file type is (i.e. file type is not registered via {@link FileTypeRegistry}),
-   *         it returns {@link com.intellij.openapi.fileTypes.FileTypes#UNKNOWN}
+   *         it returns {@code com.intellij.openapi.fileTypes.FileTypes.UNKNOWN}.
    */
-  @SuppressWarnings("JavadocReference")
   @NotNull
   public FileType getFileType() {
     return FileTypeRegistry.getInstance().getFileTypeByFile(this);
@@ -354,35 +335,30 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    */
   @Nullable
   public VirtualFile findFileByRelativePath(@NotNull String relPath) {
-    if (relPath.isEmpty()) return this;
-    relPath = StringUtil.trimStart(relPath, "/");
+    VirtualFile child = this;
 
-    int index = relPath.indexOf('/');
-    if (index < 0) index = relPath.length();
-    String name = relPath.substring(0, index);
+    int off = CharArrayUtil.shiftForward(relPath, 0, "/");
+    while (child != null && off < relPath.length()) {
+      int nextOff = relPath.indexOf('/', off);
+      if (nextOff < 0) nextOff = relPath.length();
+      String name = relPath.substring(off, nextOff);
 
-    VirtualFile child;
-    if (name.equals(".")) {
-      child = this;
-    }
-    else if (name.equals("..")) {
-      if (is(VFileProperty.SYMLINK)) {
-        final VirtualFile canonicalFile = getCanonicalFile();
-        child = canonicalFile != null ? canonicalFile.getParent() : null;
+      if (name.equals("..")) {
+        if (child.is(VFileProperty.SYMLINK)) {
+          VirtualFile canonicalFile = child.getCanonicalFile();
+          child = canonicalFile != null ? canonicalFile.getParent() : null;
+        }
+        else {
+          child = child.getParent();
+        }
       }
-      else {
-        child = getParent();
+      else if (!name.equals(".")) {
+        child = child.findChild(name);
       }
-    }
-    else {
-      child = findChild(name);
+
+      off = CharArrayUtil.shiftForward(relPath, nextOff, "/");
     }
 
-    if (child == null) return null;
-
-    if (index < relPath.length()) {
-      return child.findFileByRelativePath(relPath.substring(index + 1));
-    }
     return child;
   }
 
@@ -482,8 +458,8 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
     }
 
     EncodingRegistry.doActionAndRestoreEncoding(this, () -> {
-      getFileSystem().moveFile(requestor, VirtualFile.this, newParent);
-      return VirtualFile.this;
+      getFileSystem().moveFile(requestor, this, newParent);
+      return this;
     });
   }
 
@@ -498,7 +474,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
     }
 
     return EncodingRegistry.doActionAndRestoreEncoding(this,
-                                                       () -> getFileSystem().copyFile(requestor, VirtualFile.this, newParent, copyName));
+                                                       () -> getFileSystem().copyFile(requestor, this, newParent, copyName));
   }
 
   /**
@@ -515,7 +491,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   }
 
   @Nullable
-  protected Charset getStoredCharset() {
+  private Charset getStoredCharset() {
     return getUserData(CHARSET_KEY);
   }
 
@@ -576,7 +552,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    *
    * @param requestor any object to control who called this method. Note that
    *                  it is considered to be an external change if {@code requestor} is {@code null}.
-   *                  See {@link VirtualFileEvent#getRequestor}
+   *                  See {@link VirtualFileEvent#getRequestor} and {@code com.intellij.openapi.vfs.SafeWriteRequestor}.
    * @return {@code OutputStream}
    * @throws IOException if an I/O error occurs
    */
@@ -594,7 +570,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    *
    * @param requestor            any object to control who called this method. Note that
    *                             it is considered to be an external change if {@code requestor} is {@code null}.
-   *                             See {@link VirtualFileEvent#getRequestor}
+   *                             See {@link VirtualFileEvent#getRequestor} and {@code com.intellij.openapi.vfs.SafeWriteRequestor}.
    * @param newModificationStamp new modification stamp or -1 if no special value should be set
    * @param newTimeStamp         new time stamp or -1 if no special value should be set
    * @return {@code OutputStream}
@@ -697,7 +673,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
    *         result depends on the filesystem specifics
    */
   protected boolean nameEquals(@NotNull String name) {
-    return getName().equals(name);
+    return Comparing.equal(getNameSequence(), name);
   }
 
   /**
@@ -733,6 +709,7 @@ public abstract class VirtualFile extends UserDataHolderBase implements Modifica
   }
 
   /** @deprecated use {@link VirtualFileSystem#isValidName(String)} (to be removed in IDEA 18) */
+  @Deprecated
   public static boolean isValidName(@NotNull String name) {
     return !name.isEmpty() && name.indexOf('\\') < 0 && name.indexOf('/') < 0;
   }

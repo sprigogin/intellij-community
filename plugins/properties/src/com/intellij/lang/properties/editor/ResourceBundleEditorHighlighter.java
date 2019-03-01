@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.lang.properties.editor;
 
@@ -28,6 +16,7 @@ import com.intellij.ide.structureView.StructureViewModel;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.properties.IProperty;
+import com.intellij.lang.properties.ResourceBundle;
 import com.intellij.lang.properties.editor.inspections.InspectedPropertyProblems;
 import com.intellij.lang.properties.editor.inspections.ResourceBundleEditorInspection;
 import com.intellij.lang.properties.editor.inspections.ResourceBundleEditorProblemDescriptor;
@@ -77,7 +66,9 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
     @Override
     public void collectInformation(@NotNull ProgressIndicator progress) {
       InspectionProfile profileToUse = InspectionProfileManager.getInstance().getCurrentProfile();
-      final PsiFile containingFile = myEditor.getResourceBundle().getDefaultPropertiesFile().getContainingFile();
+      ResourceBundle rb = myEditor.getResourceBundle();
+      if (!rb.isValid()) return;
+      final PsiFile containingFile = rb.getDefaultPropertiesFile().getContainingFile();
       final InspectionVisitorWrapper[] visitors =
         Arrays.stream(profileToUse.getInspectionTools(containingFile))
           .filter(t -> profileToUse.isToolEnabled(HighlightDisplayKey.find(t.getShortName()), containingFile))
@@ -86,24 +77,25 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
           .map(ResourceBundleEditorInspection.class::cast)
           .map(i -> {
             final HighlightDisplayKey key = HighlightDisplayKey.find(((InspectionProfileEntry)i).getShortName());
-            return new InspectionVisitorWrapper(i.buildPropertyGroupVisitor(myEditor.getResourceBundle()),
+            return new InspectionVisitorWrapper(i.buildPropertyGroupVisitor(rb),
                                                 profileToUse.getErrorLevel(key, containingFile).getSeverity(),
                                                 key);
           })
           .toArray(InspectionVisitorWrapper[]::new);
 
-      final List<PropertiesFile> files = myEditor.getResourceBundle().getPropertiesFiles();
-      final Project project = myEditor.getResourceBundle().getProject();
+      final List<PropertiesFile> files = rb.getPropertiesFiles();
+      final Project project = rb.getProject();
 
       final StructureViewModel model = myEditor.getStructureViewComponent().getTreeModel();
       final Queue<TreeElement> queue = new Queue<>(1);
       queue.addLast(model.getRoot());
       while (!queue.isEmpty()) {
         final TreeElement treeElement = queue.pullFirst();
-        if (treeElement instanceof ResourceBundlePropertyStructureViewElement) {
-          ResourceBundlePropertyStructureViewElement node = (ResourceBundlePropertyStructureViewElement)treeElement;
-          final String key = node.getProperty().getKey();
-          LOG.assertTrue(key != null);
+        if (treeElement instanceof PropertyStructureViewElement) {
+          IProperty property = ((PropertyStructureViewElement)treeElement).getProperty();
+          if (property == null) continue;
+          final String key = property.getKey();
+          if (key == null) continue;
           SortedSet<HighlightInfoType> highlightTypes = new TreeSet<>(Comparator.comparing(t -> t.getSeverity(null)));
           List<Pair<ResourceBundleEditorProblemDescriptor, HighlightDisplayKey>> allDescriptors =
             new SmartList<>();
@@ -124,9 +116,9 @@ public class ResourceBundleEditorHighlighter implements BackgroundEditorHighligh
                 }
               }
             }
-            node.setInspectedPropertyProblems(allDescriptors.isEmpty()
+            ((PropertyStructureViewElement)treeElement).setInspectedPropertyProblems(allDescriptors.isEmpty()
                                               ? null
-                                              : new InspectedPropertyProblems(allDescriptors.toArray(new Pair[allDescriptors.size()]),
+                                              : new InspectedPropertyProblems(allDescriptors.toArray(new Pair[0]),
                                                                               highlightTypes));
           }
         }

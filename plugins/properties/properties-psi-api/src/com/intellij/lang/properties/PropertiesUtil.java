@@ -19,7 +19,6 @@ import com.intellij.reference.SoftLazyValue;
 import com.intellij.util.Function;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,7 +41,7 @@ public class PropertiesUtil {
     protected Set<String> compute() {
       final HashSet<String> locales =
         new HashSet<>(ContainerUtil.flatten(ContainerUtil.map(Locale.getAvailableLocales(),
-                                                              (Function<Locale, List<String>>)locale -> {
+                                                                        (Function<Locale, List<String>>)locale -> {
                                                                 final ArrayList<String> languages =
                                                                   ContainerUtil.newArrayList(locale.getLanguage());
                                                                 try {
@@ -69,7 +68,7 @@ public class PropertiesUtil {
   }
 
   @NotNull
-  public static String getDefaultBaseName(final Collection<PropertiesFile> files) {
+  public static String getDefaultBaseName(final Collection<? extends PropertiesFile> files) {
     String commonPrefix = null;
     for (PropertiesFile file : files) {
       final String baseName = file.getVirtualFile().getNameWithoutExtension();
@@ -152,7 +151,16 @@ public class PropertiesUtil {
         final String language = splitRawLocale[1];
         final String country = splitRawLocale.length > 2 ? splitRawLocale[2] : "";
         final String variant = splitRawLocale.length > 3 ? splitRawLocale[3] : "";
-        return Pair.create(new Locale(language, country, variant), language + "_" + country + "_" + variant);
+
+        StringBuilder trimmedSuffix = new StringBuilder(language);
+        if (!country.isEmpty()) {
+          trimmedSuffix.append("_").append(country);
+        }
+        if (!variant.isEmpty()) {
+          trimmedSuffix.append("_").append(variant);
+        }
+
+        return Pair.create(new Locale(language, country, variant), trimmedSuffix.toString());
       }
     }
     return Pair.create(DEFAULT_LOCALE, "");
@@ -162,7 +170,7 @@ public class PropertiesUtil {
    * messages_en.properties is a parent of the messages_en_US.properties
    */
   @Nullable
-  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<PropertiesFile> candidates) {
+  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<? extends PropertiesFile> candidates) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile == null) return null;
     String name = virtualFile.getNameWithoutExtension();

@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.concurrency.AsyncFuture;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.function.Predicate;
 
 /**
  * @author max
@@ -41,15 +29,56 @@ public interface Query<Result> extends Iterable<Result> {
 
   /**
    * Process search results one-by-one. All the results will be subsequently fed to a {@code consumer} passed.
+   * The consumer might be called on different threads, but by default these calls are mutually exclusive, so no additional
+   * synchronization inside consumer is necessary. If you need to process results in parallel, run {@code forEach()} on
+   * the result of {@link #allowParallelProcessing()}.
    * @param consumer - a processor search results should be fed to.
    * @return {@code true} if the search was completed normally,
    *         {@code false} if the occurrence processing was cancelled by the processor.
    */
-  boolean forEach(@NotNull Processor<Result> consumer);
+  boolean forEach(@NotNull Processor<? super Result> consumer);
 
   @NotNull
-  AsyncFuture<Boolean> forEachAsync(@NotNull Processor<Result> consumer);
+  AsyncFuture<Boolean> forEachAsync(@NotNull Processor<? super Result> consumer);
 
   @NotNull
   Result[] toArray(@NotNull Result[] a);
+
+  /**
+   * Checks whether predicate is satisfied for every result of this query.
+   * This operation short-circuits once predicate returns false.
+   * Technically it's equivalent to {@link #forEach(Processor)}, but has better name.
+   * Use this method only if your predicate is stateless and side-effect free.
+   *
+   * @param predicate predicate to test on query results
+   *
+   * @return true if given predicate is satisfied for all query results.
+   */
+  @Contract(pure = true)
+  default boolean allMatch(@NotNull Predicate<? super Result> predicate) {
+    return forEach(predicate::test);
+  }
+
+  /**
+   * Checks whether predicate is satisfied for at least one result of this query.
+   * This operation short-circuits once predicate returns true.
+   * Use this method only if your predicate is stateless and side-effect free.
+   *
+   * @param predicate predicate to test on query results
+   *
+   * @return true if given predicate is satisfied for at least one query result.
+   */
+  @Contract(pure = true)
+  default boolean anyMatch(@NotNull Predicate<? super Result> predicate) {
+    return !forEach(t -> !predicate.test(t));
+  }
+
+  /**
+   * @return an equivalent query whose {@link #forEach} accepts non-thread-safe consumers, so it may call the consumer in parallel.
+   */
+  @NotNull
+  @Contract(pure = true)
+  default Query<Result> allowParallelProcessing() {
+    return this;
+  }
 }

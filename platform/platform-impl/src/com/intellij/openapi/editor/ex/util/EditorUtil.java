@@ -1,23 +1,23 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex.util;
 
+import com.intellij.diagnostic.AttachmentFactory;
 import com.intellij.diagnostic.Dumpable;
-import com.intellij.diagnostic.LogMessageEx;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.command.CommandEvent;
+import com.intellij.openapi.command.CommandListener;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.editor.event.EditorFactoryAdapter;
-import com.intellij.openapi.editor.event.EditorFactoryEvent;
+import com.intellij.openapi.editor.event.SelectionEvent;
+import com.intellij.openapi.editor.event.SelectionListener;
 import com.intellij.openapi.editor.ex.DocumentBulkUpdateListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -25,6 +25,7 @@ import com.intellij.openapi.editor.impl.ComplementaryFontsRegistry;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.openapi.editor.impl.ScrollingModelImpl;
+import com.intellij.openapi.editor.impl.view.VisualLinesIterator;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.editor.textarea.TextComponentEditor;
 import com.intellij.openapi.fileEditor.FileEditor;
@@ -37,6 +38,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -74,8 +76,9 @@ public final class EditorUtil {
 
   public static int getLastVisualLineColumnNumber(@NotNull Editor editor, final int line) {
     if (editor instanceof EditorImpl) {
-      LogicalPosition lineEndPosition = editor.visualToLogicalPosition(new VisualPosition(line, Integer.MAX_VALUE));
-      int lineEndOffset = editor.logicalPositionToOffset(lineEndPosition);
+      EditorImpl editorImpl = (EditorImpl)editor;
+      int lineEndOffset = line >= editorImpl.getVisibleLineCount()
+                          ? editor.getDocument().getTextLength() : new VisualLinesIterator(editorImpl, line).getVisualLineEndOffset();
       return editor.offsetToVisualPosition(lineEndOffset, true, true).column;
     }
     Document document = editor.getDocument();
@@ -171,11 +174,11 @@ public final class EditorUtil {
     CharSequence editorInfo = "editor's class: " + editor.getClass()
                               + ", all soft wraps: " + editor.getSoftWrapModel().getSoftWrapsForRange(0, document.getTextLength())
                               + ", fold regions: " + Arrays.toString(editor.getFoldingModel().getAllFoldRegions());
-    LogMessageEx.error(LOG, "Can't calculate last visual column", String.format(
+    LOG.error("Can't calculate last visual column", new Throwable(), AttachmentFactory.createContext(String.format(
       "Target visual line: %d, mapped logical line: %d, visual lines range for the mapped logical line: [%s]-[%s], soft wraps for "
       + "the target logical line: %s. Editor info: %s",
       line, resultLogLine, resVisStart, resVisEnd, softWraps, editorInfo
-    ));
+    )));
 
     return resVisEnd.column;
   }
@@ -225,13 +228,10 @@ public final class EditorUtil {
     final int offset = editor.logicalPositionToOffset(new LogicalPosition(lineNumber, columnNumber));
     final String filler = EditorModificationUtil.calcStringToFillVirtualSpace(editor);
     if (!filler.isEmpty()) {
-      new WriteAction(){
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          editor.getDocument().insertString(offset, filler);
-          editor.getCaretModel().moveToOffset(offset + filler.length());
-        }
-      }.execute();
+      WriteAction.run(() -> {
+        editor.getDocument().insertString(offset, filler);
+        editor.getCaretModel().moveToOffset(offset + filler.length());
+      });
     }
   }
 
@@ -281,9 +281,8 @@ public final class EditorUtil {
         else {
           documentInfo = "Text holder class: " + text.getClass();
         }
-        LogMessageEx.error(
-          LOG, "detected incorrect offset -> column number calculation",
-          "start: " + start + ", given offset: " + offset+", given tab size: " + tabSize + ". "+documentInfo+ editorInfo);
+        LOG.error("detected incorrect offset -> column number calculation", new Throwable(), AttachmentFactory.createContext(
+          "start: " + start + ", given offset: " + offset + ", given tab size: " + tabSize + ". " + documentInfo + editorInfo));
       }
     }
 
@@ -297,6 +296,10 @@ public final class EditorUtil {
     return offset - start + shift;
   }
 
+  /**
+   * @deprecated use {@link EditorEx#setCustomCursor(Object, Cursor)} instead. To be removed in 2020.1.
+   */
+  @Deprecated
   public static void setHandCursor(@NotNull Editor view) {
     Cursor c = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR);
     // XXX: Workaround, simply view.getContentComponent().setCursor(c) doesn't work
@@ -366,10 +369,10 @@ public final class EditorUtil {
     if (tabSize <= 0) {
       return x + plainSpaceWidth;
     }
-    tabSize *= plainSpaceWidth;
+    float tabSizePixels = tabSize * plainSpaceWidth;
 
-    int nTabs = (int) (x / tabSize);
-    return (nTabs + 1) * tabSize;
+    int nTabs = (int) ((x + plainSpaceWidth / 2) / tabSizePixels);
+    return (nTabs + 1) * tabSizePixels;
   }
 
   public static int textWidthInColumns(@NotNull Editor editor, @NotNull CharSequence text, int start, int end, int x) {
@@ -599,14 +602,34 @@ public final class EditorUtil {
   }
 
   public static void scrollToTheEnd(@NotNull Editor editor) {
+    scrollToTheEnd(editor, false);
+  }
+
+  public static void scrollToTheEnd(@NotNull Editor editor, boolean preferVerticalScroll) {
     editor.getSelectionModel().removeSelection();
-    int lastLine = Math.max(0, editor.getDocument().getLineCount() - 1);
+    Document document = editor.getDocument();
+    int lastLine = Math.max(0, document.getLineCount() - 1);
     if (editor.getCaretModel().getLogicalPosition().line == lastLine) {
-      editor.getCaretModel().moveToOffset(editor.getDocument().getTextLength());
+      editor.getCaretModel().moveToOffset(document.getTextLength());
     } else {
       editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(lastLine, 0));
     }
-    editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
+    ScrollingModel scrollingModel = editor.getScrollingModel();
+    if (preferVerticalScroll && document.getLineStartOffset(lastLine) == document.getLineEndOffset(lastLine)) {
+      // don't move 'focus' to empty last line
+      int scrollOffset;
+      if (editor instanceof EditorEx) {
+        JScrollBar verticalScrollBar = ((EditorEx)editor).getScrollPane().getVerticalScrollBar();
+        scrollOffset = verticalScrollBar.getMaximum() - verticalScrollBar.getModel().getExtent();
+      }
+      else {
+        scrollOffset = editor.getContentComponent().getHeight() - scrollingModel.getVisibleArea().height;
+      }
+      scrollingModel.scrollVertically(scrollOffset);
+    }
+    else {
+      scrollingModel.scrollToCaret(ScrollType.RELATIVE);
+    }
   }
 
   public static boolean isChangeFontSize(@NotNull MouseWheelEvent e) {
@@ -634,6 +657,12 @@ public final class EditorUtil {
     return TextRange.create(start, end);
   }
 
+  public static int logicalToVisualLine(@NotNull Editor editor, int logicalLine) {
+    LogicalPosition logicalPosition = new LogicalPosition(logicalLine, 0);
+    VisualPosition visualPosition = editor.logicalToVisualPosition(logicalPosition);
+    return visualPosition.line;
+  }
+
   public static int yPositionToLogicalLine(@NotNull Editor editor, @NotNull MouseEvent event) {
     return yPositionToLogicalLine(editor, event.getY());
   }
@@ -643,7 +672,7 @@ public final class EditorUtil {
   }
 
   public static int yPositionToLogicalLine(@NotNull Editor editor, int y) {
-    int line = editor instanceof EditorImpl ? ((EditorImpl)editor).yToVisibleLine(y): y / editor.getLineHeight();
+    int line = editor instanceof EditorImpl ? editor.yToVisualLine(y) : y / editor.getLineHeight();
     return line > 0 ? editor.visualToLogicalPosition(new VisualPosition(line, 0)).line : 0;
   }
 
@@ -683,23 +712,28 @@ public final class EditorUtil {
     editor.getSelectionModel().setSelection(startOffset, endOffset);
   }
 
+  /**
+   * This returns a {@link java.awt.Font#PLAIN} font from family, used in editor, with size matching editor font size (except in
+   * presentation mode, when adjusted presentation mode font size is used). Returned font has fallback variants (i.e. if main font doesn't
+   * support certain Unicode characters, some other font may be used to display them), but fallback mechanism differs from the one used in
+   * editor.
+   */
   public static Font getEditorFont() {
     EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
     int size = UISettings.getInstance().getPresentationMode()
                ? UISettings.getInstance().getPresentationModeFontSize() - 4 : scheme.getEditorFontSize();
-    return new Font(scheme.getEditorFontName(), Font.PLAIN, size);
+    return UIUtil.getFontWithFallback(scheme.getEditorFontName(), Font.PLAIN, size);
+  }
+
+  public static int getDefaultCaretWidth() {
+    return Registry.intValue("editor.caret.width", 2);
   }
 
   /**
    * Number of virtual soft wrap introduced lines on a current logical line before the visual position that corresponds
    * to the current logical position.
-   *
-   * @see LogicalPosition#softWrapLinesOnCurrentLogicalLine
    */
   public static int getSoftWrapCountAfterLineStart(@NotNull Editor editor, @NotNull LogicalPosition position) {
-    if (position.visualPositionAware) {
-      return position.softWrapLinesOnCurrentLogicalLine;
-    }
     int startOffset = editor.getDocument().getLineStartOffset(position.line);
     int endOffset = editor.logicalPositionToOffset(position);
     return editor.getSoftWrapModel().getSoftWrapsForRange(startOffset, endOffset).size();
@@ -724,14 +758,8 @@ public final class EditorUtil {
     // for injected editors disposal will happen only when host editor is disposed,
     // but this seems to be the best we can do (there are no notifications on disposal of injected editor)
     Editor hostEditor = editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
-    EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryAdapter() {
-      @Override
-      public void editorReleased(@NotNull EditorFactoryEvent event) {
-        if (event.getEditor() == hostEditor) {
-          Disposer.dispose(disposable);
-        }
-      }
-    }, disposable);
+    if (hostEditor instanceof EditorImpl) Disposer.register(((EditorImpl)hostEditor).getDisposable(), disposable);
+    else LOG.warn("Cannot watch for disposal of " + editor);
   }
 
   public static void runBatchFoldingOperationOutsideOfBulkUpdate(@NotNull Editor editor, @NotNull Runnable operation) {
@@ -783,5 +811,108 @@ public final class EditorUtil {
     int style = textAttributes != null ? textAttributes.getFontType() : Font.PLAIN;
     FontInfo fallbackFont = ComplementaryFontsRegistry.getFontAbleToDisplay((int)c, style, scheme.getFontPreferences(), null);
     return fallbackFont.canDisplay(codePoint) ? String.valueOf(c) : fallback;
+  }
+
+  /**
+   * Performs inlay-aware conversion of offset to visual position in editor. If there are inlays at given position, their
+   * 'related to preceding text' property will be taken account to determine resulting position. Specifically, resulting position will
+   * match caret's visual position if it's moved to the given offset using {@link Caret#moveToOffset(int)} call.
+   * <p>
+   * NOTE: if editor is an {@link EditorWindow}, corresponding offset is treated as an offset in injected editor, but returned position
+   * is always related to host editor.
+   *
+   * @see Inlay#isRelatedToPrecedingText()
+   */
+  @NotNull
+  public static VisualPosition inlayAwareOffsetToVisualPosition(@NotNull Editor editor, int offset) {
+    LogicalPosition logicalPosition = editor.offsetToLogicalPosition(offset);
+    if (editor instanceof EditorWindow) {
+      logicalPosition = ((EditorWindow)editor).injectedToHost(logicalPosition);
+      editor = ((EditorWindow)editor).getDelegate();
+    }
+    VisualPosition pos = editor.logicalToVisualPosition(logicalPosition);
+    Inlay inlay;
+    while ((inlay = editor.getInlayModel().getInlineElementAt(pos)) != null) {
+      if (inlay.isRelatedToPrecedingText()) break;
+      pos = new VisualPosition(pos.line, pos.column + 1);
+    }
+    return pos;
+  }
+
+  public static int getTotalInlaysHeight(@NotNull List<? extends Inlay> inlays) {
+    int sum = 0;
+    for (Inlay inlay : inlays) {
+      sum += inlay.getHeightInPixels();
+    }
+    return sum;
+  }
+
+  /**
+   * This is similar to {@link SelectionModel#addSelectionListener(SelectionListener, Disposable)}, but when selection changes happen within
+   * the scope of {@link CaretModel#runForEachCaret(CaretAction)} call, there will be only one notification at the end of iteration over
+   * carets.
+   */
+  public static void addBulkSelectionListener(@NotNull Editor editor, @NotNull SelectionListener listener, @NotNull Disposable disposable) {
+    Ref<Pair<int[], int[]>> selectionBeforeBulkChange = new Ref<>();
+    Ref<Boolean> selectionChangedDuringBulkChange = new Ref<>();
+    editor.getSelectionModel().addSelectionListener(new SelectionListener() {
+      @Override
+      public void selectionChanged(@NotNull SelectionEvent e) {
+        if (selectionBeforeBulkChange.isNull()) {
+          listener.selectionChanged(e);
+        }
+        else {
+          selectionChangedDuringBulkChange.set(Boolean.TRUE);
+        }
+      }
+    }, disposable);
+    editor.getCaretModel().addCaretActionListener(new CaretActionListener() {
+      @Override
+      public void beforeAllCaretsAction() {
+        selectionBeforeBulkChange.set(getSelectionOffsets());
+        selectionChangedDuringBulkChange.set(null);
+      }
+
+      @Override
+      public void afterAllCaretsAction() {
+        if (!selectionChangedDuringBulkChange.isNull()) {
+          Pair<int[], int[]> beforeBulk = selectionBeforeBulkChange.get();
+          Pair<int[], int[]> afterBulk = getSelectionOffsets();
+          listener.selectionChanged(new SelectionEvent(editor, beforeBulk.first, beforeBulk.second, afterBulk.first, afterBulk.second));
+        }
+        selectionBeforeBulkChange.set(null);
+      }
+
+      private Pair<int[], int[]> getSelectionOffsets() {
+        return Pair.create(editor.getSelectionModel().getBlockSelectionStarts(), editor.getSelectionModel().getBlockSelectionEnds());
+      }
+    }, disposable);
+  }
+
+  /**
+   * If a command is currently executing (see {@link CommandProcessor}), schedules the execution of given task before the end of that
+   * command (so that it becomes part of it), otherwise does nothing.
+   */
+  public static void performBeforeCommandEnd(@NotNull Runnable task) {
+    if (CommandProcessor.getInstance().getCurrentCommand() == null) return;
+    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
+    connection.subscribe(CommandListener.TOPIC, new CommandListener() {
+      @Override
+      public void beforeCommandFinished(@NotNull CommandEvent event) {
+        task.run();
+      }
+
+      @Override
+      public void commandFinished(@NotNull CommandEvent event) {
+        connection.disconnect();
+      }
+    });
+  }
+
+  public static boolean isPrimaryCaretVisible(@NotNull Editor editor) {
+    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Caret caret = editor.getCaretModel().getPrimaryCaret();
+    Point caretPoint = editor.visualPositionToXY(caret.getVisualPosition());
+    return visibleArea.contains(caretPoint);
   }
 }

@@ -34,7 +34,7 @@ import org.zmlx.hg4idea.util.HgUtil;
 import java.util.LinkedList;
 import java.util.List;
 
-import static org.zmlx.hg4idea.HgErrorHandler.ensureSuccess;
+import static org.zmlx.hg4idea.util.HgErrorUtil.ensureSuccess;
 
 public class HgMergeCommand {
 
@@ -60,14 +60,10 @@ public class HgMergeCommand {
       arguments.add("--rev");
       arguments.add(revision);
     }
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(project);
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(project, "Merge")) {
       HgCommandResult result = commandExecutor.executeInCurrentThread(repo.getRoot(), "merge", arguments);
       repo.update();
       return result;
-    }
-    finally {
-      token.finish();
     }
   }
 

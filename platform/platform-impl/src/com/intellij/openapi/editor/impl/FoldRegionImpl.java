@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.editor.impl;
 
@@ -21,17 +7,21 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.FoldingGroup;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.util.Key;
 import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-class FoldRegionImpl extends RangeMarkerImpl implements FoldRegion {
+public class FoldRegionImpl extends RangeMarkerWithGetterImpl implements FoldRegion {
+  private static final Key<Boolean> MUTE_INNER_HIGHLIGHTERS = Key.create("mute.inner.highlighters");
+
   private boolean myIsExpanded;
   private final EditorImpl myEditor;
   private final String myPlaceholderText;
   private final FoldingGroup myGroup;
   private final boolean myShouldNeverExpand;
   private boolean myDocumentRegionWasChanged;
+  int mySizeBeforeUpdate; // temporary field used during update on document change
 
   FoldRegionImpl(@NotNull EditorImpl editor,
                  int startOffset,
@@ -140,7 +130,6 @@ class FoldRegionImpl extends RangeMarkerImpl implements FoldRegion {
     if (isValid()) {
       alignToSurrogateBoundaries();
     }
-    myEditor.getFoldingModel().clearCachedValues();
   }
 
   @Override
@@ -158,6 +147,16 @@ class FoldRegionImpl extends RangeMarkerImpl implements FoldRegion {
     if (DocumentUtil.isInsideSurrogatePair(document, end)) {
       setIntervalEnd(end - 1);
     }
+  }
+
+  @Override
+  public void setInnerHighlightersMuted(boolean value) {
+    putUserData(MUTE_INNER_HIGHLIGHTERS, value ? Boolean.TRUE : null);
+  }
+
+  @Override
+  public boolean areInnerHighlightersMuted() {
+    return Boolean.TRUE.equals(getUserData(MUTE_INNER_HIGHLIGHTERS));
   }
 
   @Override

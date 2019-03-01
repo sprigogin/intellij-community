@@ -3,6 +3,16 @@ import os.path
 import sys
 
 from _pydev_bundle._pydev_tipper_common import do_find
+from _pydevd_bundle.pydevd_constants import IS_PY2
+
+if IS_PY2:
+    from inspect import getargspec
+else:
+    from inspect import getfullargspec
+
+    def getargspec(*args, **kwargs):
+        arg_spec = getfullargspec(*args, **kwargs)
+        return arg_spec.args, arg_spec.varargs, arg_spec.varkw, arg_spec.defaults
 
 try:
     xrange
@@ -16,6 +26,10 @@ TYPE_FUNCTION = '2'
 TYPE_ATTR = '3'
 TYPE_BUILTIN = '4'
 TYPE_PARAM = '5'
+
+# completion types for IPython console
+TYPE_IPYTHON = '11'
+TYPE_IPYTHON_MAGIC = '12'
 
 def _imp(name, log=None):
     try:
@@ -212,7 +226,7 @@ def generate_imports_tip_for_module(obj_to_complete, dir_comps=None, getattr=get
 
                     if inspect.ismethod(obj) or inspect.isbuiltin(obj) or inspect.isfunction(obj) or inspect.isroutine(obj):
                         try:
-                            args, vargs, kwargs, defaults = inspect.getargspec(obj)
+                            args, vargs, kwargs, defaults = getargspec(obj)
 
                             r = ''
                             for a in (args):

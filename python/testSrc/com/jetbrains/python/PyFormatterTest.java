@@ -76,7 +76,7 @@ public class PyFormatterTest extends PyTestCase {
   }
 
   private void doTestPy3() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   public void testWrapTuple() {  // PY-1792
@@ -246,7 +246,7 @@ public class PyFormatterTest extends PyTestCase {
       "   desired_impulse_response = {'dirac, 'gaussian', logistic_derivative'}\n" +
       "return desired,                o";
 
-    final PsiFile file = PyElementGenerator.getInstance(myFixture.getProject()).createDummyFile(LanguageLevel.PYTHON30, initial);
+    final PsiFile file = PyElementGenerator.getInstance(myFixture.getProject()).createDummyFile(LanguageLevel.PYTHON34, initial);
     final PsiElement reformatted = CodeStyleManager.getInstance(myFixture.getProject()).reformat(file);
 
     String expected =
@@ -660,6 +660,19 @@ public class PyFormatterTest extends PyTestCase {
     doTest();
   }
 
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensions() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    doTest();
+  }
+
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensionsHangingIndentOfClosingBrace() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
   // PY-18265
   public void testNoSpaceAroundPowerOperator() {
     getPythonCodeStyleSettings().SPACE_AROUND_POWER_OPERATOR = false;
@@ -785,7 +798,7 @@ public class PyFormatterTest extends PyTestCase {
 
   // PY-20970
   public void testSpacesAfterNonlocal() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   // PY-21515
@@ -794,7 +807,7 @@ public class PyFormatterTest extends PyTestCase {
   }
 
   public void testSpacesAfterFromInYieldFrom() {
-    runWithLanguageLevel(LanguageLevel.PYTHON33, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   // PY-24220
@@ -912,5 +925,14 @@ public class PyFormatterTest extends PyTestCase {
   // PY-27266
   public void testChainedAttributeAccessInParentheses() {
     doTest();
+  }
+
+  public void testMultilineFStringExpressions() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-31991
+  public void testSpacesAroundFStringFragmentExpressionStripped() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
   }
 }

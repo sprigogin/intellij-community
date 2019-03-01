@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl
 
 import com.intellij.codeInsight.JavaModuleSystemEx
@@ -13,11 +13,11 @@ import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.JdkOrderEntry
+import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.openapi.vfs.jrt.JrtFileSystem
 import com.intellij.psi.*
 import com.intellij.psi.impl.light.LightJavaModule
-import com.intellij.psi.impl.source.PsiJavaModuleReference
 import com.intellij.psi.util.PsiUtil
 
 /**
@@ -27,45 +27,41 @@ import com.intellij.psi.util.PsiUtil
  * @see <a href="http://openjdk.java.net/jeps/261">JEP 261: Module System</a>
  */
 class JavaPlatformModuleSystem : JavaModuleSystemEx {
-  override fun getName() = "Java Platform Module System"
+  override fun getName(): String = "Java Platform Module System"
 
-  override fun isAccessible(target: PsiPackage, place: PsiElement) = checkAccess(target, place, quick = true) == null
-  override fun isAccessible(target: PsiClass, place: PsiElement) = checkAccess(target, place, quick = true) == null
+  override fun isAccessible(targetPackageName: String, targetFile: PsiFile?, place: PsiElement): Boolean =
+    checkAccess(targetPackageName, targetFile?.originalFile, place, quick = true) == null
 
-  override fun checkAccess(target: PsiPackage, place: PsiElement) = checkAccess(target, place, quick = false)
-  override fun checkAccess(target: PsiClass, place: PsiElement) = checkAccess(target, place, quick = false)
+  override fun checkAccess(targetPackageName: String, targetFile: PsiFile?, place: PsiElement): ErrorWithFixes? =
+    checkAccess(targetPackageName, targetFile?.originalFile, place, quick = false)
 
-  private fun checkAccess(target: PsiClass, place: PsiElement, quick: Boolean): ErrorWithFixes? {
-    val useFile = place.containingFile?.originalFile
-    if (useFile != null && PsiUtil.isLanguageLevel9OrHigher(useFile)) {
-      val targetFile = target.containingFile
-      if (targetFile is PsiClassOwner) {
-        return checkAccess(targetFile, useFile, targetFile.packageName, quick)
-      }
-    }
-
-    return null
-  }
-
-  private fun checkAccess(target: PsiPackage, place: PsiElement, quick: Boolean): ErrorWithFixes? {
+  private fun checkAccess(targetPackageName: String, targetFile: PsiFile?, place: PsiElement, quick: Boolean): ErrorWithFixes? {
     val useFile = place.containingFile?.originalFile
     if (useFile != null && PsiUtil.isLanguageLevel9OrHigher(useFile)) {
       val useVFile = useFile.virtualFile
-      if (useVFile != null) {
-        val index = ProjectFileIndex.getInstance(useFile.project)
-        val module = index.getModuleForFile(useVFile)
-        if (module != null) {
-          val test = index.isInTestSourceContent(useVFile)
-          val dirs = target.getDirectories(module.getModuleWithDependenciesAndLibrariesScope(test))
-          if (dirs.isEmpty()) {
-            return if (quick) ERR else ErrorWithFixes(JavaErrorMessages.message("package.not.found", target.qualifiedName))
-          }
-          val error = checkAccess(dirs[0], useFile, target.qualifiedName, quick)
-          return when {
-            error == null -> null
-            dirs.size == 1 -> error
-            dirs.asSequence().drop(1).any { checkAccess(it, useFile, target.qualifiedName, true) == null } -> null
-            else -> error
+      val index = ProjectFileIndex.getInstance(useFile.project)
+      if (useVFile == null || !index.isInLibrarySource(useVFile)) {
+        if (targetFile != null && targetFile.isPhysical) {
+          return checkAccess(targetFile, useFile, targetPackageName, quick)
+        }
+        else if (useVFile != null) {
+          val target = JavaPsiFacade.getInstance(useFile.project).findPackage(targetPackageName)
+          if (target != null) {
+            val module = index.getModuleForFile(useVFile)
+            if (module != null) {
+              val test = index.isInTestSourceContent(useVFile)
+              val dirs = target.getDirectories(module.getModuleWithDependenciesAndLibrariesScope(test))
+              if (dirs.isEmpty()) {
+                return if (quick) ERR else ErrorWithFixes(JavaErrorMessages.message("package.not.found", target.qualifiedName))
+              }
+              val error = checkAccess(dirs[0], useFile, target.qualifiedName, quick)
+              return when {
+                error == null -> null
+                dirs.size == 1 -> error
+                dirs.asSequence().drop(1).any { checkAccess(it, useFile, target.qualifiedName, true) == null } -> null
+                else -> error
+              }
+            }
           }
         }
       }
@@ -77,21 +73,35 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
   private val ERR = ErrorWithFixes("-")
 
   private fun checkAccess(target: PsiFileSystemItem, place: PsiFileSystemItem, packageName: String, quick: Boolean): ErrorWithFixes? {
-    val targetModule = JavaModuleGraphUtil.findDescriptorByElement(target)?.originalElement as PsiJavaModule?
-    val useModule = JavaModuleGraphUtil.findDescriptorByElement(place)?.originalElement as PsiJavaModule?
+    val targetModule = JavaModuleGraphUtil.findDescriptorByElement(target)
+    val useModule = JavaModuleGraphUtil.findDescriptorByElement(place)
 
     if (targetModule != null) {
       if (targetModule == useModule) {
         return null
       }
 
-      if (useModule == null && targetModule.containingFile?.virtualFile?.fileSystem !is JrtFileSystem) {
-        return null  // a target is not on the mandatory module path
-      }
-
       val targetName = targetModule.name
       val useName = useModule?.name ?: "ALL-UNNAMED"
       val module = place.virtualFile?.let { ProjectFileIndex.getInstance(place.project).getModuleForFile(it) }
+
+      if (useModule == null) {
+        val origin = targetModule.containingFile?.virtualFile
+        if (origin == null || module == null || ModuleRootManager.getInstance(module).fileIndex.getOrderEntryForFile(origin) !is JdkOrderEntry) {
+          return null  // a target is not on the mandatory module path
+        }
+
+        var isRoot = !targetName.startsWith("java.") || inAddedModules(module, targetName) || hasUpgrade(module, targetName, packageName, place)
+        if (!isRoot) {
+          val root = JavaPsiFacade.getInstance(place.project).findModule("java.se", module.moduleWithLibrariesScope)
+          isRoot = root == null || JavaModuleGraphUtil.reads(root, targetModule)
+        }
+        if (!isRoot) {
+          return if (quick) ERR else ErrorWithFixes(
+            JavaErrorMessages.message("module.access.not.in.graph", packageName, targetName),
+            listOf(AddModulesOptionFix(module, targetName)))
+        }
+      }
 
       if (!(targetModule is LightJavaModule ||
             JavaModuleGraphUtil.exports(targetModule, packageName, useModule) ||
@@ -109,19 +119,14 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
         }
       }
 
-      if (useModule == null) {
-        if (!targetName.startsWith("java.")) return null
-        val root = PsiJavaModuleReference.resolve(place, "java.se", false)
-        if (root == null || JavaModuleGraphUtil.reads(root, targetModule)) return null
-        if (module != null && inAddedModules(module, targetName)) return null
-        val fixes = if (quick || module == null) emptyList() else listOf(AddModulesOptionFix(module, targetName))
-        return if (quick) ERR else ErrorWithFixes(JavaErrorMessages.message("module.access.not.in.graph", packageName, targetName), fixes)
-      }
-
-      if (!(targetName == PsiJavaModule.JAVA_BASE || JavaModuleGraphUtil.reads(useModule, targetModule))) {
-        return if (quick) ERR else ErrorWithFixes(
-          JavaErrorMessages.message("module.access.does.not.read", packageName, targetName, useName),
-          listOf(AddRequiresDirectiveFix(useModule, targetName)))
+      if (useModule != null && !(targetName == PsiJavaModule.JAVA_BASE || JavaModuleGraphUtil.reads(useModule, targetModule))) {
+        return when {
+          quick -> ERR
+          PsiNameHelper.isValidModuleName(targetName, useModule) -> ErrorWithFixes(
+            JavaErrorMessages.message("module.access.does.not.read", packageName, targetName, useName),
+            listOf(AddRequiresDirectiveFix(useModule, targetName)))
+          else -> ErrorWithFixes(JavaErrorMessages.message("module.access.bad.name", packageName, targetName))
+        }
       }
     }
     else if (useModule != null) {
@@ -129,6 +134,23 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
     }
 
     return null
+  }
+
+  private fun hasUpgrade(module: Module, targetName: String, packageName: String, place: PsiFileSystemItem): Boolean {
+    if (PsiJavaModule.UPGRADEABLE.contains(targetName)) {
+      val target = JavaPsiFacade.getInstance(module.project).findPackage(packageName)
+      if (target != null) {
+        val useVFile = place.virtualFile
+        if (useVFile != null) {
+          val index = ModuleRootManager.getInstance(module).fileIndex
+          val test = index.isInTestSourceContent(useVFile)
+          val dirs = target.getDirectories(module.getModuleWithDependenciesAndLibrariesScope(test))
+          return dirs.asSequence().any { index.getOrderEntryForFile(it.virtualFile) !is JdkOrderEntry }
+        }
+      }
+    }
+
+    return false
   }
 
   private fun inAddedExports(module: Module, targetName: String, packageName: String, useName: String): Boolean {
@@ -146,7 +168,7 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
     val options = JavaCompilerConfigurationProxy.getAdditionalOptions(module.project, module)
     return optionValues(options, "--add-modules")
       .flatMap { it.splitToSequence(",") }
-      .any { it == moduleName || it == "ALL-SYSTEM" }
+      .any { it == moduleName || it == "ALL-SYSTEM" || it == "ALL-MODULE-PATH" }
   }
 
   private fun optionValues(options: List<String>, name: String) =
@@ -187,7 +209,7 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
   }
 
   private class AddExportsOptionFix(module: Module, targetName: String, packageName: String, private val useName: String) : CompilerOptionFix(module) {
-    private val qualifier = targetName + '/' + packageName
+    private val qualifier = "${targetName}/${packageName}"
 
     override fun getText() = QuickFixBundle.message("add.compiler.option.fix.name", "--add-exports=${qualifier}=${useName}")
 
@@ -210,7 +232,7 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
         candidate == options.size -> options[idx - 1] = "--add-exports=${qualifier}=${useName}"
         else -> {
           val value = options[idx]
-          options[idx] = if (value.endsWith('=') || value.endsWith(',')) value + useName else value + ',' + useName
+          options[idx] = if (value.endsWith('=') || value.endsWith(',')) value + useName else "${value},${useName}"
         }
       }
     }
@@ -232,7 +254,7 @@ class JavaPlatformModuleSystem : JavaModuleSystemEx {
         options.size -> options[idx - 1] = "--add-modules=${moduleName}"
         else -> {
           val value = options[idx]
-          options[idx] = if (value.endsWith('=') || value.endsWith(',')) value + moduleName else value + ',' + moduleName
+          options[idx] = if (value.endsWith('=') || value.endsWith(',')) value + moduleName else "${value},${moduleName}"
         }
       }
     }

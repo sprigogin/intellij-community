@@ -1,28 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.gdpr.Consent;
 import com.intellij.ide.gdpr.ConsentOptions;
+import com.intellij.ide.gdpr.ConsentSettingsUi;
 import com.intellij.ide.gdpr.EndUserAgreement;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.idea.Main;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
@@ -34,19 +23,16 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.AppIcon.MacAppIcon;
-import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JBUI.ScaleContext;
 import com.intellij.util.ui.SwingHelper;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -54,22 +40,19 @@ import sun.awt.AWTAccessor;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.HyperlinkEvent;
-import javax.swing.plaf.ButtonUI;
-import javax.swing.plaf.basic.BasicRadioButtonUI;
-import javax.swing.plaf.synth.SynthCheckBoxUI;
-import javax.swing.plaf.synth.SynthContext;
 import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
-import java.awt.event.AdjustmentEvent;
-import java.awt.event.AdjustmentListener;
+import java.awt.event.ActionEvent;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER;
 import static javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED;
@@ -78,8 +61,9 @@ import static javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED;
  * @author yole
  */
 public class AppUIUtil {
+  private static final Logger LOG = Logger.getInstance(AppUIUtil.class);
   private static final String VENDOR_PREFIX = "jetbrains-";
-  private static final boolean DEBUG_MODE = SystemProperties.getBooleanProperty("idea.debug.mode", false);
+  private static final boolean DEBUG_MODE = PluginManagerCore.isRunningFromSources();
   private static boolean ourMacDocIconSet = false;
 
   public static void updateWindowIcon(@NotNull Window window) {
@@ -93,16 +77,13 @@ public class AppUIUtil {
     List<Image> images = ContainerUtil.newArrayListWithCapacity(3);
 
     if (SystemInfo.isUnix) {
-      String bigIconUrl = appInfo.getBigIconUrl();
-      if (bigIconUrl != null) {
-        Image bigIcon = ImageLoader.loadFromResource(bigIconUrl);
-        if (bigIcon != null) {
-          images.add(bigIcon);
-        }
+      Image svgIcon = loadApplicationIcon(window, 128, appInfo.getBigIconUrl());
+      if (svgIcon != null) {
+        images.add(svgIcon);
       }
     }
 
-    images.add(ImageLoader.loadFromResource(appInfo.getIconUrl()));
+    images.add(loadApplicationIcon(window, 32, appInfo.getIconUrl()));
     images.add(ImageLoader.loadFromResource(appInfo.getSmallIconUrl()));
 
     for (int i = 0; i < images.size(); i++) {
@@ -121,6 +102,29 @@ public class AppUIUtil {
         ourMacDocIconSet = true;
       }
     }
+  }
+
+  @Nullable
+  private static Image loadApplicationIcon(@NotNull Window window, int size, @Nullable String fallbackImageResourcePath) {
+    String svgIconUrl = ApplicationInfoImpl.getShadowInstance().getApplicationSvgIconUrl();
+    if (svgIconUrl != null) {
+      URL url = AppUIUtil.class.getResource(svgIconUrl);
+      try {
+        return
+          SVGLoader.load(url, AppUIUtil.class.getResourceAsStream(svgIconUrl), ScaleContext.create(window), size, size);
+      }
+      catch (IOException e) {
+        LOG.info("Cannot load svg application icon from " + svgIconUrl, e);
+      }
+    }
+    else if (fallbackImageResourcePath != null) {
+      Image image = ImageLoader.loadFromResource(fallbackImageResourcePath);
+      if (image instanceof JBHiDPIScaledImage) {
+        return ((JBHiDPIScaledImage)image).getDelegate();
+      }
+      return image;
+    }
+    return null;
   }
 
   public static void invokeLaterIfProjectAlive(@NotNull Project project, @NotNull Runnable runnable) {
@@ -171,7 +175,7 @@ public class AppUIUtil {
       .replace(' ', '-')
       .replace("intellij-idea", "idea").replace("android-studio", "studio")  // backward compatibility
       .replace("-community-edition", "-ce").replace("-ultimate-edition", "").replace("-professional-edition", "");
-    String wmClass = VENDOR_PREFIX + name;
+    String wmClass = name.startsWith(VENDOR_PREFIX) ? name : VENDOR_PREFIX + name;
     if (DEBUG_MODE) wmClass += "-debug";
     return wmClass;
   }
@@ -198,15 +202,9 @@ public class AppUIUtil {
       return;
     }
 
-    try {
-      InputStream is = url.openStream();
-      try {
-        Font font = Font.createFont(Font.TRUETYPE_FONT, is);
-        GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
-      }
-      finally {
-        is.close();
-      }
+    try (InputStream is = url.openStream()) {
+      Font font = Font.createFont(Font.TRUETYPE_FONT, is);
+      GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
     }
     catch (Throwable t) {
       Logger.getInstance(AppUIUtil.class).warn("Cannot register font: " + url, t);
@@ -225,7 +223,8 @@ public class AppUIUtil {
   private static final int MIN_ICON_SIZE = 32;
 
   @Nullable
-  public static String findIcon(@NotNull String iconsPath) {
+  public static String findIcon() {
+    String iconsPath = PathManager.getBinPath();
     String[] childFiles = ObjectUtils.notNull(new File(iconsPath).list(), ArrayUtil.EMPTY_STRING_ARRAY);
 
     // 1. look for .svg icon
@@ -233,6 +232,11 @@ public class AppUIUtil {
       if (child.endsWith(".svg")) {
         return iconsPath + '/' + child;
       }
+    }
+
+    File svgFile = ApplicationInfoEx.getInstanceEx().getApplicationSvgIconFile();
+    if (svgFile != null) {
+      return svgFile.getAbsolutePath();
     }
 
     // 2. look for .png icon of max size
@@ -253,51 +257,66 @@ public class AppUIUtil {
     return iconPath;
   }
 
-  public static void showEndUserAgreement() {
+  public static void showUserAgreementAndConsentsIfNeeded() {
     if (ApplicationInfoImpl.getShadowInstance().isVendorJetBrains()) {
       EndUserAgreement.Document agreement = EndUserAgreement.getLatestDocument();
       if (!agreement.isAccepted()) {
         try {
           // todo: does not seem to request focus when shown
-          SwingUtilities.invokeAndWait(() -> showEndUserAgreementText(agreement.getText()));
+          SwingUtilities.invokeAndWait(() -> showEndUserAgreementText(agreement.getText(), agreement.isPrivacyPolicy()));
           EndUserAgreement.setAccepted(agreement);
         }
         catch (Exception e) {
           Logger.getInstance(AppUIUtil.class).warn(e);
         }
       }
-      final Pair<Collection<Consent>, Boolean> consentsToShow = ConsentOptions.getInstance().getConsents();
-      if (consentsToShow.second) {
+      showConsentsAgreementIfNeed();
+    }
+  }
+
+  public static boolean showConsentsAgreementIfNeed() {
+    final Pair<List<Consent>, Boolean> consentsToShow = ConsentOptions.getInstance().getConsents();
+    AtomicBoolean result = new AtomicBoolean();
+    if (consentsToShow.second) {
+      Runnable runnable = () -> {
+        List<Consent> confirmed = confirmConsentOptions(consentsToShow.first);
+        if (confirmed != null) {
+          ConsentOptions.getInstance().setConsents(confirmed);
+          result.set(true);
+        }
+      };
+      if (SwingUtilities.isEventDispatchThread()) {
+        runnable.run();
+      } else {
         try {
-          final Ref<Collection<Consent>> result = Ref.create(null);
-          // todo: does not seem to request focus when shown
-          SwingUtilities.invokeAndWait(() -> result.set(confirmConsentOptions(consentsToShow.first)));
-          final Collection<Consent> confirmed = result.get();
-          if (confirmed != null) {
-            ConsentOptions.getInstance().setConsents(confirmed);
-          }
+          SwingUtilities.invokeAndWait(runnable);
         }
         catch (Exception e) {
           Logger.getInstance(AppUIUtil.class).warn(e);
         }
       }
     }
+    return result.get();
   }
 
   /**
    * todo: update to support GDPR requirements
    *
-   * @param htmlText Updated version of Privacy Policy text if any.
+   * @param htmlText Updated version of Privacy Policy or EULA text if any.
    *                 If it's {@code null}, the standard text from bundled resources would be used.
+   * @param isPrivacyPolicy  true if this document is a privacy policy
    */
-  public static void showEndUserAgreementText(@NotNull String htmlText) {
+  public static void showEndUserAgreementText(@NotNull String htmlText, final boolean isPrivacyPolicy) {
     DialogWrapper dialog = new DialogWrapper(true) {
+
+      private JEditorPane myViewer;
+
       @Override
       protected JComponent createCenterPanel() {
-        JPanel centerPanel = new JPanel(new BorderLayout(JBUI.scale(5), JBUI.scale(5)));
-        JEditorPane viewer = SwingHelper.createHtmlViewer(true, null, JBColor.WHITE, JBColor.BLACK);
-        viewer.setFocusable(true);
-        viewer.addHyperlinkListener(new HyperlinkAdapter() {
+        JPanel centerPanel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
+        myViewer = SwingHelper.createHtmlViewer(true, null, JBColor.WHITE, JBColor.BLACK);
+        myViewer.setFocusable(true);
+        myViewer.addHyperlinkListener(new HyperlinkAdapter() {
           @Override
           protected void hyperlinkActivated(HyperlinkEvent e) {
             URL url = e.getURL();
@@ -305,12 +324,12 @@ public class AppUIUtil {
               BrowserUtil.browse(url);
             }
             else {
-              SwingHelper.scrollToReference(viewer, e.getDescription());
+              SwingHelper.scrollToReference(myViewer, e.getDescription());
             }
           }
         });
-        viewer.setText(htmlText);
-        StyleSheet styleSheet = ((HTMLDocument)viewer.getDocument()).getStyleSheet();
+        myViewer.setText(htmlText);
+        StyleSheet styleSheet = ((HTMLDocument)myViewer.getDocument()).getStyleSheet();
         styleSheet.addRule("body {font-family: \"Segoe UI\", Tahoma, sans-serif;}");
         styleSheet.addRule("body {margin-top:0;padding-top:0;}");
         styleSheet.addRule("body {font-size:" + JBUI.scaleFontSize(13) + "pt;}");
@@ -319,30 +338,29 @@ public class AppUIUtil {
         styleSheet.addRule("p, h1 {margin-top:0;padding-top:"+JBUI.scaleFontSize(6)+"pt;}");
         styleSheet.addRule("li {margin-bottom:" + JBUI.scaleFontSize(6) + "pt;}");
         styleSheet.addRule("h2 {margin-top:0;padding-top:"+JBUI.scaleFontSize(13)+"pt;}");
-        viewer.setCaretPosition(0);
-        viewer.setBorder(JBUI.Borders.empty(0, 5, 5, 5));
-        centerPanel.add(new JLabel("Please read and accept these terms and conditions:"), BorderLayout.NORTH);
-        JBScrollPane scrollPane = new JBScrollPane(viewer, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_NEVER);
-        final JScrollBar scrollBar = scrollPane.getVerticalScrollBar();
-        scrollBar.addAdjustmentListener(new AdjustmentListener() {
-          boolean wasScrolledToTheBottom = false;
-          @Override
-          public void adjustmentValueChanged(AdjustmentEvent e) {
-            if (!wasScrolledToTheBottom) {
-              wasScrolledToTheBottom = UIUtil.isScrolledToTheBottom(viewer);
-            }
-            setOKActionEnabled(wasScrolledToTheBottom);
-          }
-        });
+        myViewer.setCaretPosition(0);
+        myViewer.setBorder(JBUI.Borders.empty(0, 5, 5, 5));
+        centerPanel.add(JBUI.Borders.emptyTop(8).wrap(
+          new JLabel("Please read and accept these terms and conditions. Scroll down for full text:")), BorderLayout.NORTH);
+        JBScrollPane scrollPane = new JBScrollPane(myViewer, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_NEVER);
         centerPanel.add(scrollPane, BorderLayout.CENTER);
+        JCheckBox checkBox = new JCheckBox("I confirm that I have read and accept the terms of this User Agreement");
+        centerPanel.add(JBUI.Borders.empty(24, 0, 16, 0).wrap(checkBox), BorderLayout.SOUTH);
+        checkBox.addActionListener(e -> setOKActionEnabled(checkBox.isSelected()));
         return centerPanel;
+      }
+
+      @Nullable
+      @Override
+      public JComponent getPreferredFocusedComponent() {
+        return myViewer;
       }
 
       @Override
       protected void createDefaultActions() {
         super.createDefaultActions();
         init();
-        setOKButtonText("Accept");
+        setOKButtonText("Continue");
         setOKActionEnabled(false);
         setCancelButtonText("Reject and Exit");
         setAutoAdjustable(false);
@@ -361,15 +379,21 @@ public class AppUIUtil {
       }
     };
     dialog.setModal(true);
-    dialog.setTitle(ApplicationNamesInfo.getInstance().getFullProductName() + " User Licence Agreement");
+    if (isPrivacyPolicy) {
+      dialog.setTitle(ApplicationInfoImpl.getShadowInstance().getShortCompanyName() + " Privacy Policy");
+    }
+    else {
+      dialog.setTitle(ApplicationNamesInfo.getInstance().getFullProductName() + " User Agreement");
+    }
     dialog.setSize(JBUI.scale(509), JBUI.scale(395));
     dialog.show();
   }
 
-  // todo: need a separate action to view and change state of all consets on demand
-  
-  public static Collection<Consent> confirmConsentOptions(@NotNull Collection<Consent> consents) {
-    final Collection<Pair<JCheckBox, Consent>> consentMapping = new ArrayList<>();
+  @Nullable
+  public static List<Consent> confirmConsentOptions(@NotNull List<Consent> consents) {
+    if (consents.isEmpty()) return null;
+
+    ConsentSettingsUi ui = new ConsentSettingsUi(false);
     final DialogWrapper dialog = new DialogWrapper(true) {
       @Nullable
       @Override
@@ -377,71 +401,37 @@ public class AppUIUtil {
         return null;
       }
 
+      @Nullable
+      @Override
+      protected JComponent createSouthPanel() {
+        JComponent southPanel = super.createSouthPanel();
+        if (southPanel != null) {
+          southPanel.setBorder(ourDefaultBorder);
+        }
+        return southPanel;
+      }
+
       @Override
       protected JComponent createCenterPanel() {
-
-        final JPanel body = new JPanel(new GridBagLayout());
-
-        //noinspection UseDPIAwareInsets
-        body.add(new JLabel("Please review your options regarding the sharing your data with JetBrains:"),
-                 new GridBagConstraints(
-                   0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTH, GridBagConstraints.BOTH,
-                   new Insets(JBUI.scale(10), getLeftTextMargin(new JCheckBox()), JBUI.scale(10), 0), 0, 0));
-        for (Iterator<Consent> it = consents.iterator(); it.hasNext(); ) {
-          final Consent consent = it.next();
-          final JComponent comp = createConsentElement(consent);
-          boolean lastConsent = !it.hasNext();
-          if (lastConsent) {
-            body.setBackground(comp.getBackground());
-          }
-          body.add(comp, new GridBagConstraints(
-            0, GridBagConstraints.RELATIVE, 1, 1, 1.0, lastConsent ? 1.0 : 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.BOTH, JBUI.insets(10, 0, 0, 0), 0, 0)
-          );
-        }
-        body.setBorder(JBUI.Borders.empty(10));
-        return new JBScrollPane(body, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_NEVER);
+        return ui.getComponent();
       }
 
       @NotNull
-      private JComponent createConsentElement(Consent consent) {
-        final JEditorPane viewer = SwingHelper.createHtmlViewer(true, null, JBColor.WHITE, JBColor.BLACK);
-        viewer.setFocusable(false);
-        viewer.addHyperlinkListener(new HyperlinkAdapter() {
+      @Override
+      protected Action[] createActions() {
+        if (consents.size() > 1) {
+          Action[] actions = super.createActions();
+          setOKButtonText("Save");
+          setCancelButtonText("Skip");
+          return actions;
+        }
+        setOKButtonText(consents.iterator().next().getName());
+        return new Action[]{getOKAction(), new DialogWrapperAction("Don't send") {
           @Override
-          protected void hyperlinkActivated(HyperlinkEvent e) {
-            final URL url = e.getURL();
-            if (url != null) {
-              BrowserUtil.browse(url);
-            }
+          protected void doAction(ActionEvent e) {
+            close(NEXT_USER_EXIT_CODE);
           }
-        });
-        final String descr = consent.getText();
-        final String text = "<html>" + StringUtil.replace(descr, "\n", "<br>") + "</html>";
-        viewer.setText(text);
-        StyleSheet styleSheet = ((HTMLDocument)viewer.getDocument()).getStyleSheet();
-        styleSheet.addRule("body {font-family: \"Segoe UI\", Tahoma, sans-serif;}");
-        styleSheet.addRule("body {margin-top:0;padding-top:0;}");
-        styleSheet.addRule("body {font-size:" + JBUI.scaleFontSize(13) + "pt;}");
-        styleSheet.addRule("h2, em {margin-top:" + JBUI.scaleFontSize(20) + "pt;}");
-        styleSheet.addRule("h1, h2, h3, p, h4, em {margin-bottom:0;padding-bottom:0;}");
-        styleSheet.addRule("p, h1 {margin-top:0;padding-top:"+JBUI.scaleFontSize(6)+"pt;}");
-        styleSheet.addRule("li {margin-bottom:" + JBUI.scaleFontSize(6) + "pt;}");
-        styleSheet.addRule("h2 {margin-top:0;padding-top:"+JBUI.scaleFontSize(13)+"pt;}");
-        viewer.setCaretPosition(0);
-
-        final JCheckBox cb = new JBCheckBox(consent.getName(), consent.isAccepted());
-        cb.setBackground(viewer.getBackground());
-        cb.setFont(cb.getFont().deriveFont(Font.BOLD));
-        int leftInset = getLeftTextMargin(cb);
-        //noinspection UseDPIAwareBorders
-        viewer.setBorder(new EmptyBorder(JBUI.scale(5), leftInset, JBUI.scale(15), 0));
-
-        final JPanel pane = new JPanel(new BorderLayout());
-        pane.setBackground(viewer.getBackground());
-        pane.add(cb, BorderLayout.NORTH);
-        pane.add(viewer, BorderLayout.CENTER);
-        consentMapping.add(Pair.create(cb, consent));
-        return pane;
+        }};
       }
 
       @Override
@@ -452,22 +442,26 @@ public class AppUIUtil {
       }
 
     };
+    ui.reset(consents);
     dialog.setModal(true);
-    dialog.setTitle("Data Sharing Options");
-    dialog.setSize(JBUI.scale(530), JBUI.scale(395));
+    dialog.setTitle("Data Sharing");
+    dialog.pack();
+    if (consents.size() < 2) {
+      dialog.setSize(dialog.getWindow().getWidth(), dialog.getWindow().getHeight() + JBUI.scale(75));
+    }
     dialog.show();
 
-    final Collection<Consent> result;
-    if (dialog.isOK()) {
-      result = new ArrayList<>();
-      for (Pair<JCheckBox, Consent> pair : consentMapping) {
-        result.add(pair.second.derive(pair.first.isSelected()));
-      }
+    int exitCode = dialog.getExitCode();
+    if (exitCode == DialogWrapper.CANCEL_EXIT_CODE) {
+      return null; //Don't save any changes in this case: user hasn't made a choice
     }
-    else {
-      // no changes were made, save as-is
-      result = consents;
+    if (consents.size() == 1) {
+      consents.set(0, consents.get(0).derive(exitCode == DialogWrapper.OK_EXIT_CODE));
+      return consents;
     }
+
+    List<Consent> result = new ArrayList<>();
+    ui.apply(result);
     return result;
   }
 
@@ -491,31 +485,10 @@ public class AppUIUtil {
   public static void targetToDevice(@NotNull Component comp, @Nullable Component target) {
     if (comp.isShowing()) return;
     GraphicsConfiguration gc = target != null ? target.getGraphicsConfiguration() : null;
-    AWTAccessor.getComponentAccessor().setGraphicsConfiguration(comp, gc);
+    setGraphicsConfiguration(comp, gc);
   }
 
-  /**
-   * Returns distance (px) from the left edge to actual text position for specified checkbox.
-   * It may be used as left margin when you need to align text in a label located above or below the checkbox
-   */
-  public static int getLeftTextMargin(@NotNull JCheckBox checkBox) {
-    int leftMargin = 0;
-    Insets margin = checkBox.getMargin();
-    if (margin != null) leftMargin += margin.left;
-    Border border = checkBox.getBorder();
-    if (border != null) leftMargin += border.getBorderInsets(checkBox).left;
-    ButtonUI ui = checkBox.getUI();
-    Icon icon = null;
-    if (ui instanceof BasicRadioButtonUI) {
-      icon = ((BasicRadioButtonUI)ui).getDefaultIcon();
-    } else if (ui instanceof SynthCheckBoxUI){
-      SynthCheckBoxUI sui = (SynthCheckBoxUI)ui;
-      SynthContext context = sui.getContext(checkBox);
-      icon = context.getStyle().getIcon(context, "CheckBox.icon");
-    }
-    if (icon != null) {
-      leftMargin += icon.getIconWidth() + checkBox.getIconTextGap();
-    }
-    return leftMargin;
+  public static void setGraphicsConfiguration(@NotNull Component comp, @Nullable GraphicsConfiguration gc) {
+    AWTAccessor.getComponentAccessor().setGraphicsConfiguration(comp, gc);
   }
 }

@@ -1,47 +1,30 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.statistic.editor;
 
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.CodeInsightWorkspaceSettings;
-import com.intellij.internal.statistic.AbstractProjectsUsagesCollector;
-import com.intellij.internal.statistic.CollectUsagesException;
-import com.intellij.internal.statistic.UsagesCollector;
-import com.intellij.internal.statistic.beans.GroupDescriptor;
 import com.intellij.internal.statistic.beans.UsageDescriptor;
+import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector;
+import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.editor.richcopy.settings.RichCopySettings;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.BooleanFunction;
+import kotlin.jvm.functions.Function1;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.Function;
 
-class EditorSettingsStatisticsCollector extends UsagesCollector {
-  private static final GroupDescriptor GROUP_DESCRIPTOR = GroupDescriptor.create("Editor");
+import static com.intellij.internal.statistic.utils.StatisticsUtilKt.addIfDiffers;
 
+class EditorSettingsStatisticsCollector extends ApplicationUsagesCollector {
   @NotNull
   @Override
-  public GroupDescriptor getGroupId() {
-    return GROUP_DESCRIPTOR;
+  public String getGroupId() {
+    return "editor.settings.ide";
   }
 
   @NotNull
@@ -87,9 +70,7 @@ class EditorSettingsStatisticsCollector extends UsagesCollector {
     addBoolIfDiffers(set, es, esDefault, s -> s.isShowParameterNameHints(), "editor.inlay.parameter.hints");
     addBoolIfDiffers(set, es, esDefault, s -> s.isBreadcrumbsAbove(), "noBreadcrumbsBelow");
     addBoolIfDiffers(set, es, esDefault, s -> s.isBreadcrumbsShown(), "breadcrumbs");
-    for (String language : es.getOptions().getLanguageBreadcrumbsMap().keySet()) {
-      addBoolIfDiffers(set, es, esDefault, s -> s.isBreadcrumbsShownFor(language), "breadcrumbsFor" + language);
-    }
+    addBoolIfDiffers(set, es, esDefault, s -> s.isShowIntentionBulb(), "intentionBulb");
 
     RichCopySettings rcs = RichCopySettings.getInstance();
     RichCopySettings rcsDefault = new RichCopySettings();
@@ -101,7 +82,7 @@ class EditorSettingsStatisticsCollector extends UsagesCollector {
     addBoolIfDiffers(set, cis, cisDefault, s -> s.AUTO_POPUP_JAVADOC_INFO, "javadocAutoPopup");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.AUTO_POPUP_COMPLETION_LOOKUP, "completionAutoPopup");
     addIfDiffers(set, cis, cisDefault, s -> s.COMPLETION_CASE_SENSITIVE, "completionCaseSensitivity");
-    addBoolIfDiffers(set, cis, cisDefault, s -> s.SELECT_AUTOPOPUP_SUGGESTIONS_BY_CHARS, "autoPopupCharComplete");
+    addBoolIfDiffers(set, cis, cisDefault, s -> s.isSelectAutopopupSuggestionsByChars(), "autoPopupCharComplete");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.AUTOCOMPLETE_ON_CODE_COMPLETION, "autoCompleteBasic");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.AUTOCOMPLETE_ON_SMART_TYPE_COMPLETION, "autoCompleteSmart");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.SHOW_FULL_SIGNATURES_IN_PARAMETER_INFO, "parameterInfoFullSignature");
@@ -122,38 +103,28 @@ class EditorSettingsStatisticsCollector extends UsagesCollector {
     addBoolIfDiffers(set, cis, cisDefault, s -> s.HIGHLIGHT_IDENTIFIER_UNDER_CARET, "identifierUnderCaretHighlight");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY, "autoAddImports");
     addBoolIfDiffers(set, cis, cisDefault, s -> s.SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION, "completionHints");
-    
+    addBoolIfDiffers(set, cis, cisDefault, s -> s.SHOW_EXTERNAL_ANNOTATIONS_INLINE, "externalAnnotationsInline");
+    addBoolIfDiffers(set, cis, cisDefault, s -> s.SHOW_INFERRED_ANNOTATIONS_INLINE, "inferredAnnotationsInline");
+    addBoolIfDiffers(set, cis, cisDefault, s -> s.TAB_EXITS_BRACKETS_AND_QUOTES, "tabExitsBracketsAndQuotes");
+
     return set;
   }
 
-  private static <T> void addBoolIfDiffers(Set<UsageDescriptor> set,
-                                           T settingsBean, T defaultSettingsBean, BooleanFunction<T> valueFunction, String featureId) {
-    boolean value = valueFunction.fun(settingsBean);
-    boolean defaultValue = valueFunction.fun(defaultSettingsBean);
-    if (value != defaultValue) {
-      set.add(new UsageDescriptor(defaultValue ? "no" + StringUtil.capitalize(featureId) : featureId, 1));
-    }
+  private static <T> void addBoolIfDiffers(Set<UsageDescriptor> set, T settingsBean, T defaultSettingsBean,
+                                           Function1<T, Boolean> valueFunction, String featureId) {
+    addIfDiffers(set, settingsBean, defaultSettingsBean, valueFunction, (it) -> it ? featureId : "no" + StringUtil.capitalize(featureId));
   }
 
-  private static <T> void addIfDiffers(Set<UsageDescriptor> set,
-                                       T settingsBean, T defaultSettingsBean, Function<T, Object> valueFunction, String featureIdPrefix) {
-    Object value = valueFunction.apply(settingsBean);
-    Object defaultValue = valueFunction.apply(defaultSettingsBean);
-    if (!Comparing.equal(value, defaultValue)) {
-      set.add(new UsageDescriptor(featureIdPrefix + "." + value, 1));
-    }
-  }
-
-  public static class ProjectUsages extends AbstractProjectsUsagesCollector {
+  public static class ProjectUsages extends ProjectUsagesCollector {
     @NotNull
     @Override
-    public GroupDescriptor getGroupId() {
-      return GROUP_DESCRIPTOR;
+    public String getGroupId() {
+      return "editor.settings.project";
     }
 
     @NotNull
     @Override
-    public Set<UsageDescriptor> getProjectUsages(@NotNull Project project) throws CollectUsagesException {
+    public Set<UsageDescriptor> getUsages(@NotNull Project project) {
       Set<UsageDescriptor> set = new HashSet<>();
       CodeInsightWorkspaceSettings ciws = CodeInsightWorkspaceSettings.getInstance(project);
       CodeInsightWorkspaceSettings ciwsDefault = new CodeInsightWorkspaceSettings();

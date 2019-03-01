@@ -97,13 +97,8 @@ public class SchemaTypeInheritanceIndex extends XmlIndex<Set<SchemaTypeInfo>> {
   }
 
   @Override
-  public boolean dependsOnFileContent() {
-    return true;
-  }
-
-  @Override
   public int getVersion() {
-    return 1;
+    return 2;
   }
 
   @NotNull

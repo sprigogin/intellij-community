@@ -60,6 +60,7 @@ public interface PsiParameter extends PsiVariable, JvmParameter {
   @Override
   PsiType getType();
 
+  // binary compatibility
   @NotNull
   @Override
   default PsiAnnotation[] getAnnotations() {

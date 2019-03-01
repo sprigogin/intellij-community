@@ -18,7 +18,6 @@ package com.intellij.refactoring.replaceConstructorWithBuilder;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.util.PackageUtil;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
@@ -30,7 +29,10 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.*;
+import com.intellij.psi.util.PropertyUtilBase;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.MoveDestination;
 import com.intellij.refactoring.replaceConstructorWithBuilder.usageInfo.ReplaceConstructorWithSettersChainInfo;
 import com.intellij.refactoring.util.FixableUsageInfo;
@@ -50,12 +52,12 @@ import java.util.Map;
 
 /**
  * @author anna
- * @since 04-Sep-2008
  */
 public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefactoringProcessor {
   public static final String REFACTORING_NAME = "Replace Constructor with Builder";
   private final PsiMethod[] myConstructors;
   private final Map<String, ParameterData> myParametersMap;
+  @NotNull
   private final String myClassName;
   private final String myPackageName;
   private final boolean myCreateNewBuilderClass;
@@ -66,12 +68,12 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
   public ReplaceConstructorWithBuilderProcessor(Project project,
                                                 PsiMethod[] constructors,
                                                 Map<String, ParameterData> parametersMap,
-                                                String className,
+                                                @NotNull String className,
                                                 String packageName,
                                                 MoveDestination moveDestination, boolean createNewBuilderClass) {
     super(project);
     myMoveDestination = moveDestination;
-    myElementFactory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    myElementFactory = JavaPsiFacade.getElementFactory(myProject);
     myConstructors = constructors;
     myParametersMap = parametersMap;
 
@@ -80,11 +82,13 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
     myCreateNewBuilderClass = createNewBuilderClass;
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull final UsageInfo[] usages) {
     return new ReplaceConstructorWithBuilderViewDescriptor();
   }
 
+  @Override
   protected void findUsages(@NotNull final List<FixableUsageInfo> usages) {
     final String builderQualifiedName = StringUtil.getQualifiedName(myPackageName, myClassName);
     final PsiClass builderClass =
@@ -227,7 +231,7 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
 
   private PsiMethod createMethodSignature(String createMethodName) {
     JavaCodeStyleManager styleManager = JavaCodeStyleManager.getInstance(myProject);
-    final StringBuffer buf = new StringBuffer();
+    final StringBuilder buf = new StringBuilder();
     final PsiMethod constructor = getWorkingConstructor();
     for (PsiParameter parameter : constructor.getParameterList().getParameters()) {
       final String pureParamName = styleManager.variableNameToPropertyName(parameter.getName(), VariableKind.PARAMETER);
@@ -250,7 +254,7 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
     PsiMethod constructor = getMostCommonConstructor();
     if (constructor == null){
       constructor = myConstructors[0];
-      if (constructor.getParameterList().getParametersCount() == 0) {
+      if (constructor.getParameterList().isEmpty()) {
         constructor = myConstructors[1];
       }
     }
@@ -293,7 +297,7 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
     return "create" + StringUtil.capitalize(myConstructors[0].getName());
   }
 
-  
+
   @Override
   protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
@@ -307,7 +311,7 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
     } else if (myCreateNewBuilderClass){
       conflicts.putValue(builderClass, "Class with chosen name already exist.");
     }
-    
+
     if (myMoveDestination != null && myCreateNewBuilderClass) {
       myMoveDestination.analyzeModuleConflicts(Collections.emptyList(), conflicts, refUsages.get());
     }
@@ -320,6 +324,8 @@ public class ReplaceConstructorWithBuilderProcessor extends FixableUsagesRefacto
     return showConflicts(conflicts, refUsages.get());
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return REFACTORING_NAME;
   }

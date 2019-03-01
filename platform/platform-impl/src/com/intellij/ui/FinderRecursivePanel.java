@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.icons.AllIcons;
@@ -23,7 +9,6 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.fileEditor.impl.EditorTabbedContainer;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.DumbService;
@@ -61,9 +46,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.intellij.openapi.vfs.newvfs.VfsPresentationUtil.getFileBackgroundColor;
+
 /**
  * @param <T> List item type. Must implement {@code equals()/hashCode()} correctly.
- * @since 13.0
  */
 public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implements DataProvider, UserDataHolder, Disposable {
 
@@ -172,7 +158,6 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
    *
    * @param t the list item
    * @return the text to display in a tooltip for the given list item
-   * @since 2017.2
    */
   @Nullable
   protected String getItemTooltipText(T t) {
@@ -262,12 +247,12 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
   private void installListActions(JBList list) {
     AnAction previousPanelAction = new AnAction("Previous", null, AllIcons.Actions.Back) {
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         e.getPresentation().setEnabled(!isRootPanel());
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         assert myParent != null;
         myParent.handleGotoPrevious();
       }
@@ -276,7 +261,7 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
 
     AnAction nextPanelAction = new AnAction("Next", null, AllIcons.Actions.Forward) {
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         final T value = getSelectedValue();
         e.getPresentation().setEnabled(value != null &&
                                        hasChildren(value) &&
@@ -284,7 +269,7 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         FinderRecursivePanel finderRecursivePanel = (FinderRecursivePanel)getSecondComponent();
         finderRecursivePanel.handleGotoNext();
       }
@@ -294,12 +279,12 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
     AnAction editAction = new AnAction("Edit", null, AllIcons.Actions.Edit) {
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         e.getPresentation().setEnabled(isEditable());
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         performEditAction();
       }
     };
@@ -360,7 +345,6 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
    * Whether this list contains "fixed size" elements.
    *
    * @return true.
-   * @since 2017.2
    */
   protected boolean hasFixedSizeListElements() {
     return true;
@@ -368,7 +352,7 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     Object selectedValue = getSelectedValue();
     if (selectedValue == null) return null;
 
@@ -410,13 +394,11 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
 
   /**
    * @return true if already disposed.
-   * @since 2017.1
    */
   protected boolean isDisposed() {
     return Disposer.isDisposed(this);
   }
 
-  @SuppressWarnings("unchecked")
   @Nullable
   public T getSelectedValue() {
     return myList.getSelectedValue();
@@ -426,7 +408,6 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
    * Performs recursive update selecting given values.
    *
    * @param pathToSelect Values to select.
-   * @since 14
    */
   public void updateSelectedPath(Object... pathToSelect) {
     if (!myUpdateSelectedPathModeActive.compareAndSet(false, true)) return;
@@ -647,14 +628,15 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
       return FinderRecursivePanel.this.getItemTooltipText(value);
     }
 
+    @Override
     public Component getListCellRendererComponent(JList list,
                                                   Object value,
                                                   int index,
                                                   boolean isSelected,
                                                   boolean cellHasFocus) {
       mySelected = isSelected;
-      myForeground = UIUtil.getTreeTextForeground();
-      mySelectionForeground = cellHasFocus ? list.getSelectionForeground() : UIUtil.getTreeTextForeground();
+      myForeground = UIUtil.getTreeForeground();
+      mySelectionForeground = cellHasFocus ? list.getSelectionForeground() : UIUtil.getTreeForeground();
 
       clear();
       setFont(UIUtil.getListFont());
@@ -677,10 +659,10 @@ public abstract class FinderRecursivePanel<T> extends OnePixelSplitter implement
         // ignore
       }
 
-      Color bg = isSelected ? UIUtil.getTreeSelectionBackground(cellHasFocus) : UIUtil.getTreeTextBackground();
+      Color bg = UIUtil.getTreeBackground(isSelected, cellHasFocus);
       if (!isSelected) {
         VirtualFile file = getContainingFile(t);
-        Color bgColor = file == null ? null : EditorTabbedContainer.calcTabColor(myProject, file);
+        Color bgColor = file == null ? null : getFileBackgroundColor(myProject, file);
         bg = bgColor == null ? bg : bgColor;
       }
       setBackground(bg);

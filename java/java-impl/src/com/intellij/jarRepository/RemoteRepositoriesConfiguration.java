@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.jarRepository;
 
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -21,9 +7,9 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.SmartList;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.util.xmlb.annotations.XCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,7 +28,7 @@ public class RemoteRepositoriesConfiguration implements PersistentStateComponent
     this(RemoteRepositoryDescription.DEFAULT_REPOSITORIES);
   }
 
-  public RemoteRepositoriesConfiguration(Collection<RemoteRepositoryDescription> repos) {
+  public RemoteRepositoriesConfiguration(Collection<? extends RemoteRepositoryDescription> repos) {
     myRepositories.addAll(repos);
   }
 
@@ -60,7 +46,7 @@ public class RemoteRepositoriesConfiguration implements PersistentStateComponent
     setRepositories(Collections.emptyList());
   }
 
-  public void setRepositories(@NotNull List<RemoteRepositoryDescription> repos) {
+  public void setRepositories(@NotNull List<? extends RemoteRepositoryDescription> repos) {
     myRepositories.clear();
     myRepositories.addAll(repos.isEmpty()? RemoteRepositoryDescription.DEFAULT_REPOSITORIES : repos);
   }
@@ -72,7 +58,7 @@ public class RemoteRepositoriesConfiguration implements PersistentStateComponent
   }
 
   @Override
-  public void loadState(RemoteRepositoriesConfiguration.State state) {
+  public void loadState(@NotNull RemoteRepositoriesConfiguration.State state) {
     final List<RemoteRepositoryDescription> loaded = new SmartList<>();
     if (state.data != null) {
       for (State.Repo repo : state.data) {
@@ -106,10 +92,10 @@ public class RemoteRepositoriesConfiguration implements PersistentStateComponent
        public String name;
        public String url;
 
-       public Repo() {
+       Repo() {
        }
 
-       public Repo(String id, String name, String url) {
+       Repo(String id, String name, String url) {
          this.id = id;
          this.name = name;
          this.url = url;
@@ -140,14 +126,14 @@ public class RemoteRepositoriesConfiguration implements PersistentStateComponent
 
      @NotNull
      @Property(surroundWithTag = false)
-     @AbstractCollection(surroundWithTag = false, elementTypes = Repo.class)
+     @XCollection
      public final List<Repo> data = new SmartList<>();
 
-     public State() {
+     State() {
        this(RemoteRepositoryDescription.DEFAULT_REPOSITORIES);
      }
 
-     public State(List<RemoteRepositoryDescription> repos) {
+     State(List<? extends RemoteRepositoryDescription> repos) {
        for (RemoteRepositoryDescription repository : repos) {
          data.add(new Repo(repository.getId(), repository.getName(), repository.getUrl()));
        }

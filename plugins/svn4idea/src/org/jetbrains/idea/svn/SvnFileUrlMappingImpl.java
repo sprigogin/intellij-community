@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn;
 
 import com.intellij.openapi.application.ReadAction;
@@ -22,6 +8,7 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl;
 import com.intellij.openapi.vcs.impl.VcsInitObject;
@@ -29,17 +16,19 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.info.Info;
-import org.tmatesoft.svn.core.SVNURL;
 
 import java.io.File;
 import java.util.List;
 import java.util.Set;
 
 import static com.intellij.openapi.application.ApplicationManager.getApplication;
+import static com.intellij.openapi.util.io.FileUtil.toSystemDependentName;
 import static com.intellij.util.containers.ContainerUtil.find;
 import static com.intellij.util.containers.ContainerUtil.newArrayList;
+import static com.intellij.vcsUtil.VcsUtil.getFilePath;
 import static org.jetbrains.idea.svn.SvnFormatSelector.findRootAndGetFormat;
 import static org.jetbrains.idea.svn.SvnUtil.*;
 
@@ -100,9 +89,9 @@ public class SvnFileUrlMappingImpl implements SvnFileUrlMapping, PersistentState
 
   @Override
   @Nullable
-  public SVNURL getUrlForFile(@NotNull File file) {
-    SVNURL result = null;
-    RootUrlInfo rootUrlInfo = getWcRootForFilePath(file);
+  public Url getUrlForFile(@NotNull File file) {
+    Url result = null;
+    RootUrlInfo rootUrlInfo = getWcRootForFilePath(getFilePath(file));
 
     if (rootUrlInfo != null) {
       try {
@@ -118,18 +107,16 @@ public class SvnFileUrlMappingImpl implements SvnFileUrlMapping, PersistentState
 
   @Override
   @Nullable
-  public File getLocalPath(@NotNull SVNURL url) {
+  public File getLocalPath(@NotNull Url url) {
     RootUrlInfo parentInfo = getWcRootForUrl(url);
     return parentInfo != null ? new File(parentInfo.getIoFile(), getRelativeUrl(parentInfo.getUrl(), url)) : null;
   }
 
   @Override
   @Nullable
-  public RootUrlInfo getWcRootForFilePath(@NotNull File file) {
+  public RootUrlInfo getWcRootForFilePath(@NotNull FilePath path) {
     synchronized (myMonitor) {
-      String convertedPath = file.getAbsolutePath();
-      convertedPath = file.isDirectory() && !convertedPath.endsWith(File.separator) ? convertedPath + File.separator : convertedPath;
-      String root = myMoreRealMapping.getRootForPath(convertedPath);
+      String root = myMoreRealMapping.getRootForPath(toSystemDependentName(path.toString()));
 
       return root != null ? myMoreRealMapping.byFile(root) : null;
     }
@@ -137,10 +124,10 @@ public class SvnFileUrlMappingImpl implements SvnFileUrlMapping, PersistentState
 
   @Override
   @Nullable
-  public RootUrlInfo getWcRootForUrl(@NotNull SVNURL url) {
+  public RootUrlInfo getWcRootForUrl(@NotNull Url url) {
     synchronized (myMonitor) {
       RootUrlInfo result = null;
-      SVNURL rootUrl = find(myMoreRealMapping.getUrls(), parentRootUrl -> isAncestor(parentRootUrl, url));
+      Url rootUrl = find(myMoreRealMapping.getUrls(), parentRootUrl -> isAncestor(parentRootUrl, url));
 
       if (rootUrl != null) {
         result = myMoreRealMapping.byUrl(rootUrl);
@@ -303,7 +290,7 @@ public class SvnFileUrlMappingImpl implements SvnFileUrlMapping, PersistentState
   }
 
   @Override
-  public void loadState(final SvnMappingSavedPart state) {
+  public void loadState(@NotNull final SvnMappingSavedPart state) {
     ((ProjectLevelVcsManagerImpl) ProjectLevelVcsManager.getInstance(myProject)).addInitializationRequest(
       VcsInitObject.AFTER_COMMON, (DumbAwareRunnable)() -> getApplication().executeOnPooledThread(() -> {
         SvnMapping mapping = new SvnMapping();
@@ -337,8 +324,8 @@ public class SvnFileUrlMappingImpl implements SvnFileUrlMapping, PersistentState
       SvnVcs vcs = SvnVcs.getInstance(myProject);
       Info info = vcs.getInfo(copyRoot);
 
-      if (info != null && info.getRepositoryRootURL() != null) {
-        Node node = new Node(copyRoot, info.getURL(), info.getRepositoryRootURL());
+      if (info != null && info.getRepositoryRootUrl() != null) {
+        Node node = new Node(copyRoot, info.getUrl(), info.getRepositoryRootUrl());
         mapping.add(new RootUrlInfo(node, findRootAndGetFormat(info.getFile()), vcsRoot));
       }
     }

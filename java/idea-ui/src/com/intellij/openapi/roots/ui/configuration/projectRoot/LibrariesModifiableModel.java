@@ -86,9 +86,6 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
 
     if (existingLibrary == library) {
       myRemovedLibraries.add(library);
-    } else {
-      // dispose uncommitted library
-      Disposer.dispose(library);
     }
   }
 
@@ -145,10 +142,13 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
   }
 
   public ExistingLibraryEditor getLibraryEditor(Library library){
-    final Library source = ((LibraryImpl)library).getSource();
-    if (source != null) {
-      return getLibraryEditor(source);
+    if (library instanceof LibraryImpl) {
+      final Library source = ((LibraryImpl)library).getSource();
+      if (source != null) {
+        return getLibraryEditor(source);
+      }
     }
+
     ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
     if (libraryEditor == null){
       libraryEditor = createLibraryEditor(library);
@@ -187,22 +187,13 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
       Disposer.dispose(myLibrariesModifiableModel);
       myLibrariesModifiableModel = null;
     }
-    disposeUncommittedLibraries();
+    disposeLibraryEditors();
   }
 
-  private void disposeUncommittedLibraries() {
-    for (final Library library : new ArrayList<>(myLibrary2EditorMap.keySet())) {
-      final Library existingLibrary = myTable.getLibraryByName(library.getName());
-      if (existingLibrary != library) {
-        Disposer.dispose(library);
-      }
-
-      final ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
-      if (libraryEditor != null) {
-        Disposer.dispose(libraryEditor);
-      }
+  private void disposeLibraryEditors() {
+    for (ExistingLibraryEditor libraryEditor : myLibrary2EditorMap.values()) {
+      Disposer.dispose(libraryEditor);
     }
-
     myLibrary2EditorMap.clear();
   }
 }

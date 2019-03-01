@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.hint;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -15,8 +13,10 @@ import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.ex.util.EditorUIUtil;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.reference.SoftReference;
 import com.intellij.ui.HintHint;
 import com.intellij.ui.LightweightHint;
 import com.intellij.ui.ScreenUtil;
@@ -30,9 +30,11 @@ import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.lang.ref.WeakReference;
 
 public class EditorFragmentComponent extends JPanel {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.hint.EditorFragmentComponent");
+  private static final Key<WeakReference<LightweightHint>> CURRENT_HINT = Key.create("EditorFragmentComponent.currentHint");
   private static final int LINE_BORDER_THICKNESS = 1;
   private static final int EMPTY_BORDER_THICKNESS = 2;
 
@@ -63,7 +65,7 @@ public class EditorFragmentComponent extends JPanel {
     }
     try {
       Document doc = editor.getDocument();
-      int endOffset = endLine < doc.getLineCount() ? doc.getLineEndOffset(endLine) : doc.getTextLength();
+      int endOffset = endLine < doc.getLineCount() ? doc.getLineEndOffset(Math.max(0, endLine - 1)) : doc.getTextLength();
       int widthAdjustment = newRendering ? EditorUtil.getSpaceWidth(Font.PLAIN, editor) : 0;
       textImageWidth = Math.min(
         editor.getMaxWidthInRange(doc.getLineStartOffset(startLine), endOffset) + widthAdjustment,
@@ -207,12 +209,16 @@ public class EditorFragmentComponent extends JPanel {
     final JComponent c = editor.getComponent();
     int x = SwingUtilities.convertPoint(c, new Point(JBUI.scale(-3),0), UIUtil.getRootPane(c)).x; //IDEA-68016
 
+    LightweightHint currentHint = SoftReference.dereference(editor.getUserData(CURRENT_HINT));
+    if (currentHint != null) currentHint.hide();
+
     Point p = new Point(x, y);
     LightweightHint hint = new MyComponentHint(fragmentComponent);
     HintManagerImpl.getInstanceImpl().showEditorHint(hint, editor, p, (hideByAnyKey ? HintManager.HIDE_BY_ANY_KEY : 0) |
                                                                       (hideByScrolling ? HintManager.HIDE_BY_SCROLLING : 0) |
                                                                       HintManager.HIDE_BY_TEXT_CHANGE | HintManager.HIDE_BY_MOUSEOVER,
                                                      0, false, new HintHint(editor, p));
+    editor.putUserData(CURRENT_HINT, new WeakReference<>(hint));
     return hint;
   }
 
@@ -300,8 +306,26 @@ public class EditorFragmentComponent extends JPanel {
     return BorderFactory.createCompoundBorder(outsideBorder, insideBorder);
   }
 
+  public static int getAvailableVisualLinesAboveEditor(@NotNull Editor editor) {
+    int availableVisualLines = 2;
+    JComponent editorComponent = editor.getComponent();
+    Container editorComponentParent = editorComponent.getParent();
+    if (editorComponentParent != null) {
+      JRootPane rootPane = editorComponent.getRootPane();
+      if (rootPane != null) {
+        Container contentPane = rootPane.getContentPane();
+        if (contentPane != null) {
+          int y = SwingUtilities.convertPoint(editorComponentParent, editorComponent.getLocation(), contentPane).y;
+          int visualLines = y / editor.getLineHeight();
+          availableVisualLines = Math.max(availableVisualLines, visualLines);
+        }
+      }
+    }
+    return availableVisualLines;
+  }
+
   private static class MyComponentHint extends LightweightHint {
-    public MyComponentHint(JComponent component) {
+    MyComponentHint(JComponent component) {
       super(component);
       setForceLightweightPopup(true);
     }

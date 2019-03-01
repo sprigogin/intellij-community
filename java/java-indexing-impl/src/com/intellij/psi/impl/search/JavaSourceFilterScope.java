@@ -16,6 +16,7 @@
 package com.intellij.psi.impl.search;
 
 import com.intellij.ide.highlighter.JavaClassFileType;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
@@ -25,6 +26,7 @@ import com.intellij.psi.search.DelegatingGlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
 /**
  * @author max
@@ -59,11 +61,11 @@ public class JavaSourceFilterScope extends DelegatingGlobalSearchScope {
       return false;
     }
 
-    if (JavaClassFileType.INSTANCE == file.getFileType()) {
+    if (FileTypeRegistry.getInstance().isFileOfType(file, JavaClassFileType.INSTANCE)) {
       return myIndex.isInLibraryClasses(file) && (myIncludeVersions || !isVersioned(file, myIndex));
     }
 
-    return myIndex.isInSourceContent(file) ||
+    return myIndex.isUnderSourceRootOfType(file, JavaModuleSourceRootTypes.SOURCES) ||
            myBaseScope.isForceSearchingInLibrarySources() && myIndex.isInLibrarySource(file);
   }
 

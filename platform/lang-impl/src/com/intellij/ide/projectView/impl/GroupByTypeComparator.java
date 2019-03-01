@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView.impl;
 
@@ -21,7 +7,6 @@ import com.intellij.ide.projectView.ProjectViewNode;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AlphaComparator;
 import com.intellij.ide.util.treeView.NodeDescriptor;
-import com.intellij.openapi.project.Project;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -63,9 +48,6 @@ public class GroupByTypeComparator implements Comparator<NodeDescriptor> {
     }
 
     if (descriptor1 instanceof ProjectViewNode && descriptor2 instanceof ProjectViewNode) {
-      final Project project = descriptor1.getProject();
-      final ProjectView projectView = ProjectView.getInstance(project);
-      
       ProjectViewNode node1 = (ProjectViewNode)descriptor1;
       ProjectViewNode node2 = (ProjectViewNode)descriptor2;
       
@@ -76,8 +58,7 @@ public class GroupByTypeComparator implements Comparator<NodeDescriptor> {
         if (result != 0) return result;
       }
 
-      boolean isFoldersOnTop = !(projectView instanceof ProjectViewImpl && !((ProjectViewImpl)projectView).isFoldersAlwaysOnTop());
-      if (isFoldersOnTop) {
+      if (isFoldersAlwaysOnTop()) {
         int typeWeight1 = node1.getTypeSortWeight(isSortByType());
         int typeWeight2 = node2.getTypeSortWeight(isSortByType());
         if (typeWeight1 != 0 && typeWeight2 == 0) {
@@ -137,6 +118,10 @@ public class GroupByTypeComparator implements Comparator<NodeDescriptor> {
     return myProjectView != null && myProjectView.isAbbreviatePackageNames(myPaneId);
   }
 
+  private boolean isFoldersAlwaysOnTop() {
+    return myProjectView == null || myProjectView.isFoldersAlwaysOnTop(myPaneId);
+  }
+
   private static int compare(Comparable key1, Comparable key2) {
     if (key1 == null && key2 == null) return 0;
     if (key1 == null) return 1;
@@ -144,7 +129,14 @@ public class GroupByTypeComparator implements Comparator<NodeDescriptor> {
     if (key1 instanceof String && key2 instanceof String) {
       return naturalCompare((String)key1, (String)key2);
     }
-    //noinspection unchecked
-    return key1.compareTo(key2);
+    try {
+      //noinspection unchecked
+      return key1.compareTo(key2);
+    }
+    catch (ClassCastException ignored) {
+      // if custom nodes provide comparable keys of different types,
+      // let's try to compare class names instead to avoid broken trees
+      return key1.getClass().getName().compareTo(key2.getClass().getName());
+    }
   }
 }

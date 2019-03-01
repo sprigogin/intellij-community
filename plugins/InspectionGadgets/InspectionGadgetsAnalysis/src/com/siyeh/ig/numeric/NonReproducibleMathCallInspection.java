@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.siyeh.ig.numeric;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -33,7 +32,6 @@ import java.util.Set;
 
 public class NonReproducibleMathCallInspection extends BaseInspection {
 
-  @SuppressWarnings("StaticCollection")
   @NonNls private static final Set<String> nonReproducibleMethods =
     new HashSet<>(20);
 
@@ -88,12 +86,9 @@ public class NonReproducibleMathCallInspection extends BaseInspection {
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiIdentifier nameIdentifier =
-        (PsiIdentifier)descriptor.getPsiElement();
-      final PsiReferenceExpression reference =
-        (PsiReferenceExpression)nameIdentifier.getParent();
+    public void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiIdentifier nameIdentifier = (PsiIdentifier)descriptor.getPsiElement();
+      final PsiReferenceExpression reference = (PsiReferenceExpression)nameIdentifier.getParent();
       assert reference != null;
       final String name = reference.getReferenceName();
       PsiReplacementUtil.replaceExpression(reference, "StrictMath." + name, new CommentTracker());

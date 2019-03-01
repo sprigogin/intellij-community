@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
 import com.intellij.openapi.application.ApplicationManager
@@ -20,8 +6,8 @@ import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.ConfigurableUi
 import com.intellij.openapi.progress.runModalTask
-import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.dialog
 import com.intellij.ui.layout.*
 import com.intellij.util.Function
@@ -34,7 +20,7 @@ import com.intellij.util.ui.table.TableModelEditor
 import gnu.trove.THashSet
 import org.jetbrains.settingsRepository.git.asProgressMonitor
 import org.jetbrains.settingsRepository.git.cloneBare
-import javax.swing.JTextField
+import kotlin.properties.Delegates.notNull
 
 private val COLUMNS = arrayOf(object : TableModelEditor.EditableColumnInfo<ReadonlySource, Boolean>() {
   override fun getColumnClass() = Boolean::class.java
@@ -60,23 +46,21 @@ internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
     override fun getItemClass() = ReadonlySource::class.java
 
     override fun edit(item: ReadonlySource, mutator: Function<ReadonlySource, ReadonlySource>, isAdd: Boolean) {
-      val urlField = TextFieldWithBrowseButton(JTextField(20))
-      urlField.addBrowseFolderListener(TextBrowseFolderListener(FileChooserDescriptorFactory.createSingleFolderDescriptor()))
-
+      var urlField: TextFieldWithBrowseButton by notNull()
       val panel = panel {
         row("URL:") {
-          urlField()
+          urlField = textFieldWithBrowseButton("Choose Local Git Repository", fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor())
         }
       }
 
       dialog(title = "Add read-only source", panel = panel, focusedComponent = urlField) {
         val url = urlField.text.nullize(true)
-        if (!validateUrl(url, null)) {
-          return@dialog false
+        validateUrl(url, null)?.let {
+          return@dialog listOf(ValidationInfo(it))
         }
 
         mutator.`fun`(item).url = url
-        return@dialog true
+        return@dialog null
       }
         .show()
     }

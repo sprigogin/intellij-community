@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.binding;
 
 import com.intellij.lang.ASTNode;
@@ -33,24 +19,27 @@ import java.util.List;
  * @author yole
  */
 public class GeneratedCodeFoldingBuilder extends FoldingBuilderEx {
+  @Override
   @NotNull
   public FoldingDescriptor[] buildFoldRegions(@NotNull PsiElement root, @NotNull Document document, boolean quick) {
     MyFoldingVisitor visitor = new MyFoldingVisitor();
     root.accept(visitor);
-    return visitor.myFoldingData.toArray(new FoldingDescriptor[visitor.myFoldingData.size()]);
+    return visitor.myFoldingData.toArray(FoldingDescriptor.EMPTY);
   }
 
+  @Override
   public String getPlaceholderText(@NotNull ASTNode node) {
     return UIDesignerBundle.message("uidesigner.generated.code.folding.placeholder.text");
   }
 
+  @Override
   public boolean isCollapsedByDefault(@NotNull ASTNode node) {
     return true;
   }
 
   private static boolean isGeneratedUIInitializer(PsiClassInitializer initializer) {
     PsiCodeBlock body = initializer.getBody();
-    if (body.getStatements().length != 1) return false;
+    if (body.getStatementCount() != 1) return false;
     PsiStatement statement = body.getStatements()[0];
     if (!(statement instanceof PsiExpressionStatement) ||
         !(((PsiExpressionStatement)statement).getExpression() instanceof PsiMethodCallExpression)) {

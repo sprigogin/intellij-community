@@ -44,7 +44,7 @@ public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
 
   // PY-1408
   public void testUnboundExceptAs() {
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest());
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest());
   }
 
   // PY-1434
@@ -84,7 +84,7 @@ public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
 
   // PY-3603
   public void testUnboundNonLocal() {
-    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest());
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest());
   }
 
   // PY-3671
@@ -177,6 +177,58 @@ public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
+  // PY-13919
+  public void testRaiseInsideWith() {
+    doTest();
+  }
+
+  // PY-16419, PY-26417
+  public void testExitPointInsideWith() {
+    doTestByText(
+      "class C(object):\n" +
+      "    def __enter__(self):\n" +
+      "        return self\n" +
+      "\n" +
+      "    def __exit__(self, exc, value, traceback):\n" +
+      "        return undefined\n" +
+      "\n" +
+      "def g1():\n" +
+      "    raise Exception()\n" +
+      "\n" +
+      "def f1():\n" +
+      "    with C():\n" +
+      "        if undefined:\n" +
+      "            return g1()\n" +
+      "        x = 2\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "def f2():\n" +
+      "    with C():\n" +
+      "        if undefined:\n" +
+      "            g1()\n" +
+      "        x = 2\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "import contextlib\n" +
+      "from unittest import TestCase\n" +
+      "\n" +
+      "def f1():\n" +
+      "    with contextlib.suppress(Exception):\n" +
+      "        if undefined:\n" +
+      "            return g1()\n" +
+      "        x = 2\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "class A(TestCase):\n" +
+      "    def f2(self):\n" +
+      "        with self.assertRaises(Exception):\n" +
+      "            if undefined:\n" +
+      "                g1()\n" +
+      "            x = 2\n" +
+      "        print(x) #pass"
+    );
+  }
+
   // PY-6114
   public void testUnboundUnreachable() {
     doTest();
@@ -195,6 +247,47 @@ public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
   // PY-22003
   public void testPositiveIteration() {
     doTest();
+  }
+
+  public void testTooLargeToAnalyze() {
+    doTest();
+  }
+
+  public void testForwardReferenceInAnnotations() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, () -> doTest());
+  }
+
+  // PY-23003
+  public void testAccessInNestedLoop() {
+    doTestByText(
+      "for file in ['test_file']:\n" +
+      "    for line in f:\n" +
+      "        if a:\n" +
+      "            block = True\n" +
+      "        elif <warning descr=\"Name 'block' can be not defined\">block</warning> and b:\n" +
+      "            block = False\n" +
+      "        else:\n" +
+      "            print(line)\n" +
+      "    print(block)"
+    );
+  }
+
+  // PY-31834
+  public void testTargetIsTypeHintNotDefinition() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON36,
+      () -> doTestByText("a: int\n" +
+                         "print(<warning descr=\"Name 'a' can be not defined\">a</warning>)")
+    );
+  }
+
+  // PY-31834
+  public void testTargetWithoutAssignedValueButInitialized() {
+    doTestByText("for var in range(10):\n" +
+                 "    print(var)\n" +
+                 "\n" +
+                 "with undefined as val:\n" +
+                 "    print(val)");
   }
 
   @NotNull

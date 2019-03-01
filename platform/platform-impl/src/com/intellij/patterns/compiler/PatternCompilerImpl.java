@@ -16,6 +16,8 @@
 
 package com.intellij.patterns.compiler;
 
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringHash;
@@ -26,6 +28,7 @@ import com.intellij.patterns.InitialPatternCondition;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.util.ProcessingContext;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
 import com.intellij.util.containers.StringInterner;
@@ -58,9 +61,20 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
       return compileElementPattern(text);
     }
     catch (Exception ex) {
-      final Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-      LOG.warn("error processing place: " + displayName + " [" + text + "]", cause);
+      onCompilationFailed(displayName, text, ex);
       return new LazyPresentablePattern<>(new Node(ERROR_NODE, text, null), Collections.emptySet());
+    }
+  }
+
+  static void onCompilationFailed(String displayName, String text, @NotNull Throwable ex) {
+    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+    String message = displayName == null ? text : displayName + ": " + text;
+    Application app = ApplicationManager.getApplication();
+    if (app != null && app.isUnitTestMode()) {
+      LOG.error(message, cause);
+    }
+    else {
+      LOG.warn(message, cause);
     }
   }
 
@@ -117,7 +131,7 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
   }
 
   @Nullable
-  private static <T> T processElementPatternText(final String text, final Function<Frame, Object> executor) {
+  private static <T> T processElementPatternText(final String text, final Function<? super Frame, Object> executor) {
     final Stack<Frame> stack = new Stack<>();
     int curPos = 0;
     Frame curFrame = new Frame();
@@ -291,19 +305,6 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
     return s;
   }
 
-  private static Class<?> getNonPrimitiveType(final Class<?> type) {
-    if (!type.isPrimitive()) return type;
-    if (type == boolean.class) return Boolean.class;
-    if (type == byte.class) return Byte.class;
-    if (type == short.class) return Short.class;
-    if (type == int.class) return Integer.class;
-    if (type == long.class) return Long.class;
-    if (type == float.class) return Float.class;
-    if (type == double.class) return Double.class;
-    if (type == char.class) return Character.class;
-    return type;
-  }
-
   private static Object invokeMethod(@Nullable final Object target, final String methodName, final Object[] arguments, final Collection<Method> staticMethods) throws Throwable {
     final Ref<Boolean> convertVarArgs = Ref.create(Boolean.FALSE);
     final Collection<Method> methods = target == null ? staticMethods : Arrays.asList(target.getClass().getMethods());
@@ -316,8 +317,7 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
           final Class<?>[] parameterTypes = method.getParameterTypes();
           newArgs = new Object[parameterTypes.length];
           System.arraycopy(arguments, 0, newArgs, 0, parameterTypes.length - 1);
-          final Object[] varArgs = (Object[])Array
-            .newInstance(parameterTypes[parameterTypes.length - 1].getComponentType(), arguments.length - parameterTypes.length + 1);
+          final Object[] varArgs = ArrayUtil.newArray(parameterTypes[parameterTypes.length - 1].getComponentType(), arguments.length - parameterTypes.length + 1);
           System.arraycopy(arguments, parameterTypes.length - 1, varArgs, 0, varArgs.length);
           newArgs[parameterTypes.length - 1] = varArgs;
         }
@@ -331,14 +331,15 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
   }
 
   @Nullable
-  private static Method findMethod(final String methodName, final Object[] arguments, final Collection<Method> methods, Ref<Boolean> convertVarArgs) {
+  private static Method findMethod(final String methodName, final Object[] arguments, final Collection<Method> methods, Ref<? super Boolean> convertVarArgs) {
     main: for (Method method : methods) {
       if (!methodName.equals(method.getName())) continue;
       final Class<?>[] parameterTypes = method.getParameterTypes();
       if (!method.isVarArgs() && parameterTypes.length != arguments.length) continue;
       convertVarArgs.set(false);
       for (int i = 0, parameterTypesLength = parameterTypes.length; i < arguments.length; i++) {
-        final Class<?> type = getNonPrimitiveType(i < parameterTypesLength ? parameterTypes[i] : parameterTypes[parameterTypesLength - 1]);
+        final Class<?> type = ReflectionUtil
+          .boxType(i < parameterTypesLength ? parameterTypes[i] : parameterTypes[parameterTypesLength - 1]);
         final Object argument = arguments[i];
         final Class<?> componentType =
           method.isVarArgs() && i < parameterTypesLength - 1 ? null : parameterTypes[parameterTypesLength - 1].getComponentType();
@@ -605,7 +606,7 @@ public class PatternCompilerImpl<T> implements PatternCompiler<T> {
           result = compile();
         }
         catch (Throwable throwable) {
-          LOG.warn(toString(), throwable);
+          onCompilationFailed(null, toString(), throwable);
           result = ALWAYS_FALSE;
         }
         //noinspection unchecked

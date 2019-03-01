@@ -15,7 +15,7 @@
  */
 package com.intellij.testFramework;
 
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.TimeoutUtil;
 
 import javax.management.Attribute;
 import javax.management.AttributeList;
@@ -23,69 +23,32 @@ import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
 import java.math.BigInteger;
-import java.util.stream.LongStream;
 
 /**
  * @author peter
  */
-public class CpuTimings {
-  final long[] rawData;
-  final long average;
-  final double stdDev;
-  final int attempt;
-
-  private CpuTimings(long[] rawData, int attempt) {
-    this.rawData = rawData;
-    this.attempt = attempt;
-    average = ArrayUtil.averageAmongMedians(rawData, 2);
-    stdDev = standardDeviation(rawData);
-  }
-
-  private static double standardDeviation(long[] elapsed) {
-    //noinspection ConstantConditions
-    double average = LongStream.of(elapsed).mapToDouble(value -> (double)value).average().getAsDouble();
-    double variance = 0;
-    for (long l : elapsed) {
-      variance += Math.pow(average - l, 2);
-    }
-    return Math.sqrt(variance / average);
-  }
-
-  @Override
-  public String toString() {
-    return average + ", sd=" + stdDev + ", attempt=" + attempt;
-  }
+class CpuTimings {
 
   @SuppressWarnings("UseOfSystemOutOrSystemErr")
-  static CpuTimings calcStableCpuTiming() {
-    int maxIterations = UsefulTestCase.IS_UNDER_TEAMCITY ? 100 : 10;
-    for (int i = 0;; i++) {
-      CpuTimings timings = calcCpuTiming(20, CpuTimings::addBigIntegers, i);
-      if (timings.stdDev < 1.8) {
-        //System.out.printf("CPU Timings: %d, sd=%.2f; attempt=%d%n", timings.average, timings.stdDev, i);
-        return timings;
-      }
-      if (i == maxIterations) {
-        System.out.printf("CPU Timings: %d, sd=%.2f; not stable enough, giving up%n", timings.average, timings.stdDev);
-        return timings;
-      }
-      if (i > 3) {
-        System.out.printf("CPU Timings: %d, sd=%.2f; unstable (getProcessCpuLoad() = %s; getSystemCpuLoad() = %s)%n",
-                          timings.average, timings.stdDev, getProcessCpuLoad(), getSystemCpuLoad());
-      }
-      System.gc();
-      PlatformTestUtil.waitForAllBackgroundActivityToCalmDown();
-    }
-  }
+  static long calcStableCpuTiming() {
+    long start = System.currentTimeMillis();
 
-  private static CpuTimings calcCpuTiming(int iterationCount, Runnable oneIteration, int attempt)  {
-    long[] elapsed = new long[iterationCount];
-    for (int i = 0; i < iterationCount; i++) {
-      long start = System.currentTimeMillis();
-      oneIteration.run();
-      elapsed[i] = System.currentTimeMillis() - start;
+    long minTime = Integer.MAX_VALUE;
+    long minIteration = -1;
+
+    StringBuilder log = new StringBuilder();
+    for (int i = 0;; i++) {
+      long time = TimeoutUtil.measureExecutionTime(CpuTimings::addBigIntegers);
+      if (time < minTime) {
+        //log.append("Iteration " + i + ", time " + time + "\n");
+        minTime = time;
+        minIteration = i;
+      }
+      else if (i - minIteration > 100) {
+        System.out.println(log + "CPU timing: " + minTime + ", calculated in " + (System.currentTimeMillis() - start) + "ms");
+        return minTime;
+      }
     }
-    return new CpuTimings(elapsed, attempt);
   }
 
   private static void addBigIntegers() {
@@ -162,7 +125,6 @@ public class CpuTimings {
     }
   }
 
-  @SuppressWarnings("UseOfSystemOutOrSystemErr")
   public static void main(String[] args) {
     for (int i = 0; i < 20; i++) {
       // each line can be uncommented alone, to check the results of different benchmarks

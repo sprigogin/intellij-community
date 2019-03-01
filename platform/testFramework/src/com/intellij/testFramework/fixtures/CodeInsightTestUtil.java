@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures;
 
-import com.intellij.codeInsight.editorActions.SelectWordHandler;
 import com.intellij.codeInsight.editorActions.smartEnter.SmartEnterProcessor;
 import com.intellij.codeInsight.editorActions.smartEnter.SmartEnterProcessors;
 import com.intellij.codeInsight.generation.surroundWith.SurroundWithHandler;
@@ -26,7 +11,6 @@ import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.codeInsight.navigation.GotoImplementationHandler;
 import com.intellij.codeInsight.navigation.GotoTargetHandler;
 import com.intellij.codeInsight.template.Template;
-import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateSettings;
 import com.intellij.codeInsight.template.impl.TemplateState;
@@ -36,11 +20,11 @@ import com.intellij.injected.editor.EditorWindow;
 import com.intellij.lang.surroundWith.Surrounder;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.JBListUpdater;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
@@ -52,10 +36,10 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenameHandler;
+import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.TestDataFile;
 import com.intellij.ui.CollectionListModel;
 import com.intellij.ui.components.JBList;
-import com.intellij.ui.popup.AbstractPopup;
 import com.intellij.ui.popup.ComponentPopupBuilderImpl;
 import com.intellij.ui.speedSearch.NameFilteringListModel;
 import com.intellij.util.Function;
@@ -79,10 +63,21 @@ public class CodeInsightTestUtil {
   private CodeInsightTestUtil() { }
 
   @Nullable
-  public static IntentionAction findIntentionByText(@NotNull List<IntentionAction> actions, @NonNls @NotNull String text) {
+  public static IntentionAction findIntentionByText(@NotNull List<? extends IntentionAction> actions, @NonNls @NotNull String text) {
     for (IntentionAction action : actions) {
       final String s = action.getText();
       if (s.equals(text)) {
+        return action;
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  public static IntentionAction findIntentionByPartialText(@NotNull List<? extends IntentionAction> actions, @NonNls @NotNull String text) {
+    for (IntentionAction action : actions) {
+      final String s = action.getText();
+      if (s.contains(text)) {
         return action;
       }
     }
@@ -104,7 +99,8 @@ public class CodeInsightTestUtil {
     List<IntentionAction> availableIntentions = fixture.getAvailableIntentions();
     final IntentionAction intentionAction = findIntentionByText(availableIntentions, action);
     if (intentionAction == null) {
-      Assert.fail("Action not found: " + action + " in place: " + fixture.getElementAtCaret() + " among " + availableIntentions);
+      PsiElement element = fixture.getFile().findElementAt(fixture.getCaretOffset());
+      Assert.fail("Action not found: " + action + " in place: " + element + " among " + availableIntentions);
     }
     fixture.launchAction(intentionAction);
     fixture.checkResultByFile(after, false);
@@ -112,47 +108,44 @@ public class CodeInsightTestUtil {
 
   public static void doWordSelectionTest(@NotNull final CodeInsightTestFixture fixture,
                                          @TestDataFile @NotNull final String before, @TestDataFile final String... after) {
-    assert after != null && after.length > 0;
-    fixture.configureByFile(before);
+    EdtTestUtil.runInEdtAndWait(() -> {
+      assert after != null && after.length > 0;
+      fixture.configureByFile(before);
 
-    final SelectWordHandler action = new SelectWordHandler(null);
-    final DataContext dataContext = DataManager.getInstance().getDataContext(fixture.getEditor().getComponent());
-    for (String file : after) {
-      action.execute(fixture.getEditor(), dataContext);
-      fixture.checkResultByFile(file, false);
-    }
+      for (String file : after) {
+        fixture.performEditorAction(IdeActions.ACTION_EDITOR_SELECT_WORD_AT_CARET);
+        fixture.checkResultByFile(file, false);
+      }
+    });
   }
   
   public static void doWordSelectionTestOnDirectory(@NotNull final CodeInsightTestFixture fixture,
                                                     @TestDataFile @NotNull final String directoryName,
                                                     @NotNull final String filesExtension) {
-    final SelectWordHandler action = new SelectWordHandler(null);
-    fixture.copyDirectoryToProject(directoryName, directoryName);
-    fixture.configureByFile(directoryName + "/before." + filesExtension);
-    int i = 1;
-    while (true) {
-      final String fileName = directoryName + "/after" + i + "." + filesExtension;
-      if (new File(fixture.getTestDataPath() + "/" + fileName).exists()) {
-        action.execute(fixture.getEditor(), DataManager.getInstance().getDataContext(fixture.getEditor().getComponent()));
-        fixture.checkResultByFile(fileName);
-        i++;
+    EdtTestUtil.runInEdtAndWait(() -> {
+      fixture.copyDirectoryToProject(directoryName, directoryName);
+      fixture.configureByFile(directoryName + "/before." + filesExtension);
+      int i = 1;
+      while (true) {
+        final String fileName = directoryName + "/after" + i + "." + filesExtension;
+        if (new File(fixture.getTestDataPath() + "/" + fileName).exists()) {
+          fixture.performEditorAction(IdeActions.ACTION_EDITOR_SELECT_WORD_AT_CARET);
+          fixture.checkResultByFile(fileName);
+          i++;
+        }
+        else {
+          break;
+        }
       }
-      else {
-        break;
-      }
-    }
-    assertTrue("At least one 'after'-file required", i > 1);
+      assertTrue("At least one 'after'-file required", i > 1);
+    });
   }
 
   public static void doSurroundWithTest(@NotNull final CodeInsightTestFixture fixture, @NotNull final Surrounder surrounder,
                                         @NotNull final String before, @NotNull final String after) {
     fixture.configureByFile(before);
-    new WriteCommandAction.Simple(fixture.getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        SurroundWithHandler.invoke(fixture.getProject(), fixture.getEditor(), fixture.getFile(), surrounder);
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(fixture.getProject())
+                      .run(() -> SurroundWithHandler.invoke(fixture.getProject(), fixture.getEditor(), fixture.getFile(), surrounder));
     fixture.checkResultByFile(after, false);
   }
 
@@ -170,27 +163,19 @@ public class CodeInsightTestUtil {
                                       @NotNull final String before, @NotNull final String after) {
     fixture.configureByFile(before);
     final List<SmartEnterProcessor> processors = SmartEnterProcessors.INSTANCE.allForLanguage(fixture.getFile().getLanguage());
-    new WriteCommandAction(fixture.getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Editor editor = fixture.getEditor();
-        for (SmartEnterProcessor processor : processors) {
-          processor.process(getProject(), editor, fixture.getFile());
-        }
+    WriteCommandAction.writeCommandAction(fixture.getProject()).run(() -> {
+      final Editor editor = fixture.getEditor();
+      for (SmartEnterProcessor processor : processors) {
+        processor.process(fixture.getProject(), editor, fixture.getFile());
       }
-    }.execute();
+    });
     fixture.checkResultByFile(after, false);
   }
 
   public static void doFormattingTest(@NotNull final CodeInsightTestFixture fixture,
                                       @NotNull final String before, @NotNull final String after) {
     fixture.configureByFile(before);
-    new WriteCommandAction(fixture.getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        CodeStyleManager.getInstance(fixture.getProject()).reformat(fixture.getFile());
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(fixture.getProject()).run(() -> CodeStyleManager.getInstance(fixture.getProject()).reformat(fixture.getFile()));
     fixture.checkResultByFile(after, false);
   }
 
@@ -202,9 +187,9 @@ public class CodeInsightTestUtil {
   @TestOnly
   public static void doInlineRename(VariableInplaceRenameHandler handler, final String newName, @NotNull Editor editor, PsiElement elementAtCaret) {
     Project project = editor.getProject();
-    TemplateManagerImpl templateManager = (TemplateManagerImpl)TemplateManager.getInstance(project);
+    Disposable disposable = Disposer.newDisposable();
     try {
-      templateManager.setTemplateTesting(true);
+      TemplateManagerImpl.setTemplateTesting(disposable);
       handler.doRename(elementAtCaret, editor, DataManager.getInstance().getDataContext(editor.getComponent()));
       if (editor instanceof EditorWindow) {
         editor = ((EditorWindow)editor).getDelegate();
@@ -214,19 +199,15 @@ public class CodeInsightTestUtil {
       final TextRange range = state.getCurrentVariableRange();
       assert range != null;
       final Editor finalEditor = editor;
-      new WriteCommandAction.Simple(project) {
-        @Override
-        protected void run() throws Throwable {
-          finalEditor.getDocument().replaceString(range.getStartOffset(), range.getEndOffset(), newName);
-        }
-      }.execute().throwException();
+      WriteCommandAction.writeCommandAction(project)
+                        .run(() -> finalEditor.getDocument().replaceString(range.getStartOffset(), range.getEndOffset(), newName));
 
       state = TemplateManagerImpl.getTemplateState(editor);
       assert state != null;
       state.gotoEnd(false);
     }
     finally {
-      templateManager.setTemplateTesting(false);
+      Disposer.dispose(disposable);
     }
   }
 
@@ -267,7 +248,7 @@ public class CodeInsightTestUtil {
       list.setModel(model);
       list.setModel(new NameFilteringListModel(list, Function.ID, Condition.FALSE, String::new));
       JBPopup popup = new ComponentPopupBuilderImpl(list, null).createPopup();
-      data.listUpdaterTask.init((AbstractPopup)popup, list, new Ref<>());
+      data.listUpdaterTask.init(popup, new JBListUpdater(list), new Ref<>());
 
       data.listUpdaterTask.queue();
 

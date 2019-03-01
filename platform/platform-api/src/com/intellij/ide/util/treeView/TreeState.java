@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.navigation.NavigationItem;
@@ -51,9 +37,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
-
-import static java.util.stream.Collectors.toList;
-import static org.jetbrains.concurrency.Promises.collectResults;
 
 /**
  * @see #createOn(JTree)
@@ -111,8 +94,8 @@ public class TreeState implements JDOMExternalizable {
     private Match getMatchTo(Object object) {
       Object userObject = TreeUtil.getUserObject(object);
       if (this.userObject != null && this.userObject.equals(userObject)) return Match.OBJECT;
-      return Comparing.equal(this.id, calcId(userObject)) &&
-             Comparing.equal(this.type, calcType(userObject)) ? Match.ID_TYPE : null;
+      return Comparing.equal(id, calcId(userObject)) &&
+             Comparing.equal(type, calcType(userObject)) ? Match.ID_TYPE : null;
     }
   }
 
@@ -136,7 +119,7 @@ public class TreeState implements JDOMExternalizable {
     readExternal(element, mySelectedPaths, SELECT_TAG);
   }
 
-  private static void readExternal(Element root, List<List<PathElement>> list, String name) throws InvalidDataException {
+  private static void readExternal(Element root, List<? super List<PathElement>> list, String name) throws InvalidDataException {
     list.clear();
     for (Element element : root.getChildren(name)) {
       for (Element child : element.getChildren(PATH_TAG)) {
@@ -182,7 +165,7 @@ public class TreeState implements JDOMExternalizable {
     writeExternal(element, mySelectedPaths, SELECT_TAG);
   }
 
-  private static void writeExternal(Element element, List<List<PathElement>> list, String name) throws WriteExternalException {
+  private static void writeExternal(Element element, List<? extends List<PathElement>> list, String name) throws WriteExternalException {
     Element root = new Element(name);
     for (List<PathElement> path : list) {
       Element e = XmlSerializer.serialize(path.toArray());
@@ -193,7 +176,7 @@ public class TreeState implements JDOMExternalizable {
   }
 
   @NotNull
-  private static List<List<PathElement>> createPaths(@NotNull JTree tree, @NotNull List<TreePath> paths) {
+  private static List<List<PathElement>> createPaths(@NotNull JTree tree, @NotNull List<? extends TreePath> paths) {
     return JBIterable.from(paths)
       .filter(o -> o.getPathCount() > 1 || tree.isRootVisible())
       .map(o -> createPath(tree.getModel(), o))
@@ -290,9 +273,7 @@ public class TreeState implements JDOMExternalizable {
       ContainerUtil.addIfNotNull(selection, treePath);
     }
     if (selection.isEmpty()) return;
-    for (TreePath treePath : selection) {
-      tree.setSelectionPath(treePath);
-    }
+    tree.setSelectionPaths(selection.toArray(new TreePath[0]));
     if (myScrollToSelection) {
       TreeUtil.showRowCentered(tree, tree.getRowForPath(selection.get(0)), true, true);
     }
@@ -328,7 +309,7 @@ public class TreeState implements JDOMExternalizable {
   }
 
   private static void expandImpl(int positionInPath,
-                                 List<PathElement> path,
+                                 List<? extends PathElement> path,
                                  TreePath treePath,
                                  TreeFacade tree,
                                  ProgressIndicator indicator) {
@@ -354,7 +335,7 @@ public class TreeState implements JDOMExternalizable {
     });
   }
 
-  static abstract class TreeFacade {
+  abstract static class TreeFacade {
 
     final JTree tree;
 
@@ -419,10 +400,8 @@ public class TreeState implements JDOMExternalizable {
 
     @Override
     public ActionCallback expand(TreePath treePath) {
-      Object userObject = TreeUtil.getUserObject(treePath.getLastPathComponent());
-      if (!(userObject instanceof NodeDescriptor)) return ActionCallback.REJECTED;
-
-      NodeDescriptor desc = (NodeDescriptor)userObject;
+      NodeDescriptor desc = TreeUtil.getLastUserObject(NodeDescriptor.class, treePath);
+      if (desc == null) return ActionCallback.REJECTED;
       Object element = myBuilder.getTreeStructureElement(desc);
       ActionCallback result = new ActionCallback();
       myBuilder.expand(element, result.createSetDoneRunnable());
@@ -454,11 +433,11 @@ public class TreeState implements JDOMExternalizable {
    * Not that the specified consumer must resolve async promise at the end.
    */
   @Deprecated
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  public static void expand(@NotNull JTree tree, @NotNull Consumer<AsyncPromise<Void>> consumer) {
+  public static void expand(@NotNull JTree tree, @NotNull Consumer<? super AsyncPromise<Void>> consumer) {
     Promise<Void> expanding = UIUtil.getClientProperty(tree, EXPANDING);
+    LOG.debug("EXPANDING: ", expanding);
     if (expanding == null) expanding = Promises.resolvedPromise();
-    expanding.processed(value -> {
+    expanding.onProcessed(value -> {
       AsyncPromise<Void> promise = new AsyncPromise<>();
       UIUtil.putClientProperty(tree, EXPANDING, promise);
       consumer.accept(promise);
@@ -466,33 +445,26 @@ public class TreeState implements JDOMExternalizable {
   }
 
   private static boolean isSelectionNeeded(List<TreePath> list, @NotNull JTree tree, AsyncPromise<Void> promise) {
-    if (list != null && tree.getSelectionCount() == 0) return true;
+    if (list != null && tree.isSelectionEmpty()) return true;
     if (promise != null) promise.setResult(null);
     return false;
   }
 
   private Promise<List<TreePath>> expand(@NotNull JTree tree) {
-    return collectResults(myExpandedPaths.stream().map(elements -> TreeUtil.promiseExpand(tree, new Visitor(elements))).collect(toList()));
+    return TreeUtil.promiseExpand(tree, myExpandedPaths.stream().map(elements -> new Visitor(elements)));
   }
 
   private Promise<List<TreePath>> select(@NotNull JTree tree) {
-    return collectResults(mySelectedPaths.stream().map(elements -> TreeUtil.promiseVisit(tree, new Visitor(elements))).collect(toList()));
+    return TreeUtil.promiseSelect(tree, mySelectedPaths.stream().map(elements -> new Visitor(elements)));
   }
 
   private boolean visit(@NotNull JTree tree) {
     TreeModel model = tree.getModel();
     if (!(model instanceof TreeVisitor.Acceptor)) return false;
 
-    expand(tree, promise -> expand(tree).processed(expanded -> {
+    expand(tree, promise -> expand(tree).onProcessed(expanded -> {
       if (isSelectionNeeded(expanded, tree, promise)) {
-        select(tree).processed(selected -> {
-          if (isSelectionNeeded(selected, tree, promise)) {
-            for (TreePath path : selected) {
-              tree.addSelectionPath(path);
-            }
-            promise.setResult(null);
-          }
-        });
+        select(tree).onProcessed(selected -> promise.setResult(null));
       }
     }));
     return true;

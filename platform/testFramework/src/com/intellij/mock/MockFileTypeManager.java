@@ -69,7 +69,7 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   }
 
   @Override
-  public void registerFileType(@NotNull FileType type, @NotNull List<FileNameMatcher> defaultAssociations) {
+  public void registerFileType(@NotNull FileType type, @NotNull List<? extends FileNameMatcher> defaultAssociations) {
   }
 
   @Override
@@ -129,13 +129,8 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   }
 
   @Override
-  public FileType getKnownFileTypeOrAssociate(@NotNull VirtualFile file) {
-    return file.getFileType();
-  }
-
-  @Override
   public FileType getKnownFileTypeOrAssociate(@NotNull VirtualFile file, @NotNull Project project) {
-    return getKnownFileTypeOrAssociate(file);
+    return file.getFileType();
   }
 
   @Override
@@ -183,12 +178,6 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   @Override
   public boolean isFileOfType(@NotNull VirtualFile file, @NotNull FileType type) {
    return false;
-  }
-
-  @NotNull
-  @Override
-  public FileType detectFileTypeFromContent(@NotNull VirtualFile file) {
-    return UnknownFileType.INSTANCE;
   }
 
   @Nullable

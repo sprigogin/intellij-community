@@ -23,11 +23,15 @@ package com.intellij.codeInsight.daemon.impl.analysis;
 import com.intellij.codeInsight.ClassUtil;
 import com.intellij.codeInsight.ExceptionUtil;
 import com.intellij.codeInsight.daemon.JavaErrorMessages;
+import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.daemon.impl.quickfix.QuickFixAction;
 import com.intellij.codeInsight.intention.QuickFixFactory;
 import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.lang.jvm.JvmModifier;
+import com.intellij.lang.jvm.actions.JvmElementActionFactories;
+import com.intellij.lang.jvm.actions.MemberRequestsKt;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
@@ -41,7 +45,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
-import com.intellij.refactoring.util.RefactoringChangeUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -68,12 +72,12 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  private static HighlightInfo checkClassWithAbstractMethods(PsiClass aClass, TextRange range) {
+  private static HighlightInfo checkClassWithAbstractMethods(@NotNull PsiClass aClass, @NotNull TextRange range) {
     return checkClassWithAbstractMethods(aClass, aClass, range);
   }
 
   @Nullable
-  static HighlightInfo checkClassWithAbstractMethods(PsiClass aClass, PsiElement implementsFixElement, TextRange range) {
+  static HighlightInfo checkClassWithAbstractMethods(@NotNull PsiClass aClass, @NotNull PsiElement implementsFixElement, @NotNull TextRange range) {
     PsiMethod abstractMethod = ClassUtil.getAnyAbstractMethod(aClass);
 
     if (abstractMethod == null) {
@@ -99,38 +103,41 @@ public class HighlightClassUtil {
           JavaPsiFacade.getInstance(aClass.getProject()).arePackagesTheSame(aClass, superClass)) {
         QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createImplementMethodsFix(implementsFixElement));
       } else {
-        QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createModifierListFix(anyMethodToImplement, PsiModifier.PROTECTED, true, true));
-        QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createModifierListFix(anyMethodToImplement, PsiModifier.PUBLIC, true, true));
+        QuickFixAction.registerQuickFixActions(errorResult, null, JvmElementActionFactories.createModifierActions(anyMethodToImplement, MemberRequestsKt.modifierRequest(JvmModifier.PROTECTED, true)));
+        QuickFixAction.registerQuickFixActions(errorResult, null, JvmElementActionFactories.createModifierActions(anyMethodToImplement, MemberRequestsKt.modifierRequest(JvmModifier.PUBLIC, true)));
       }
     }
-    if (!(aClass instanceof PsiAnonymousClass)
+    if (!(aClass instanceof PsiAnonymousClass) && 
+        !aClass.isEnum()
         && HighlightUtil.getIncompatibleModifier(PsiModifier.ABSTRACT, aClass.getModifierList()) == null) {
-      QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.ABSTRACT, true, false));
+      QuickFixAction.registerQuickFixActions(errorResult, null, JvmElementActionFactories.createModifierActions(aClass, MemberRequestsKt.modifierRequest(JvmModifier.ABSTRACT, true)));
     }
     return errorResult;
   }
 
   @Nullable
-  static HighlightInfo checkClassMustBeAbstract(final PsiClass aClass, final TextRange textRange) {
-    if (aClass.hasModifierProperty(PsiModifier.ABSTRACT) || aClass.getRBrace() == null || aClass.isEnum() && hasEnumConstants(aClass)) {
+  static HighlightInfo checkClassMustBeAbstract(@NotNull PsiClass aClass, @NotNull TextRange textRange) {
+    if (aClass.isEnum()) {
+      if (hasEnumConstantsWithInitializer(aClass)) return null; 
+    }
+    else if (aClass.hasModifierProperty(PsiModifier.ABSTRACT) || aClass.getRBrace() == null ) {
       return null;
     }
     return checkClassWithAbstractMethods(aClass, textRange);
   }
 
   @Nullable
-  static HighlightInfo checkInstantiationOfAbstractClass(PsiClass aClass, @NotNull PsiElement highlightElement) {
+  static HighlightInfo checkInstantiationOfAbstractClass(@NotNull PsiClass aClass, @NotNull PsiElement highlightElement) {
     HighlightInfo errorResult = null;
-    if (aClass != null && aClass.hasModifierProperty(PsiModifier.ABSTRACT)
-        && (!(highlightElement instanceof PsiNewExpression) || !(((PsiNewExpression)highlightElement).getType() instanceof PsiArrayType))) {
+    if (aClass.hasModifierProperty(PsiModifier.ABSTRACT) &&
+        (!(highlightElement instanceof PsiNewExpression) || !(((PsiNewExpression)highlightElement).getType() instanceof PsiArrayType))) {
       String baseClassName = aClass.getName();
       String message = JavaErrorMessages.message("abstract.cannot.be.instantiated", baseClassName);
       errorResult = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(highlightElement).descriptionAndTooltip(message).create();
       final PsiMethod anyAbstractMethod = ClassUtil.getAnyAbstractMethod(aClass);
       if (!aClass.isInterface() && anyAbstractMethod == null) {
         // suggest to make not abstract only if possible
-        QuickFixAction.registerQuickFixAction(errorResult,
-                                              QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.ABSTRACT, false, false));
+        QuickFixAction.registerQuickFixActions(errorResult, null, JvmElementActionFactories.createModifierActions(aClass, MemberRequestsKt.modifierRequest(JvmModifier.ABSTRACT, false)));
       }
       if (anyAbstractMethod != null && highlightElement instanceof PsiNewExpression && ((PsiNewExpression)highlightElement).getClassReference() != null) {
         QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createImplementAbstractClassMethodsFix(highlightElement));
@@ -139,16 +146,21 @@ public class HighlightClassUtil {
     return errorResult;
   }
 
-  private static boolean hasEnumConstants(PsiClass aClass) {
-    PsiField[] fields = aClass.getFields();
-    for (PsiField field : fields) {
-      if (field instanceof PsiEnumConstant) return true;
-    }
-    return false;
+  static boolean hasEnumConstantsWithInitializer(@NotNull PsiClass aClass) {
+    return CachedValuesManager.getCachedValue(aClass, () -> {
+      PsiField[] fields = aClass.getFields();
+      for (PsiField field : fields) {
+        if (field instanceof PsiEnumConstant && ((PsiEnumConstant)field).getInitializingClass() != null) {
+          return new CachedValueProvider.Result<>(true, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+        }
+      }
+      return new CachedValueProvider.Result<>(false, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+    });
+
   }
 
   @Nullable
-  static HighlightInfo checkDuplicateTopLevelClass(PsiClass aClass) {
+  static HighlightInfo checkDuplicateTopLevelClass(@NotNull PsiClass aClass) {
     if (!(aClass.getParent() instanceof PsiFile)) return null;
     String qualifiedName = aClass.getQualifiedName();
     if (qualifiedName == null) return null;
@@ -186,8 +198,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkDuplicateNestedClass(PsiClass aClass) {
-    if (aClass == null) return null;
+  static HighlightInfo checkDuplicateNestedClass(@NotNull PsiClass aClass) {
     PsiElement parent = aClass;
     if (aClass.getParent() instanceof PsiDeclarationStatement) {
       parent = aClass.getParent();
@@ -230,7 +241,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkPublicClassInRightFile(PsiClass aClass) {
+  static HighlightInfo checkPublicClassInRightFile(@NotNull PsiClass aClass) {
     PsiFile containingFile = aClass.getContainingFile();
     if (aClass.getParent() != containingFile || !aClass.hasModifierProperty(PsiModifier.PUBLIC) || !(containingFile instanceof PsiJavaFile)) return null;
     PsiJavaFile file = (PsiJavaFile)containingFile;
@@ -243,9 +254,7 @@ public class HighlightClassUtil {
     HighlightInfo errorResult = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).
       range(aClass, range.getStartOffset(), range.getEndOffset()).
       descriptionAndTooltip(message).create();
-    PsiModifierList psiModifierList = aClass.getModifierList();
-    QuickFixAction.registerQuickFixAction(errorResult,
-                                          QUICK_FIX_FACTORY.createModifierListFix(psiModifierList, PsiModifier.PUBLIC, false, false));
+    QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.PUBLIC, false, false));
     PsiClass[] classes = file.getClasses();
     if (classes.length > 1) {
       QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createMoveClassToSeparateFileFix(aClass));
@@ -262,9 +271,9 @@ public class HighlightClassUtil {
     return errorResult;
   }
 
-  static HighlightInfo checkVarClassConflict(PsiClass psiClass, PsiIdentifier identifier) {
+  static HighlightInfo checkVarClassConflict(@NotNull PsiClass psiClass, @NotNull PsiIdentifier identifier) {
     String className = psiClass.getName();
-    if (className != null && PsiKeyword.VAR.equals(className)) {
+    if (PsiKeyword.VAR.equals(className)) {
       return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR)
         .descriptionAndTooltip("'var' is a restricted local variable type and cannot be used for type declarations")
         .range(identifier)
@@ -315,19 +324,19 @@ public class HighlightClassUtil {
     HighlightInfo result = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(keyword).descriptionAndTooltip(message).create();
 
     QuickFixAction.registerQuickFixAction(result, QUICK_FIX_FACTORY.createModifierListFix(field, PsiModifier.STATIC, false, false));
-    registerMakeInnerClassStatic(result, field.getContainingClass());
+    registerMakeInnerClassStatic(field.getContainingClass(), result);
 
     return result;
   }
 
-  private static void registerMakeInnerClassStatic(HighlightInfo result, PsiClass aClass) {
+  private static void registerMakeInnerClassStatic(@Nullable PsiClass aClass, @Nullable HighlightInfo result) {
     if (aClass != null && aClass.getContainingClass() != null) {
       QuickFixAction.registerQuickFixAction(result, QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.STATIC, true, false));
     }
   }
 
   @Nullable
-  private static HighlightInfo checkStaticMethodDeclarationInInnerClass(PsiKeyword keyword) {
+  private static HighlightInfo checkStaticMethodDeclarationInInnerClass(@NotNull PsiKeyword keyword) {
     if (getEnclosingStaticClass(keyword, PsiMethod.class) == null) {
       return null;
     }
@@ -335,13 +344,13 @@ public class HighlightClassUtil {
     if (PsiUtilCore.hasErrorElementChild(method)) return null;
     String message = JavaErrorMessages.message("static.declaration.in.inner.class");
     HighlightInfo result = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(keyword).descriptionAndTooltip(message).create();
-    QuickFixAction.registerQuickFixAction(result, QUICK_FIX_FACTORY.createModifierListFix(method, PsiModifier.STATIC, false, false));
-    registerMakeInnerClassStatic(result, (PsiClass)keyword.getParent().getParent().getParent());
+    QuickFixAction.registerQuickFixActions(result, null, JvmElementActionFactories.createModifierActions(method, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, false)));
+    registerMakeInnerClassStatic((PsiClass)keyword.getParent().getParent().getParent(), result);
     return result;
   }
 
   @Nullable
-  private static HighlightInfo checkStaticInitializerDeclarationInInnerClass(PsiKeyword keyword) {
+  private static HighlightInfo checkStaticInitializerDeclarationInInnerClass(@NotNull PsiKeyword keyword) {
     if (getEnclosingStaticClass(keyword, PsiClassInitializer.class) == null) {
       return null;
     }
@@ -349,8 +358,8 @@ public class HighlightClassUtil {
     if (PsiUtilCore.hasErrorElementChild(initializer)) return null;
     String message = JavaErrorMessages.message("static.declaration.in.inner.class");
     HighlightInfo result = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(keyword).descriptionAndTooltip(message).create();
-    QuickFixAction.registerQuickFixAction(result, QUICK_FIX_FACTORY.createModifierListFix(initializer, PsiModifier.STATIC, false, false));
-    registerMakeInnerClassStatic(result, (PsiClass)keyword.getParent().getParent().getParent());
+    QuickFixAction.registerQuickFixActions(result, null, JvmElementActionFactories.createModifierActions(initializer, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, false)));
+    registerMakeInnerClassStatic((PsiClass)keyword.getParent().getParent().getParent(), result);
     return result;
   }
 
@@ -366,7 +375,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  private static HighlightInfo checkStaticClassDeclarationInInnerClass(PsiKeyword keyword) {
+  private static HighlightInfo checkStaticClassDeclarationInInnerClass(@NotNull PsiKeyword keyword) {
     // keyword points to 'class' or 'interface' or 'enum'
     if (new PsiMatcherImpl(keyword)
           .parent(PsiMatchers.hasClass(PsiClass.class))
@@ -398,15 +407,15 @@ public class HighlightClassUtil {
     String message = JavaErrorMessages.message("static.declaration.in.inner.class");
     HighlightInfo info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(range).descriptionAndTooltip(message).create();
     if (context != keyword) {
-      QuickFixAction.registerQuickFixAction(info, QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.STATIC, false, false));
+      QuickFixAction.registerQuickFixActions(info, null, JvmElementActionFactories.createModifierActions(aClass, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, false)));
     }
     PsiClass containingClass = aClass.getContainingClass();
-    registerMakeInnerClassStatic(info, containingClass);
+    registerMakeInnerClassStatic(containingClass, info);
     return info;
   }
 
   @Nullable
-  static HighlightInfo checkStaticDeclarationInInnerClass(PsiKeyword keyword) {
+  static HighlightInfo checkStaticDeclarationInInnerClass(@NotNull PsiKeyword keyword) {
     HighlightInfo errorResult = checkStaticFieldDeclarationInInnerClass(keyword);
     if (errorResult != null) return errorResult;
     errorResult = checkStaticMethodDeclarationInInnerClass(keyword);
@@ -419,7 +428,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkExtendsAllowed(PsiReferenceList list) {
+  static HighlightInfo checkExtendsAllowed(@NotNull PsiReferenceList list) {
     if (list.getParent() instanceof PsiClass) {
       PsiClass aClass = (PsiClass)list.getParent();
       if (aClass.isEnum()) {
@@ -434,7 +443,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkImplementsAllowed(PsiReferenceList list) {
+  static HighlightInfo checkImplementsAllowed(@NotNull PsiReferenceList list) {
     if (list.getParent() instanceof PsiClass) {
       PsiClass aClass = (PsiClass)list.getParent();
       if (aClass.isInterface()) {
@@ -455,9 +464,9 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkExtendsClassAndImplementsInterface(PsiReferenceList referenceList,
-                                                               JavaResolveResult resolveResult,
-                                                               PsiJavaCodeReferenceElement ref) {
+  static HighlightInfo checkExtendsClassAndImplementsInterface(@NotNull PsiReferenceList referenceList,
+                                                               @NotNull JavaResolveResult resolveResult,
+                                                               @NotNull PsiJavaCodeReferenceElement ref) {
     PsiClass aClass = (PsiClass)referenceList.getParent();
     boolean isImplements = referenceList.equals(aClass.getImplementsList());
     boolean isInterface = aClass.isInterface();
@@ -469,27 +478,26 @@ public class HighlightClassUtil {
       String message = JavaErrorMessages.message(mustBeInterface ? "interface.expected" : "no.interface.expected");
       errorResult = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(ref).descriptionAndTooltip(message).create();
       PsiClassType type =
-        JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createType(ref);
+        JavaPsiFacade.getElementFactory(aClass.getProject()).createType(ref);
       QuickFixAction.registerQuickFixAction(errorResult, QUICK_FIX_FACTORY.createChangeExtendsToImplementsFix(aClass, type));
     }
     return errorResult;
   }
 
   @Nullable
-  static HighlightInfo checkCannotInheritFromFinal(PsiClass superClass, PsiElement elementToHighlight) {
+  static HighlightInfo checkCannotInheritFromFinal(@NotNull PsiClass superClass, @NotNull PsiElement elementToHighlight) {
     HighlightInfo errorResult = null;
     if (superClass.hasModifierProperty(PsiModifier.FINAL) || superClass.isEnum()) {
       String message = JavaErrorMessages.message("inheritance.from.final.class", superClass.getQualifiedName(), superClass.isEnum() ? PsiKeyword.ENUM : PsiKeyword.FINAL);
       errorResult =
         HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(elementToHighlight).descriptionAndTooltip(message).create();
-      QuickFixAction.registerQuickFixAction(errorResult,
-                                            QUICK_FIX_FACTORY.createModifierListFix(superClass, PsiModifier.FINAL, false, false));
+      QuickFixAction.registerQuickFixActions(errorResult, null, JvmElementActionFactories.createModifierActions(superClass, MemberRequestsKt.modifierRequest(JvmModifier.FINAL, false)));
     }
     return errorResult;
   }
 
   @Nullable
-  static HighlightInfo checkAnonymousInheritFinal(PsiNewExpression expression) {
+  static HighlightInfo checkAnonymousInheritFinal(@NotNull PsiNewExpression expression) {
     PsiAnonymousClass aClass = PsiTreeUtil.getChildOfType(expression, PsiAnonymousClass.class);
     if (aClass == null) return null;
     PsiClassType baseClassReference = aClass.getBaseClassType();
@@ -499,7 +507,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  private static String checkDefaultConstructorThrowsException(PsiMethod constructor, @NotNull PsiClassType[] handledExceptions) {
+  private static String checkDefaultConstructorThrowsException(@NotNull PsiMethod constructor, @NotNull PsiClassType[] handledExceptions) {
     PsiClassType[] referencedTypes = constructor.getThrowsList().getReferencedTypes();
     List<PsiClassType> exceptions = new ArrayList<>();
     for (PsiClassType referencedType : referencedTypes) {
@@ -515,7 +523,7 @@ public class HighlightClassUtil {
 
   @Nullable
   static HighlightInfo checkClassDoesNotCallSuperConstructorOrHandleExceptions(@NotNull PsiClass aClass,
-                                                                               RefCountHolder refCountHolder,
+                                                                               @Nullable RefCountHolder refCountHolder,
                                                                                @NotNull PsiResolveHelper resolveHelper) {
     if (aClass.isEnum()) return null;
     // check only no-ctr classes. Problem with specific constructor will be highlighted inside it
@@ -526,7 +534,7 @@ public class HighlightClassUtil {
   }
 
   static HighlightInfo checkBaseClassDefaultConstructorProblem(@NotNull PsiClass aClass,
-                                                               RefCountHolder refCountHolder,
+                                                               @Nullable RefCountHolder refCountHolder,
                                                                @NotNull PsiResolveHelper resolveHelper,
                                                                @NotNull TextRange range,
                                                                @NotNull PsiClassType[] handledExceptions) {
@@ -587,7 +595,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkInterfaceCannotBeLocal(PsiClass aClass) {
+  static HighlightInfo checkInterfaceCannotBeLocal(@NotNull PsiClass aClass) {
     if (PsiUtil.isLocalClass(aClass)) {
       TextRange range = HighlightNamesUtil.getClassDeclarationTextRange(aClass);
       String description = JavaErrorMessages.message("interface.cannot.be.local");
@@ -597,8 +605,8 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkCyclicInheritance(PsiClass aClass) {
-    PsiClass circularClass = getCircularClass(aClass, new HashSet<>());
+  static HighlightInfo checkCyclicInheritance(@NotNull PsiClass aClass) {
+    PsiClass circularClass = InheritanceUtil.getCircularClass(aClass);
     if (circularClass != null) {
       String description = JavaErrorMessages.message("cyclic.inheritance", HighlightUtil.formatClass(circularClass));
       TextRange range = HighlightNamesUtil.getClassDeclarationTextRange(aClass);
@@ -608,32 +616,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  public static PsiClass getCircularClass(PsiClass aClass, Collection<PsiClass> usedClasses) {
-    if (usedClasses.contains(aClass)) {
-      return aClass;
-    }
-    try {
-      usedClasses.add(aClass);
-      PsiClass[] superTypes = aClass.getSupers();
-      for (PsiElement superType : superTypes) {
-        while (superType instanceof PsiClass) {
-          if (!CommonClassNames.JAVA_LANG_OBJECT.equals(((PsiClass)superType).getQualifiedName())) {
-            PsiClass circularClass = getCircularClass((PsiClass)superType, usedClasses);
-            if (circularClass != null) return circularClass;
-          }
-          // check class qualifier
-          superType = superType.getParent();
-        }
-      }
-    }
-    finally {
-      usedClasses.remove(aClass);
-    }
-    return null;
-  }
-
-  @Nullable
-  static HighlightInfo checkExtendsDuplicate(PsiJavaCodeReferenceElement element, PsiElement resolved, @NotNull PsiFile containingFile) {
+  static HighlightInfo checkExtendsDuplicate(@NotNull PsiJavaCodeReferenceElement element, @Nullable PsiElement resolved, @NotNull PsiFile containingFile) {
     if (!(element.getParent() instanceof PsiReferenceList)) return null;
     PsiReferenceList list = (PsiReferenceList)element.getParent();
     if (!(list.getParent() instanceof PsiClass)) return null;
@@ -656,7 +639,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkClassAlreadyImported(PsiClass aClass, PsiElement elementToHighlight) {
+  static HighlightInfo checkClassAlreadyImported(@NotNull PsiClass aClass, @NotNull PsiElement elementToHighlight) {
     PsiFile file = aClass.getContainingFile();
     if (!(file instanceof PsiJavaFile)) return null;
     PsiJavaFile javaFile = (PsiJavaFile)file;
@@ -677,7 +660,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkClassExtendsOnlyOneClass(PsiReferenceList list) {
+  static HighlightInfo checkClassExtendsOnlyOneClass(@NotNull PsiReferenceList list) {
     PsiClassType[] referencedTypes = list.getReferencedTypes();
     PsiElement parent = list.getParent();
     if (!(parent instanceof PsiClass)) return null;
@@ -694,14 +677,14 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkThingNotAllowedInInterface(PsiElement element, PsiClass aClass) {
+  static HighlightInfo checkThingNotAllowedInInterface(@NotNull PsiElement element, @Nullable PsiClass aClass) {
     if (aClass == null || !aClass.isInterface()) return null;
     String description = JavaErrorMessages.message("not.allowed.in.interface");
     return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(element).descriptionAndTooltip(description).create();
   }
 
   @Nullable
-  static HighlightInfo checkQualifiedNew(PsiNewExpression expression, PsiType type, PsiClass aClass) {
+  static HighlightInfo checkQualifiedNew(@NotNull PsiNewExpression expression, @Nullable PsiType type, @Nullable PsiClass aClass) {
     PsiExpression qualifier = expression.getQualifier();
     if (qualifier == null) return null;
     if (type instanceof PsiArrayType) {
@@ -717,17 +700,26 @@ public class HighlightClassUtil {
         String description = JavaErrorMessages.message("qualified.new.of.static.class");
         info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(expression).descriptionAndTooltip(description).create();
         if (!aClass.isEnum()) {
-          QuickFixAction.registerQuickFixAction(info, QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.STATIC, false, false));
+          QuickFixAction.registerQuickFixActions(info, null, JvmElementActionFactories.createModifierActions(aClass, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, false)));
         }
-
+        QuickFixAction.registerQuickFixAction(info, QUICK_FIX_FACTORY.createRemoveNewQualifierFix(expression, aClass));
       } else if (aClass instanceof PsiAnonymousClass) {
         final PsiClass baseClass = PsiUtil.resolveClassInType(((PsiAnonymousClass)aClass).getBaseClassType());
         if (baseClass != null && baseClass.isInterface()) {
           info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(expression)
             .descriptionAndTooltip("Anonymous class implements interface; cannot have qualifier for new").create();
         }
+        QuickFixAction.registerQuickFixAction(info, QUICK_FIX_FACTORY.createRemoveNewQualifierFix(expression, aClass));
+      } else {
+        PsiElement refQualifier = Objects.requireNonNull(expression.getClassReference()).getQualifier();
+        if (refQualifier != null) {
+          info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(refQualifier)
+            .descriptionAndTooltip("Qualified class reference is not allowed in qualified new")
+            .create();
+          QuickFixAction
+            .registerQuickFixAction(info, QUICK_FIX_FACTORY.createDeleteFix(refQualifier, QuickFixBundle.message("remove.qualifier.fix")));
+        }
       }
-      QuickFixAction.registerQuickFixAction(info, QUICK_FIX_FACTORY.createRemoveNewQualifierFix(expression, aClass));
     }
     return info;
   }
@@ -740,7 +732,7 @@ public class HighlightClassUtil {
    * @param resolved  extendRef resolved
    */
   @Nullable
-  static HighlightInfo checkClassExtendsForeignInnerClass(final PsiJavaCodeReferenceElement extendRef, final PsiElement resolved) {
+  static HighlightInfo checkClassExtendsForeignInnerClass(@NotNull PsiJavaCodeReferenceElement extendRef, final PsiElement resolved) {
     PsiElement parent = extendRef.getParent();
     if (!(parent instanceof PsiReferenceList)) {
       return null;
@@ -782,7 +774,7 @@ public class HighlightClassUtil {
         if (resolve instanceof PsiClass) {
           final PsiClass base = (PsiClass)resolve;
           final PsiClass baseClass = base.getContainingClass();
-          if (baseClass != null && base.hasModifierProperty(PsiModifier.PRIVATE) && baseClass == containerClass) {
+          if (baseClass != null && base.hasModifierProperty(PsiModifier.PRIVATE) && baseClass == containerClass && baseClass.getContainingClass() == null) {
             String description = JavaErrorMessages.message("private.symbol",
                                                            HighlightUtil.formatClass(base),
                                                            HighlightUtil.formatClass(baseClass));
@@ -809,20 +801,13 @@ public class HighlightClassUtil {
   /**
    * 15.9 Class Instance Creation Expressions | 15.9.2 Determining Enclosing Instances
    */
-  private static boolean qualifiedNewCalledInConstructors(final PsiClass aClass) {
+  private static boolean qualifiedNewCalledInConstructors(@NotNull PsiClass aClass) {
     PsiMethod[] constructors = aClass.getConstructors();
     if (constructors.length == 0) return false;
     for (PsiMethod constructor : constructors) {
-      PsiCodeBlock body = constructor.getBody();
-      if (body == null) return false;
-      PsiStatement[] statements = body.getStatements();
-      if (statements.length == 0) return false;
-      PsiStatement firstStatement = statements[0];
-      if (!(firstStatement instanceof PsiExpressionStatement)) return false;
-      PsiExpression expression = ((PsiExpressionStatement)firstStatement).getExpression();
-      if (!RefactoringChangeUtil.isSuperOrThisMethodCall(expression)) return false;
-      PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)expression;
-      if (PsiKeyword.THIS.equals(methodCallExpression.getMethodExpression().getReferenceName())) continue;
+      PsiMethodCallExpression methodCallExpression = JavaPsiConstructorUtil.findThisOrSuperCallInConstructor(constructor);
+      if (methodCallExpression == null) return false;
+      if (JavaPsiConstructorUtil.isChainedConstructorCall(methodCallExpression)) continue;
       PsiReferenceExpression referenceExpression = methodCallExpression.getMethodExpression();
       PsiExpression qualifierExpression = PsiUtil.skipParenthesizedExprDown(referenceExpression.getQualifierExpression());
       //If the class instance creation expression is qualified, then the immediately
@@ -835,7 +820,7 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkCreateInnerClassFromStaticContext(PsiNewExpression expression, PsiType type, PsiClass aClass) {
+  static HighlightInfo checkCreateInnerClassFromStaticContext(@NotNull PsiNewExpression expression, @Nullable PsiType type, @Nullable PsiClass aClass) {
     if (type == null || type instanceof PsiArrayType || type instanceof PsiPrimitiveType) return null;
     if (aClass == null) return null;
     if (aClass instanceof PsiAnonymousClass) {
@@ -848,9 +833,9 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  public static HighlightInfo checkCreateInnerClassFromStaticContext(PsiElement element,
+  public static HighlightInfo checkCreateInnerClassFromStaticContext(@NotNull PsiElement element,
                                                                      @Nullable PsiExpression qualifier,
-                                                                     PsiClass aClass) {
+                                                                     @Nullable PsiClass aClass) {
     PsiElement placeToSearchEnclosingFrom;
     if (qualifier != null) {
       PsiType qType = qualifier.getType();
@@ -863,9 +848,9 @@ public class HighlightClassUtil {
   }
 
   @Nullable
-  static HighlightInfo checkCreateInnerClassFromStaticContext(PsiElement element,
-                                                              PsiElement placeToSearchEnclosingFrom,
-                                                              PsiClass aClass) {
+  static HighlightInfo checkCreateInnerClassFromStaticContext(@NotNull PsiElement element,
+                                                              @Nullable PsiElement placeToSearchEnclosingFrom,
+                                                              @Nullable PsiClass aClass) {
     if (aClass == null || !PsiUtil.isInnerClass(aClass)) return null;
     PsiClass outerClass = aClass.getContainingClass();
     if (outerClass == null) return null;
@@ -877,7 +862,7 @@ public class HighlightClassUtil {
 
   @Nullable
   static HighlightInfo checkSuperQualifierType(@NotNull Project project, @NotNull PsiMethodCallExpression superCall) {
-    if (!RefactoringChangeUtil.isSuperMethodCall(superCall)) return null;
+    if (!JavaPsiConstructorUtil.isSuperConstructorCall(superCall)) return null;
     PsiMethod ctr = PsiTreeUtil.getParentOfType(superCall, PsiMethod.class, true, PsiMember.class);
     if (ctr == null) return null;
     final PsiClass aClass = ctr.getContainingClass();
@@ -889,7 +874,7 @@ public class HighlightClassUtil {
       if (PsiUtil.isInnerClass(targetClass)) {
         PsiClass outerClass = targetClass.getContainingClass();
         if (outerClass != null) {
-          PsiClassType outerType = JavaPsiFacade.getInstance(project).getElementFactory().createType(outerClass);
+          PsiClassType outerType = JavaPsiFacade.getElementFactory(project).createType(outerClass);
           return HighlightUtil.checkAssignability(outerType, null, qualifier, qualifier);
         }
       } else {
@@ -903,13 +888,13 @@ public class HighlightClassUtil {
   @Nullable
   static HighlightInfo reportIllegalEnclosingUsage(PsiElement place,
                                                    @Nullable PsiClass aClass,
-                                                   PsiClass outerClass,
-                                                   PsiElement elementToHighlight) {
+                                                   @Nullable PsiClass outerClass,
+                                                   @NotNull PsiElement elementToHighlight) {
     if (outerClass != null && !PsiTreeUtil.isContextAncestor(outerClass, place, false)) {
       String description = JavaErrorMessages.message("is.not.an.enclosing.class", HighlightUtil.formatClass(outerClass));
       HighlightInfo highlightInfo =
         HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(elementToHighlight).descriptionAndTooltip(description).create();
-      registerMakeInnerClassStatic(highlightInfo, aClass);
+      registerMakeInnerClassStatic(aClass, highlightInfo);
       return highlightInfo;
     }
     PsiModifierListOwner staticParent = PsiUtil.getEnclosingStaticElement(place, outerClass);
@@ -920,11 +905,9 @@ public class HighlightClassUtil {
       HighlightInfo highlightInfo =
         HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(elementToHighlight).descriptionAndTooltip(description).create();
       // make context not static or referenced class static
-      QuickFixAction.registerQuickFixAction(highlightInfo,
-                                            QUICK_FIX_FACTORY.createModifierListFix(staticParent, PsiModifier.STATIC, false, false));
+      QuickFixAction.registerQuickFixActions(highlightInfo, null, JvmElementActionFactories.createModifierActions(staticParent, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, false)));
       if (aClass != null && HighlightUtil.getIncompatibleModifier(PsiModifier.STATIC, aClass.getModifierList()) == null) {
-        QuickFixAction.registerQuickFixAction(highlightInfo,
-                                              QUICK_FIX_FACTORY.createModifierListFix(aClass, PsiModifier.STATIC, true, false));
+        QuickFixAction.registerQuickFixActions(highlightInfo, null, JvmElementActionFactories.createModifierActions(aClass, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, true)));
       }
       return highlightInfo;
     }

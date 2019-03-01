@@ -15,7 +15,6 @@
  */
 package com.intellij.refactoring.introduceField;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
@@ -76,8 +75,9 @@ public class InplaceIntroduceFieldPopup extends AbstractInplaceIntroduceFieldPop
     myIntroduceFieldPanel.initializeControls(initializerExpression, ourLastInitializerPlace);
   }
 
+  @Override
   protected PsiField createFieldToStartTemplateOn(final String[] names,
-                                                final PsiType defaultType) {
+                                                  final PsiType defaultType) {
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myProject);
     final PsiField field = WriteAction.compute(() -> {
       PsiField field1 = elementFactory.createField(chooseName(names, getParentClass().getLanguage()), defaultType);
@@ -118,6 +118,7 @@ public class InplaceIntroduceFieldPopup extends AbstractInplaceIntroduceFieldPop
     return VariableKind.FIELD;
   }
 
+  @Override
   public void setReplaceAllOccurrences(boolean replaceAllOccurrences) {
     myIntroduceFieldPanel.setReplaceAllOccurrences(replaceAllOccurrences);
   }
@@ -202,6 +203,7 @@ public class InplaceIntroduceFieldPopup extends AbstractInplaceIntroduceFieldPop
       return myIntroduceFieldPanel.getInitializerPlace();
     }
 
+    @Override
     protected void performIntroduce() {
       ourLastInitializerPlace = myIntroduceFieldPanel.getInitializerPlace();
       final PsiType forcedType = getType();
@@ -217,24 +219,22 @@ public class InplaceIntroduceFieldPopup extends AbstractInplaceIntroduceFieldPop
                                                   forcedType,
                                                   myIntroduceFieldPanel.isDeleteVariable(),
                                                   getParentClass(), false, false);
-      new WriteCommandAction(myProject, getCommandName(), getCommandName()){
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          if (getLocalVariable() != null) {
-            final LocalToFieldHandler.IntroduceFieldRunnable fieldRunnable =
-              new LocalToFieldHandler.IntroduceFieldRunnable(false, (PsiLocalVariable)getLocalVariable(), getParentClass(), settings, myStatic, myOccurrences);
-            fieldRunnable.run();
-          }
-          else {
-            final BaseExpressionToFieldHandler.ConvertToFieldRunnable convertToFieldRunnable =
-              new BaseExpressionToFieldHandler.ConvertToFieldRunnable(myExpr, settings, settings.getForcedType(),
-                                                                      myOccurrences, myOccurrenceManager,
-                                                                      getAnchorElementIfAll(),
-                                                                      getAnchorElement(), myEditor,
-                                                                      getParentClass());
-            convertToFieldRunnable.run();
-          }
+      WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).withGroupId(getCommandName()).run(() -> {
+        if (getLocalVariable() != null) {
+          final LocalToFieldHandler.IntroduceFieldRunnable fieldRunnable =
+            new LocalToFieldHandler.IntroduceFieldRunnable(false, (PsiLocalVariable)getLocalVariable(), getParentClass(), settings,
+                                                           myStatic, myOccurrences);
+          fieldRunnable.run();
         }
-      }.execute();
+        else {
+          final BaseExpressionToFieldHandler.ConvertToFieldRunnable convertToFieldRunnable =
+            new BaseExpressionToFieldHandler.ConvertToFieldRunnable(myExpr, settings, settings.getForcedType(),
+                                                                    myOccurrences, myOccurrenceManager,
+                                                                    getAnchorElementIfAll(),
+                                                                    getAnchorElement(), myEditor,
+                                                                    getParentClass());
+          convertToFieldRunnable.run();
+        }
+      });
     }
 }

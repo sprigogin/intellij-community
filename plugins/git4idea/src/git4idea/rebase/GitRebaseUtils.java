@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase;
 
 import com.intellij.dvcs.repo.Repository;
@@ -192,7 +178,7 @@ public class GitRebaseUtils {
    * @return the rebase directory or null if it does not exist.
    */
   @Nullable
-  private static File getRebaseDir(@NotNull Project project, @NotNull VirtualFile root) {
+  public static File getRebaseDir(@NotNull Project project, @NotNull VirtualFile root) {
     GitRepository repository = assertNotNull(GitUtil.getRepositoryManager(project).getRepositoryForRoot(root));
     File f = repository.getRepositoryFiles().getRebaseApplyDir();
     if (f.exists()) {
@@ -237,24 +223,18 @@ public class GitRebaseUtils {
     File commitFile = new File(rebaseDir, String.format("%04d", next));
     String hash = null;
     String subject = null;
-    try {
-      BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(commitFile), CharsetToolkit.UTF8_CHARSET));
-      try {
-        String line;
-        while ((line = in.readLine()) != null) {
-          if (line.startsWith("From ")) {
-            hash = line.substring(5, 5 + 40);
-          }
-          if (line.startsWith("Subject: ")) {
-            subject = line.substring("Subject: ".length());
-          }
-          if (hash != null && subject != null) {
-            break;
-          }
+    try (BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(commitFile), CharsetToolkit.UTF8_CHARSET))) {
+      String line;
+      while ((line = in.readLine()) != null) {
+        if (line.startsWith("From ")) {
+          hash = line.substring(5, 5 + 40);
         }
-      }
-      finally {
-        in.close();
+        if (line.startsWith("Subject: ")) {
+          subject = line.substring("Subject: ".length());
+        }
+        if (hash != null && subject != null) {
+          break;
+        }
       }
     }
     catch (Exception e) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.core;
 
 import com.intellij.openapi.util.Comparing;
@@ -30,6 +16,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.function.Predicate;
 
@@ -115,7 +102,7 @@ public class CoreJavaCodeStyleManager extends JavaCodeStyleManager {
   private static String suggestUniqueVariableName(@NotNull @NonNls String baseName,
                                                   PsiElement place,
                                                   boolean lookForward,
-                                                  Predicate<PsiVariable> canBeReused) {
+                                                  Predicate<? super PsiVariable> canBeReused) {
     int index = 0;
     PsiElement scope = PsiTreeUtil.getNonStrictParentOfType(place, PsiStatement.class, PsiCodeBlock.class, PsiMethod.class);
     NextName:
@@ -162,7 +149,7 @@ public class CoreJavaCodeStyleManager extends JavaCodeStyleManager {
 
   @NotNull
   @Override
-  public String suggestUniqueVariableName(@NotNull String baseName, PsiElement place, Predicate<PsiVariable> canBeReused) {
+  public String suggestUniqueVariableName(@NotNull String baseName, PsiElement place, Predicate<? super PsiVariable> canBeReused) {
     return suggestUniqueVariableName(baseName, place, true, canBeReused);
   }
 
@@ -206,5 +193,17 @@ public class CoreJavaCodeStyleManager extends JavaCodeStyleManager {
   @Override
   public Collection<PsiImportStatementBase> findRedundantImports(@NotNull PsiJavaFile file) {
     return null;
+  }
+
+  @NotNull
+  @Override
+  public Collection<String> suggestSemanticNames(@NotNull PsiExpression expression) {
+    return Collections.emptyList();
+  }
+
+  @NotNull
+  @Override
+  public SuggestedNameInfo suggestNames(@NotNull Collection<String> semanticNames, @NotNull VariableKind kind, @Nullable PsiType type) {
+    return SuggestedNameInfo.NULL_INFO;
   }
 }

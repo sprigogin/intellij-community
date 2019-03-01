@@ -38,7 +38,6 @@ import java.util.List;
 
 /**
  * @author Dmitry Avdeev
- * @since 10/1/12
  */
 public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
   private final static Logger LOG = Logger.getInstance(ArchivedTemplatesFactory.class);
@@ -94,7 +93,7 @@ public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
     catch (IOException e) {
       LOG.error(e);
     }
-    return ContainerUtil.isEmpty(templates) ? ProjectTemplate.EMPTY_ARRAY : templates.toArray(new ProjectTemplate[templates.size()]);
+    return ContainerUtil.isEmpty(templates) ? ProjectTemplate.EMPTY_ARRAY : templates.toArray(ProjectTemplate.EMPTY_ARRAY);
   }
 
   @Override
@@ -104,6 +103,6 @@ public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
 
   @Override
   public Icon getGroupIcon(String group) {
-    return CUSTOM_GROUP.equals(group) ? AllIcons.Modules.Types.UserDefined : super.getGroupIcon(group);
+    return CUSTOM_GROUP.equals(group) ? AllIcons.General.User : super.getGroupIcon(group);
   }
 }

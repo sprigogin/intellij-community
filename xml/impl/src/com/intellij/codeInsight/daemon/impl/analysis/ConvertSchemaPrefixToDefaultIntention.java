@@ -18,7 +18,6 @@ package com.intellij.codeInsight.daemon.impl.analysis;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
@@ -99,12 +98,7 @@ public class ConvertSchemaPrefixToDefaultIntention extends PsiElementBaseIntenti
       });
     }, NAME, null);
 
-    new WriteCommandAction(project, NAME, xmlns.getContainingFile()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        xmlns.setName("xmlns");
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(project, xmlns.getContainingFile()).withName(NAME).run(() -> xmlns.setName("xmlns"));
   }
 
   private static void convertTagsAndAttributes(String ns, final List<XmlTag> tags, final List<XmlAttribute> attrs, Project project) {

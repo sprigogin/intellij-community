@@ -46,6 +46,12 @@ interface CompilationContext {
 
   JpsModule findModule(String name)
 
+  /**
+   * If module {@code newName} was renamed returns its old name and {@code null} otherwise. This method can be used to temporary keep names
+   * of directories and JARs in the product distributions after renaming modules.
+   */
+  String getOldModuleName(String newName)
+
   String getModuleOutputPath(JpsModule module)
 
   String getModuleTestsOutputPath(JpsModule module)
@@ -53,4 +59,9 @@ interface CompilationContext {
   List<String> getModuleRuntimeClasspath(JpsModule module, boolean forTests)
 
   void notifyArtifactBuilt(String artifactPath)
+
+  /**
+   *  If {@code true} then bundled JRE version is 9+
+   */
+  boolean isBundledJreModular()
 }

@@ -23,9 +23,12 @@ import com.intellij.pom.java.LanguageLevel
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
+import groovy.transform.CompileStatic
+
 /**
  * @author peter
  */
+@CompileStatic
 class DataFlowInspectionHeavyTest extends JavaCodeInsightFixtureTestCase {
 
   void testDifferentAnnotationsWithDifferentLanguageLevels() {
@@ -50,7 +53,7 @@ class DataFlowInspectionHeavyTest extends JavaCodeInsightFixtureTestCase {
     def testFile = myFixture.addFileToProject 'test.java', '''
       class Zoo {
         @annos.Nullable String a = null;
-        @annos.NotNull String f = foo.ObjectUtils.notNull(<warning descr="Value 'a' is always 'null'">a</warning>);
+        @annos.NotNull String f = foo.ObjectUtils.notNull(<weak_warning descr="Value 'a' is always 'null'">a</weak_warning>);
         
         void bar(@annos.NotNull String param) { }
         void goo(@annos.Nullable String param) {

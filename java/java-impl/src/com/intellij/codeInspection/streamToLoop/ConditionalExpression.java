@@ -50,26 +50,30 @@ interface ConditionalExpression {
       myFalseBranch = falseBranch;
     }
 
+    @Override
     public String getType() {
       return myType.getCanonicalText();
     }
 
+    @Override
     public String getCondition() {
       return myCondition;
     }
 
+    @Override
     public String getTrueBranch() {
       return myTrueBranch;
     }
 
+    @Override
     public String getFalseBranch() {
       return myFalseBranch;
     }
   }
 
   class Boolean implements ConditionalExpression {
-    private String myCondition;
-    private boolean myInvert;
+    private final String myCondition;
+    private final boolean myInvert;
 
     public Boolean(String condition, boolean invert) {
       myCondition = condition;

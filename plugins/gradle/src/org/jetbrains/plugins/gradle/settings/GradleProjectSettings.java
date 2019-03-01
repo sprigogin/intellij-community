@@ -1,45 +1,51 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.settings;
 
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil;
 import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.SmartList;
+import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.xmlb.Converter;
 import com.intellij.util.xmlb.annotations.*;
+import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.model.data.BuildParticipant;
+import org.jetbrains.plugins.gradle.service.GradleInstallationManager;
+import org.jetbrains.plugins.gradle.service.settings.GradleSettingsService;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
+ * {@link GradleProjectSettings} holds settings for the linked gradle project.
+ * These settings might have IDE project level defaults - {@link DefaultGradleProjectSettings}.
+ * Consider to use effective settings with {@link GradleSettingsService}.
+ *
+ * @see GradleSettingsService
+ * @see DefaultGradleProjectSettings
+ *
  * @author Denis Zhdanov
- * @since 4/24/13 11:57 AM
  */
 public class GradleProjectSettings extends ExternalProjectSettings {
-
   @Nullable private String myGradleHome;
   @Nullable private String myGradleJvm = ExternalSystemJdkUtil.USE_PROJECT_JDK;
   @Nullable private DistributionType distributionType;
   private boolean disableWrapperSourceDistributionNotification;
-  private boolean resolveModulePerSourceSet = true;
+  private boolean resolveModulePerSourceSet = ExternalSystemApiUtil.isJavaCompatibleIde();
+  private boolean resolveExternalAnnotations;
   @Nullable private CompositeBuild myCompositeBuild;
 
-  private boolean storeProjectFilesExternally = false;
+  private ThreeState storeProjectFilesExternally = ThreeState.NO;
+
+  @NotNull
+  private ThreeState delegatedBuild = ThreeState.UNSURE;
+  @Nullable
+  private TestRunner testRunner;
 
   @Nullable
   public String getGradleHome() {
@@ -84,6 +90,14 @@ public class GradleProjectSettings extends ExternalProjectSettings {
     this.resolveModulePerSourceSet = useIdeModulePerSourceSet;
   }
 
+  public boolean isResolveExternalAnnotations() {
+    return resolveExternalAnnotations;
+  }
+
+  public void setResolveExternalAnnotations(boolean resolveExternalAnnotations) {
+    this.resolveExternalAnnotations = resolveExternalAnnotations;
+  }
+
   @OptionTag(tag = "compositeConfiguration", nameAttribute = "")
   @Nullable
   public CompositeBuild getCompositeBuild() {
@@ -96,7 +110,7 @@ public class GradleProjectSettings extends ExternalProjectSettings {
 
   @NotNull
   @Override
-  public ExternalProjectSettings clone() {
+  public GradleProjectSettings clone() {
     GradleProjectSettings result = new GradleProjectSettings();
     copyTo(result);
     result.myGradleHome = myGradleHome;
@@ -104,17 +118,64 @@ public class GradleProjectSettings extends ExternalProjectSettings {
     result.distributionType = distributionType;
     result.disableWrapperSourceDistributionNotification = disableWrapperSourceDistributionNotification;
     result.resolveModulePerSourceSet = resolveModulePerSourceSet;
+    result.resolveExternalAnnotations = resolveExternalAnnotations;
     result.myCompositeBuild = myCompositeBuild != null ? myCompositeBuild.copy() : null;
     return result;
   }
 
   @Transient
-  public boolean isStoreProjectFilesExternally() {
+  public ThreeState getStoreProjectFilesExternally() {
     return storeProjectFilesExternally;
   }
 
-  public void setStoreProjectFilesExternally(boolean value) {
+  public void setStoreProjectFilesExternally(@NotNull ThreeState value) {
     storeProjectFilesExternally = value;
+  }
+
+  /**
+   * Build/run mode for the gradle project.
+   * Consider to use effective settings using {@link GradleSettingsService#isDelegatedBuildEnabled(Module)}
+   * @return build/run mode, {@link ThreeState#UNSURE} means using IDE project level configuration, see {@link DefaultGradleProjectSettings#isDelegatedBuild()}
+   */
+  @OptionTag(value = "delegatedBuild", converter = ThreeStateConverter.class)
+  @NotNull
+  public ThreeState getDelegatedBuild() {
+    return delegatedBuild;
+  }
+
+  /**
+   * @param state {@link ThreeState#UNSURE} means using IDE project level configuration, see {@link DefaultGradleProjectSettings#isDelegatedBuild()}
+   */
+  public void setDelegatedBuild(@NotNull ThreeState state) {
+    this.delegatedBuild = state;
+  }
+
+  /**
+   * Test runner option.
+   * Consider to use effective settings using {@link GradleSettingsService#getTestRunner(Module)}
+   * @return test runner option, "null" means using IDE project level configuration, see {@link DefaultGradleProjectSettings#getTestRunner()}
+   */
+  @Nullable
+  public TestRunner getTestRunner() {
+    return testRunner;
+  }
+
+  /**
+   * @param testRunner null means using IDE project level configuration, see {@link DefaultGradleProjectSettings#getTestRunner()}
+   */
+  public void setTestRunner(@Nullable TestRunner testRunner) {
+    this.testRunner = testRunner;
+  }
+
+  @NotNull
+  public GradleVersion resolveGradleVersion() {
+    GradleVersion version = GradleInstallationManager.getGradleVersion(this);
+    return Optional.ofNullable(version).orElseGet(GradleVersion::current);
+  }
+
+  public GradleProjectSettings withQualifiedModuleNames() {
+    setUseQualifiedModuleNames(true);
+    return this;
   }
 
   @Tag("compositeBuild")
@@ -132,8 +193,7 @@ public class GradleProjectSettings extends ExternalProjectSettings {
       myCompositeDefinitionSource = compositeDefinitionSource;
     }
 
-    @AbstractCollection(surroundWithTag = false, elementTag = "build")
-    @OptionTag(tag = "builds", nameAttribute = "")
+    @XCollection(propertyElementName = "builds", elementName = "build")
     @NotNull
     public List<BuildParticipant> getCompositeParticipants() {
       return myCompositeParticipants;
@@ -152,6 +212,22 @@ public class GradleProjectSettings extends ExternalProjectSettings {
       }
       result.myCompositeDefinitionSource = myCompositeDefinitionSource;
       return result;
+    }
+  }
+
+  private static final class ThreeStateConverter extends Converter<ThreeState> {
+    @Nullable
+    @Override
+    public ThreeState fromString(@NotNull String value) {
+      if (StringUtil.isEmpty(value)) return ThreeState.UNSURE;
+      return ThreeState.fromBoolean(Boolean.valueOf(value));
+    }
+
+    @Nullable
+    @Override
+    public String toString(@NotNull ThreeState value) {
+      if (value == ThreeState.UNSURE) return null;
+      return String.valueOf(value.toBoolean());
     }
   }
 }

@@ -32,7 +32,6 @@ import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -56,8 +55,9 @@ public abstract class JavaClassReferenceListElementType extends JavaStubElementT
     return new PsiReferenceListImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiClassReferenceListStub createStub(LighterAST tree, LighterASTNode node, StubElement parentStub) {
+  public PsiClassReferenceListStub createStub(@NotNull LighterAST tree, @NotNull LighterASTNode node, @NotNull StubElement parentStub) {
     JavaClassReferenceListElementType type = (JavaClassReferenceListElementType)node.getTokenType();
     return new PsiClassReferenceListStubImpl(type, parentStub, getTexts(tree, node));
   }
@@ -87,7 +87,7 @@ public abstract class JavaClassReferenceListElementType extends JavaStubElementT
     int len = dataStream.readVarInt();
     String[] names = ArrayUtil.newStringArray(len);
     for (int i = 0; i < names.length; i++) {
-      names[i] = StringRef.toString(dataStream.readName());
+      names[i] = dataStream.readNameString();
     }
     return new PsiClassReferenceListStubImpl(this, parentStub, names);
   }

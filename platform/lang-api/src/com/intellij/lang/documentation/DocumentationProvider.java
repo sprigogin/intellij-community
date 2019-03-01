@@ -45,7 +45,8 @@ public interface DocumentationProvider {
    * @param element         the element for which the documentation is requested (for example, if the mouse is over
    *                        a method reference, this will be the method to which the reference is resolved).
    * @param originalElement the element under the mouse cursor
-   * @return the documentation to show, or null if the provider can't provide any documentation for this element.
+   * @return the documentation to show, or null if the provider can't provide any documentation for this element. Documentation can contain
+   *         HTML markup. If HTML special characters need to be shown in popup, they should be properly escaped.
    */
   @Nullable
   String getQuickNavigateInfo(PsiElement element, PsiElement originalElement);
@@ -68,6 +69,17 @@ public interface DocumentationProvider {
    * Callback for asking the doc provider for the complete documentation.
    * <p/>
    * Underlying implementation may be time-consuming, that's why this method is expected not to be called from EDT.
+   * <p/>
+   * One can use {@link DocumentationMarkup} to get proper content layout. Typical sample will look like this:
+   * <pre>
+   * DEFINITION_START + definition + DEFINITION_END +
+   * CONTENT_START + main description + CONTENT_END +
+   * SECTIONS_START +
+   *   SECTION_HEADER_START + section name +
+   *     SECTION_SEPARATOR + "<p>" + section content + SECTION_END +
+   *   ... +
+   * SECTIONS_END
+   * </pre>
    *
    * @param element         the element for which the documentation is requested (for example, if the mouse is over
    *                        a method reference, this will be the method to which the reference is resolved).

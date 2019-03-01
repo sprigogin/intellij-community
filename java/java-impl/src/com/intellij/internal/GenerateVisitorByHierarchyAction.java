@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal;
 
 import com.intellij.codeInsight.editorActions.SelectWordUtil;
@@ -26,7 +12,6 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentListener;
@@ -55,13 +40,13 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class GenerateVisitorByHierarchyAction extends AnAction {
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Ref<String> visitorNameRef = Ref.create("MyVisitor");
     final Ref<PsiClass> parentClassRef = Ref.create(null);
     final Project project = e.getData(CommonDataKeys.PROJECT);
@@ -101,7 +86,7 @@ public class GenerateVisitorByHierarchyAction extends AnAction {
         labeledComponent.setComponent(nameField);
         nameField.getDocument().addDocumentListener(new DocumentAdapter() {
           @Override
-          protected void textChanged(final DocumentEvent e) {
+          protected void textChanged(@NotNull final DocumentEvent e) {
             visitorNameRef.set(nameField.getText());
           }
         });
@@ -118,7 +103,7 @@ public class GenerateVisitorByHierarchyAction extends AnAction {
         labeledComponent.setComponent(editorTextField);
         editorTextField.addDocumentListener(new DocumentListener() {
           @Override
-          public void documentChanged(final com.intellij.openapi.editor.event.DocumentEvent e) {
+          public void documentChanged(@NotNull final com.intellij.openapi.editor.event.DocumentEvent e) {
             parentClassRef.set(null);
             try {
               final PsiType psiType = codeFragment.getType();
@@ -168,7 +153,7 @@ public class GenerateVisitorByHierarchyAction extends AnAction {
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     e.getPresentation().setEnabled(e.getData(CommonDataKeys.PROJECT) != null);
   }
 
@@ -216,26 +201,25 @@ public class GenerateVisitorByHierarchyAction extends AnAction {
       psiFiles.add(visitorClass.getContainingFile());
     }
     final int finalDetectedPrefix = detectClassPrefix(classes.keySet()).length();
-    new WriteCommandAction(project, PsiUtilCore.toPsiFileArray(psiFiles)) {
-      @Override
-      protected void run(@NotNull final Result result) throws Throwable {
-        if (visitorClass == null) {
-          final String shortClassName = PsiNameHelper.getShortClassName(visitorName);
-          if (directory != null) {
-            final PsiClass visitorClass = JavaDirectoryService.getInstance().createClass(directory, shortClassName);
-            generateVisitorClass(visitorClass, classes, pathMap, finalDetectedPrefix);
-          }
-        }
-        else {
-          generateVisitorClass(visitorClass, classes, pathMap, finalDetectedPrefix);
-        }
-      }
-
-      @Override
-      protected boolean isGlobalUndoAction() {
-        return true;
-      }
-    }.execute();
+    try {
+      WriteCommandAction.writeCommandAction(project, PsiUtilCore.toPsiFileArray(psiFiles))
+                        .withGlobalUndo()
+                        .run(() -> {
+                          if (visitorClass == null) {
+                            final String shortClassName = PsiNameHelper.getShortClassName(visitorName);
+                            if (directory != null) {
+                              final PsiClass vc = JavaDirectoryService.getInstance().createClass(directory, shortClassName);
+                              generateVisitorClass(vc, classes, pathMap, finalDetectedPrefix);
+                            }
+                          }
+                          else {
+                            generateVisitorClass(visitorClass, classes, pathMap, finalDetectedPrefix);
+                          }
+                        });
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
   }
 
   @NotNull
@@ -257,7 +241,7 @@ public class GenerateVisitorByHierarchyAction extends AnAction {
 
   private static void generateVisitorClass(final PsiClass visitorClass, final Map<PsiClass, Set<PsiClass>> classes,
                                            final THashMap<PsiClass, Set<PsiClass>> pathMap, int classPrefix) throws Throwable {
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(visitorClass.getProject()).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(visitorClass.getProject());
     for (PsiClass psiClass : classes.keySet()) {
       final PsiMethod method = elementFactory.createMethodFromText(
         "public void accept(final " + visitorClass.getQualifiedName() + " visitor) { visitor.visit" + psiClass.getName().substring(classPrefix) + "(this); }", psiClass);

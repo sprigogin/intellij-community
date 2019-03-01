@@ -1,30 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.storage;
 
 import com.intellij.ProjectTopics;
 import com.intellij.application.options.PathMacrosCollector;
-import com.intellij.configurationStore.StateStorageBase;
-import com.intellij.configurationStore.StateStorageManager;
-import com.intellij.configurationStore.StateStorageManagerKt;
-import com.intellij.configurationStore.StorageUtilKt;
+import com.intellij.configurationStore.*;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.PathMacroSubstitutor;
 import com.intellij.openapi.components.TrackingPathMacroSubstitutor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -58,12 +41,12 @@ import java.util.Set;
 
 // Boolean - false as not loaded, true as loaded
 public final class ClasspathStorage extends StateStorageBase<Boolean> {
-  private static final Key<Boolean> ERROR_NOTIFIED_KEY =Key.create("ClasspathStorage.ERROR_NOTIFIED_KEY"); 
+  private static final Key<Boolean> ERROR_NOTIFIED_KEY = Key.create("ClasspathStorage.ERROR_NOTIFIED_KEY");
   private static final Logger LOG = Logger.getInstance(ClasspathStorage.class);
 
   private final ClasspathStorageProvider.ClasspathConverter myConverter;
 
-  private final TrackingPathMacroSubstitutor myPathMacroSubstitutor;
+  private final PathMacroSubstitutor myPathMacroSubstitutor;
 
   public ClasspathStorage(@NotNull final Module module, @NotNull StateStorageManager storageManager) {
     String storageType = module.getOptionValue(JpsProjectLoader.CLASSPATH_ATTRIBUTE);
@@ -74,13 +57,13 @@ public final class ClasspathStorage extends StateStorageBase<Boolean> {
     ClasspathStorageProvider provider = getProvider(storageType);
     if (provider == null) {
       if (module.getUserData(ERROR_NOTIFIED_KEY) == null) {
-        Notification n = new Notification(StorageUtilKt.getNOTIFICATION_GROUP_ID(), "Cannot load module '" + module.getName() + "'",
+        Notification n = new Notification(StorageUtilKt.NOTIFICATION_GROUP_ID, "Cannot load module '" + module.getName() + "'",
                                           "Support for " + storageType + " format is not installed.", NotificationType.ERROR);
         n.notify(module.getProject());
         module.putUserData(ERROR_NOTIFIED_KEY, Boolean.TRUE);
         LOG.info("Classpath storage provider " + storageType + " not found");
       }
-      
+
       myConverter = new MissingClasspathConverter();
     } else {
       myConverter = provider.createConverter(module);
@@ -93,14 +76,18 @@ public final class ClasspathStorage extends StateStorageBase<Boolean> {
     busConnection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
       public void after(@NotNull List<? extends VFileEvent> events) {
-        if (paths.isEmpty()) return;
+        if (paths.isEmpty()) {
+          return;
+        }
+
         for (VFileEvent event : events) {
-          if (!event.isFromRefresh() || !(event instanceof VFileContentChangeEvent)) {
+          if (!event.isFromRefresh() ||
+              !(event instanceof VFileContentChangeEvent) ||
+              !StateStorageManagerKt.isFireStorageFileChangedEvent(event)) {
             continue;
           }
 
           String eventPath = event.getPath();
-
           for (String path : paths) {
             if (path.equals(eventPath)) {
               module.getMessageBus().syncPublisher(StateStorageManagerKt.getSTORAGE_TOPIC()).storageFileChanged(event, ClasspathStorage.this, module);
@@ -155,37 +142,36 @@ public final class ClasspathStorage extends StateStorageBase<Boolean> {
     }
 
     Element element = new Element("component");
-    ModifiableRootModel model = null;
-    AccessToken token = ReadAction.start();
-    try {
-      model = ((ModuleRootManagerImpl)component).getModifiableModel();
-      // IDEA-137969 Eclipse integration: external remove of classpathentry is not synchronized
-      model.clear();
+    ApplicationManager.getApplication().runReadAction(() -> {
+      ModifiableRootModel model = null;
       try {
-        myConverter.readClasspath(model);
+        model = ((ModuleRootManagerImpl)component).getModifiableModel();
+        // IDEA-137969 Eclipse integration: external remove of classpathentry is not synchronized
+        model.clear();
+        try {
+          myConverter.readClasspath(model);
+        }
+        catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+        ((RootModelImpl)model).writeExternal(element);
       }
-      catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-      ((RootModelImpl)model).writeExternal(element);
-    }
-    catch (WriteExternalException e) {
-      LOG.error(e);
-    }
-    finally {
-      try {
-        token.finish();
+      catch (WriteExternalException e) {
+        LOG.error(e);
       }
       finally {
         if (model != null) {
           model.dispose();
         }
       }
-    }
+    });
+
 
     if (myPathMacroSubstitutor != null) {
       myPathMacroSubstitutor.expandPaths(element);
-      myPathMacroSubstitutor.addUnknownMacros("NewModuleRootManager", PathMacrosCollector.getMacroNames(element));
+      if (myPathMacroSubstitutor instanceof TrackingPathMacroSubstitutor) {
+        ((TrackingPathMacroSubstitutor)myPathMacroSubstitutor).addUnknownMacros("NewModuleRootManager", PathMacrosCollector.getMacroNames(element));
+      }
     }
 
     getStorageDataRef().set(true);
@@ -199,16 +185,21 @@ public final class ClasspathStorage extends StateStorageBase<Boolean> {
   }
 
   @Override
-  @NotNull
-  public ExternalizationSession startExternalization() {
+  @Nullable
+  public SaveSessionProducer createSaveSessionProducer() {
     return myConverter.startExternalization();
   }
 
   @Override
-  public void analyzeExternalChangesAndUpdateIfNeed(@NotNull Set<String> componentNames) {
+  public void analyzeExternalChangesAndUpdateIfNeed(@NotNull Set<? super String> componentNames) {
     // if some file changed, so, changed
     componentNames.add("NewModuleRootManager");
     getStorageDataRef().set(false);
+  }
+
+  @Override
+  public boolean isUseVfsForWrite() {
+    return true;
   }
 
   @Nullable
@@ -273,20 +264,8 @@ public final class ClasspathStorage extends StateStorageBase<Boolean> {
       return Collections.emptyList();
     }
 
-    @NotNull
     @Override
-    public ExternalizationSession startExternalization() {
-      return new ExternalizationSession() {
-        @Nullable
-        @Override
-        public SaveSession createSaveSession() {
-          return null;
-        }
-      };
-    }
-
-    @Override
-    public void readClasspath(@NotNull ModifiableRootModel model) throws IOException {
+    public void readClasspath(@NotNull ModifiableRootModel model) {
     }
   }
 }

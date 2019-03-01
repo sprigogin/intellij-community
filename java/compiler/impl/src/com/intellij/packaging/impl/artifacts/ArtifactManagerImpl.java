@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.artifacts;
 
 import com.intellij.compiler.server.BuildManager;
+import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.components.BaseComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
@@ -38,8 +26,6 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.packaging.artifacts.*;
 import com.intellij.packaging.elements.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
-import com.intellij.util.xmlb.XmlSerializer;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
@@ -55,7 +41,7 @@ import java.util.*;
  * @author nik
  */
 @State(name = ArtifactManagerImpl.COMPONENT_NAME, storages = @Storage(value = "artifacts", stateSplitter = ArtifactManagerStateSplitter.class))
-public class ArtifactManagerImpl extends ArtifactManager implements ProjectComponent, PersistentStateComponent<ArtifactManagerState>,
+public class ArtifactManagerImpl extends ArtifactManager implements BaseComponent, PersistentStateComponent<ArtifactManagerState>,
                                                                     Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.packaging.impl.artifacts.ArtifactManagerImpl");
   @NonNls public static final String COMPONENT_NAME = "ArtifactManager";
@@ -146,11 +132,14 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
 
   @Nullable
   private static <S> ArtifactPropertiesState serializeProperties(ArtifactPropertiesProvider provider, ArtifactProperties<S> properties) {
+    final Element options = XmlSerializer.serialize(properties.getState());
+    if (options == null) {
+      return null;
+    }
+
+    options.setName("options");
     final ArtifactPropertiesState state = new ArtifactPropertiesState();
     state.setId(provider.getId());
-    final Element options = new Element("options");
-    XmlSerializer.serializeInto(properties.getState(), options, new SkipDefaultValuesSerializationFilters());
-    if (options.getContent().isEmpty() && options.getAttributes().isEmpty()) return null;
     state.setOptions(options);
     return state;
   }
@@ -160,7 +149,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
     element.setAttribute(TYPE_ID_ATTRIBUTE, packagingElement.getType().getId());
     final Object bean = packagingElement.getState();
     if (bean != null) {
-      XmlSerializer.serializeInto(bean, element, new SkipDefaultValuesSerializationFilters());
+      XmlSerializer.serializeObjectInto(bean, element);
     }
     if (packagingElement instanceof CompositePackagingElement) {
       for (PackagingElement<?> child : ((CompositePackagingElement<?>)packagingElement).getChildren()) {
@@ -180,7 +169,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
     PackagingElement<T> packagingElement = (PackagingElement<T>)type.createEmpty(myProject);
     T state = packagingElement.getState();
     if (state != null) {
-      XmlSerializer.deserializeInto(state, element);
+      XmlSerializer.deserializeInto(element, state);
       packagingElement.loadState(state);
     }
     final List children = element.getChildren(PACKAGING_ELEMENT_NAME);
@@ -192,19 +181,15 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
   }
 
   @Override
-  public void loadState(ArtifactManagerState managerState) {
+  public void loadState(@NotNull ArtifactManagerState managerState) {
     List<ArtifactState> artifactStates = managerState.getArtifacts();
     final List<ArtifactImpl> artifacts = new ArrayList<>(artifactStates.size());
     if (!artifactStates.isEmpty()) {
-      AccessToken token = ReadAction.start();
-      try {
+      ApplicationManager.getApplication().runReadAction(() -> {
         for (ArtifactState state : artifactStates) {
           artifacts.add(loadArtifact(state));
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
 
     if (myLoaded) {
@@ -273,7 +258,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
     }
     final S state = artifactProperties.getState();
     if (state != null) {
-      XmlSerializer.deserializeInto(state, options);
+      XmlSerializer.deserializeInto(options, state);
       artifactProperties.loadState(state);
     }
   }
@@ -291,7 +276,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
 
   @Override
   public void initComponent() {
-    VirtualFileManager.getInstance().addVirtualFileListener(new ArtifactVirtualFileListener(myProject, this), myProject);
+    myProject.getMessageBus().connect(this).subscribe(VirtualFileManager.VFS_CHANGES, new ArtifactVirtualFileListener(myProject, this));
     updateWatchedRoots();
   }
 
@@ -335,7 +320,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
     return myResolvingContext;
   }
 
-  public List<ArtifactImpl> getArtifactsList() {
+  public List<? extends ArtifactImpl> getArtifactsList() {
     return myModel.myArtifactsList;
   }
 
@@ -403,18 +388,15 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
   @Override
   @NotNull
   public Artifact addArtifact(@NotNull final String name, @NotNull final ArtifactType type, final CompositePackagingElement<?> root) {
-    return new WriteAction<Artifact>() {
-      @Override
-      protected void run(@NotNull final Result<Artifact> result) {
-        final ModifiableArtifactModel model = createModifiableModel();
-        final ModifiableArtifact artifact = model.addArtifact(name, type);
-        if (root != null) {
-          artifact.setRootElement(root);
-        }
-        model.commit();
-        result.setResult(artifact);
+    return WriteAction.compute(() -> {
+      final ModifiableArtifactModel model = createModifiableModel();
+      final ModifiableArtifact artifact = model.addArtifact(name, type);
+      if (root != null) {
+        artifact.setRootElement(root);
       }
-    }.execute().getResultObject();
+      model.commit();
+      return artifact;
+    });
   }
 
   @Override
@@ -428,12 +410,7 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
     final ModifiableArtifactModel model = createModifiableModel();
     final CompositePackagingElement<?> root = model.getOrCreateModifiableArtifact(artifact).getRootElement();
     PackagingElementFactory.getInstance().getOrCreateDirectory(root, relativePath).addOrFindChildren(elements);
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull final Result result) {
-        model.commit();
-      }
-    }.execute();
+    WriteAction.run(() -> model.commit());
   }
 
   @Override
@@ -442,10 +419,10 @@ public class ArtifactManagerImpl extends ArtifactManager implements ProjectCompo
   }
 
   private static class ArtifactManagerModel extends ArtifactModelBase {
-    private List<ArtifactImpl> myArtifactsList = new ArrayList<>();
+    private List<? extends ArtifactImpl> myArtifactsList = new ArrayList<>();
     private Artifact[] mySortedArtifacts;
 
-    public void setArtifactsList(List<ArtifactImpl> artifactsList) {
+    public void setArtifactsList(List<? extends ArtifactImpl> artifactsList) {
       myArtifactsList = artifactsList;
       artifactsChanged();
     }

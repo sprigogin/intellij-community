@@ -102,7 +102,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
 
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         for (BookmarkItem item : list.getSelectedValuesList()) {
           if (item != null) {
             itemChosen(item, project, popup, true);
@@ -121,6 +121,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
     });
 
     Point location = DimensionService.getInstance().getLocation(DIMENSION_SERVICE_KEY, project);
+    myPopup.getContent().putClientProperty("BookmarkPopup", "TRUE");
     if (location != null) {
       popup.showInScreenCoordinates(WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow(), location);
     }
@@ -277,7 +278,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
     }
   }
 
-  static List<Bookmark> getSelectedBookmarks(JList<BookmarkItem> list) {
+  static List<Bookmark> getSelectedBookmarks(JList<? extends BookmarkItem> list) {
     List<Bookmark> answer = new ArrayList<>();
 
     for (BookmarkItem value : list.getSelectedValuesList()) {
@@ -299,7 +300,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
   }
 
   private static class MyDetailView extends DetailViewImpl {
-    public MyDetailView(Project project) {
+    MyDetailView(Project project) {
       super(project);
     }
 

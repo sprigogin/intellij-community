@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 @file:JvmName("PyResolveImportUtil")
 package com.jetbrains.python.psi.resolve
@@ -20,7 +6,6 @@ package com.jetbrains.python.psi.resolve
 import com.google.common.base.Preconditions
 import com.intellij.facet.FacetManager
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModuleUtilCore
@@ -34,6 +19,7 @@ import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.QualifiedName
 import com.jetbrains.python.codeInsight.typing.PyTypeShed
+import com.jetbrains.python.codeInsight.typing.filterTopPriorityResults
 import com.jetbrains.python.codeInsight.userSkeletons.PyUserSkeletonsUtil
 import com.jetbrains.python.facet.PythonPathContributingFacet
 import com.jetbrains.python.psi.LanguageLevel
@@ -54,9 +40,30 @@ import com.jetbrains.python.sdk.PythonSdkType
  */
 
 /**
- * Resolves a qualified [name] a list of modules / top-level elements according to the [context].
+ * Resolves qualified [name] to the list of packages, modules and, sometimes, classes.
+ *
+ * This method does not take into account source roots order (see PY-28321 as an example).
+ * The sole purpose of the method is to support classes that require class resolution until they can be migrated to [resolveQualifiedName].
+ *
+ * @see resolveQualifiedName
+ */
+@Deprecated("This method does not provide proper source root resolution")
+fun resolveQualifiedNameWithClasses(name: QualifiedName, context: PyQualifiedNameResolveContext): List<PsiElement> {
+  return resolveQualifiedName(name, context, ::resultsFromRoots)
+}
+
+/**
+ * Resolves a qualified [name] to the list of packages and modules according to the [context].
+ *
+ * @see resolveTopLevelMember
  */
 fun resolveQualifiedName(name: QualifiedName, context: PyQualifiedNameResolveContext): List<PsiElement> {
+  return resolveQualifiedName(name, context, ::resolveModuleFromRoots)
+}
+
+private fun resolveQualifiedName(name: QualifiedName,
+                                 context: PyQualifiedNameResolveContext,
+                                 resolveFromRoots: (QualifiedName, PyQualifiedNameResolveContext) -> List<PsiElement>): List<PsiElement> {
   checkAccess()
   if (!context.isValid) {
     return emptyList()
@@ -80,16 +87,32 @@ fun resolveQualifiedName(name: QualifiedName, context: PyQualifiedNameResolveCon
 
   val foreignResults = foreignResults(name, context)
   val pythonResults = listOf(relativeResults,
+                             // TODO: replace with resolveFromRoots when namespace package magic features PY-16688, PY-23087 are implemented
                              resultsFromRoots(name, context),
                              relativeResultsFromSkeletons(name, context)).flatten().distinct()
   val allResults = pythonResults + foreignResults
-  val results = if (name.componentCount > 0) findFirstResults(pythonResults, context.module) + foreignResults else allResults
+  val results = if (name.componentCount > 0) filterTopPriorityResults(pythonResults, context.module) + foreignResults else allResults
 
   if (mayCache) {
     cache?.put(key, results)
   }
 
   return results
+}
+
+/**
+ * Resolves a qualified [name] to the list of packages and modules with Python semantics according to the [context].
+ */
+private fun resolveModuleFromRoots(name: QualifiedName, context: PyQualifiedNameResolveContext): List<PsiElement> {
+  val head = name.removeTail(name.componentCount - 1)
+  val nameNoHead = name.removeHead(1)
+  return nameNoHead.components.fold(resultsFromRoots(head, context)) { results, component ->
+    filterTopPriorityResults(results, context.module)
+      .asSequence()
+      .filterIsInstance<PsiFileSystemItem>()
+      .flatMap { resolveModuleAt(QualifiedName.fromComponents(component), it, context).asSequence() }
+      .toList()
+  }
 }
 
 /**
@@ -107,15 +130,15 @@ fun resolveTopLevelMember(name: QualifiedName, context : PyQualifiedNameResolveC
 }
 
 /**
- * Resolves a [name] relative to the specified [directory].
+ * Resolves a [name] relative to the specified [item].
  */
-fun resolveModuleAt(name: QualifiedName, directory: PsiDirectory?, context: PyQualifiedNameResolveContext): List<PsiElement> {
+fun resolveModuleAt(name: QualifiedName, item: PsiFileSystemItem?, context: PyQualifiedNameResolveContext): List<PsiElement> {
   checkAccess()
   val empty = emptyList<PsiElement>()
-  if (directory == null || !directory.isValid) {
+  if (item == null || !item.isValid) {
     return empty
   }
-  return name.components.fold(listOf<PsiElement>(directory)) { seekers, component ->
+  return name.components.fold(listOf<PsiElement>(item)) { seekers, component ->
     if (component == null) empty
     else seekers.flatMap {
       val children = ResolveImportUtil.resolveChildren(it, component, context.footholdFile, !context.withMembers,
@@ -163,7 +186,7 @@ private fun foreignResults(name: QualifiedName, context: PyQualifiedNameResolveC
     if (context.withoutForeign)
       emptyList()
     else
-      Extensions.getExtensions(PyImportResolver.EP_NAME)
+      PyImportResolver.EP_NAME.extensionList
           .asSequence()
           .map { it.resolveImportReference(name, context, !context.withoutRoots) }
           .filterNotNull()
@@ -204,40 +227,6 @@ fun relativeResultsForStubsFromRoots(name: QualifiedName, context: PyQualifiedNa
   return resultsFromRoots(absoluteName, context.copyWithRelative(-1).copyWithRoots())
 }
 
-/**
- * Filters the results according to their import priority in sys.path.
- */
-private fun findFirstResults(results: List<PsiElement>, module: Module?) =
-    if (results.all(::isNamespacePackage))
-      results
-    else {
-      val result = results.firstOrNull { !isNamespacePackage(it) }
-      val stubFile = results.firstOrNull { it is PyiFile || PyUtil.turnDirIntoInit(it) is PyiFile }
-
-      val resultVFile = (result as? PsiFileSystemItem)?.virtualFile
-      val stubVFile = (stubFile as? PsiFileSystemItem)?.virtualFile
-
-      if (stubFile == null ||
-          module != null &&
-          stubVFile != null && PyTypeShed.isInside(stubVFile) &&
-          resultVFile != null && ModuleUtilCore.moduleContainsFile(module, resultVFile, false)) {
-        listOfNotNull(result)
-      }
-      else {
-        listOfNotNull(stubFile)
-      }
-    }
-
-private fun isNamespacePackage(element: PsiElement): Boolean {
-  if (element is PsiDirectory) {
-    val level = PyUtil.getLanguageLevelForVirtualFile(element.project, element.virtualFile)
-    if (level.isAtLeast(LanguageLevel.PYTHON33)) {
-      return PyUtil.turnDirIntoInit(element) == null
-    }
-  }
-  return false
-}
-
 private fun resolveWithRelativeLevel(name: QualifiedName, context : PyQualifiedNameResolveContext): List<PsiElement> {
   val footholdFile = context.footholdFile
   if (context.relativeLevel >= 0 && footholdFile != null && !PyUserSkeletonsUtil.isUnderUserSkeletonsDirectory(footholdFile)) {
@@ -246,6 +235,12 @@ private fun resolveWithRelativeLevel(name: QualifiedName, context : PyQualifiedN
   return emptyList()
 }
 
+/**
+ * Collects resolve results from all roots available.
+ *
+ * The retuning {@code List<PsiElement>} contains all elements {@code name} references
+ * and does not take into account root order.
+ */
 private fun resultsFromRoots(name: QualifiedName, context: PyQualifiedNameResolveContext): List<PsiElement> {
   if (context.withoutRoots) {
     return emptyList()
@@ -337,7 +332,7 @@ private fun isRelativeImportResult(name: QualifiedName, directory: PsiDirectory,
     return true
   }
   else {
-    val py2 = LanguageLevel.forElement(directory).isOlderThan(LanguageLevel.PYTHON30)
+    val py2 = LanguageLevel.forElement(directory).isPython2
     return context.relativeLevel == 0 && py2 && PyUtil.isPackage(directory, false, null) &&
         result is PsiFileSystemItem && name != QualifiedNameFinder.findShortestImportableQName(result)
   }

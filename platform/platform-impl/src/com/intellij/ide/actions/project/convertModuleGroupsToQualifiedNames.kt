@@ -1,9 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions.project
 
 import com.intellij.CommonBundle
+import com.intellij.application.runInAllowSaveMode
 import com.intellij.codeInsight.intention.IntentionManager
 import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.codeInspection.ex.InspectionProfileWrapper
@@ -13,29 +12,26 @@ import com.intellij.lang.StdLanguages
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.runWriteAction
-import com.intellij.openapi.components.StorageScheme
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.LineExtensionInfo
 import com.intellij.openapi.editor.SpellCheckingEditorCustomizationProvider
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModulePointerManager
 import com.intellij.openapi.module.impl.ModulePointerManagerImpl
-import com.intellij.openapi.module.impl.RENAMING_HISTORY_FILE_NAME
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectBundle
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.panel.JBPanelFactory
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.project.stateStore
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.ui.*
 import com.intellij.ui.components.JBLabel
-import com.intellij.util.PathUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.intellij.xml.util.XmlStringUtil
@@ -45,6 +41,7 @@ import java.util.function.Function
 import java.util.function.Supplier
 import javax.swing.Action
 import javax.swing.JCheckBox
+import javax.swing.JComponent
 import javax.swing.JPanel
 
 class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWrapper(project) {
@@ -52,10 +49,12 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
   private val document: Document
     get() = editorArea.document
   private lateinit var modules: List<Module>
-  private val rememberOldNamesCheckBox: JCheckBox
+  private val recordPreviousNamesCheckBox: JCheckBox
+  private var modified = false
 
   init {
     title = ProjectBundle.message("convert.module.groups.dialog.title")
+    isModal = false
     setOKButtonText(ProjectBundle.message("convert.module.groups.button.text"))
     editorArea = EditorTextFieldProvider.getInstance().getEditorField(StdLanguages.TEXT, project, listOf(EditorCustomization {
       it.settings.apply {
@@ -71,7 +70,12 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
       (it as? EditorImpl)?.registerLineExtensionPainter(this::generateLineExtension)
       setupHighlighting(it)
     }, MonospaceEditorCustomization.getInstance()))
-    rememberOldNamesCheckBox = JCheckBox(ProjectBundle.message("convert.module.groups.remember.old.names.text"), true)
+    document.addDocumentListener(object: DocumentListener {
+      override fun documentChanged(event: DocumentEvent) {
+        modified = true
+      }
+    }, disposable)
+    recordPreviousNamesCheckBox = JCheckBox(ProjectBundle.message("convert.module.groups.record.previous.names.text"), true)
     importRenamingScheme(emptyMap())
     init()
   }
@@ -93,20 +97,16 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
 
   override fun createCenterPanel(): JPanel {
     val text = XmlStringUtil.wrapInHtml(ProjectBundle.message("convert.module.groups.description.text"))
-    val historyFilePath = when (project.stateStore.storageScheme) {
-      StorageScheme.DIRECTORY_BASED -> "${Project.DIRECTORY_STORE_FOLDER}/$RENAMING_HISTORY_FILE_NAME"
-      StorageScheme.DEFAULT -> PathUtil.getFileName(project.stateStore.projectFilePath)
-    }
-    val rememberOldNames = JBPanelFactory.panel(rememberOldNamesCheckBox)
-      .withTooltip(ProjectBundle.message("convert.module.groups.remember.old.names.tooltip", historyFilePath,
+    val recordPreviousNames = com.intellij.util.ui.UI.PanelFactory.panel(recordPreviousNamesCheckBox)
+      .withTooltip(ProjectBundle.message("convert.module.groups.record.previous.names.tooltip",
                                          ApplicationNamesInfo.getInstance().fullProductName)).createPanel()
     return JBUI.Panels.simplePanel(0, UIUtil.DEFAULT_VGAP)
       .addToCenter(editorArea)
       .addToTop(JBLabel(text))
-      .addToBottom(rememberOldNames)
+      .addToBottom(recordPreviousNames)
   }
 
-  override fun getPreferredFocusedComponent() = editorArea.focusTarget
+  override fun getPreferredFocusedComponent(): JComponent = editorArea.focusTarget
 
   private fun generateLineExtension(line: Int): Collection<LineExtensionInfo> {
     val lineText = document.charsSequence.subSequence(document.getLineStartOffset(line), document.getLineEndOffset(line)).toString()
@@ -129,6 +129,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
     runWriteAction {
       document.setText(modules.joinToString("\n") { names[it]!! })
     }
+    modified = false
   }
 
   fun getRenamingScheme(): Map<String, String> {
@@ -137,6 +138,24 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
     return modules.withIndex().filter { lines[it.index] != it.value.name }.associateByTo(LinkedHashMap(), { it.value.name }, {
       if (it.index in lines.indices) lines[it.index] else it.value.name
     })
+  }
+
+  override fun doCancelAction() {
+    if (modified) {
+      val answer = Messages.showYesNoCancelDialog(project,
+                                                  ProjectBundle.message("convert.module.groups.do.you.want.to.save.scheme"),
+                                                  ProjectBundle.message("convert.module.groups.dialog.title"), null)
+      when (answer) {
+        Messages.CANCEL -> return
+        Messages.YES -> {
+          if (!saveModuleRenamingScheme(this)) {
+            return
+          }
+        }
+      }
+    }
+
+    super.doCancelAction()
   }
 
   override fun doOKAction() {
@@ -157,19 +176,23 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
       modules.forEach {
         model.setModuleGroupPath(it, null)
       }
-      runWriteAction {
-        model.commit()
+
+      runInAllowSaveMode(isSaveAllowed = false) {
+        runWriteAction {
+          model.commit()
+        }
+        if (recordPreviousNamesCheckBox.isSelected) {
+          (ModulePointerManager.getInstance(project) as ModulePointerManagerImpl).setRenamingScheme(renamingScheme)
+        }
       }
-      if (rememberOldNamesCheckBox.isSelected) {
-        (ModulePointerManager.getInstance(project) as ModulePointerManagerImpl).setRenamingScheme(renamingScheme)
-      }
+      project.save()
     }
 
     super.doOKAction()
   }
 
   override fun createActions(): Array<Action> {
-    return arrayOf(okAction, SaveModuleRenamingSchemeAction(this),
+    return arrayOf(okAction, SaveModuleRenamingSchemeAction(this, { modified = false }),
                    LoadModuleRenamingSchemeAction(this), cancelAction)
   }
 }

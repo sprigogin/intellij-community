@@ -17,7 +17,8 @@ package com.jetbrains.env.python.debug;
 
 import com.google.common.collect.Sets;
 import com.intellij.execution.ExecutionResult;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -54,7 +55,7 @@ import java.util.concurrent.Semaphore;
  * @author traff
  */
 public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
-  private Set<Pair<String, Integer>> myBreakpoints = Sets.newHashSet();
+  private final Set<Pair<String, Integer>> myBreakpoints = Sets.newHashSet();
   protected PyDebugProcess myDebugProcess;
   protected XDebugSession mySession;
   protected Semaphore myPausedSemaphore;
@@ -63,6 +64,10 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
   protected boolean myProcessCanTerminate;
   protected ExecutionResult myExecutionResult;
   protected SuspendPolicy myDefaultSuspendPolicy = SuspendPolicy.THREAD;
+  /**
+   * The value must align with the one from the pydevd_resolver.py module.
+   */
+  protected static final int MAX_ITEMS_TO_HANDLE = 100;
 
   protected PyBaseDebuggerTask(@Nullable final String relativeTestDataPath) {
     super(relativeTestDataPath);
@@ -172,6 +177,10 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
     return convertToList(myDebugProcess.loadVariable(var));
   }
 
+  protected XValueChildrenList loadVariable(PyDebugValue var) throws PyDebuggerException {
+    return myDebugProcess.loadVariable(var);
+  }
+
   protected List<PyDebugValue> loadFrame() throws PyDebuggerException {
     return convertToList(myDebugProcess.loadFrame());
   }
@@ -241,8 +250,8 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
   }
 
   protected void clearAllBreakpoints() {
-
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> XDebuggerTestUtil.removeAllBreakpoints(getProject()));
+    ApplicationManager.getApplication()
+                      .invokeLater(() -> XDebuggerTestUtil.removeAllBreakpoints(getProject()), ModalityState.defaultModalityState());
   }
 
   /**
@@ -252,19 +261,30 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
    * @param line starting with 0
    */
   protected void toggleBreakpoint(final String file, final int line) {
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> doToggleBreakpoint(file, line));
+    ApplicationManager.getApplication().invokeAndWait(() -> doToggleBreakpoint(file, line), ModalityState.defaultModalityState());
     setBreakpointSuspendPolicy(getProject(), line, myDefaultSuspendPolicy);
 
-    addOrRemoveBreakpoint(file, line);
+    addBreakpointInfo(file, line);
   }
 
-  private void addOrRemoveBreakpoint(String file, int line) {
-    if (myBreakpoints.contains(Pair.create(file, line))) {
-      myBreakpoints.remove(Pair.create(file, line));
-    }
-    else {
-      myBreakpoints.add(Pair.create(file, line));
-    }
+  /**
+   * Removes breakpoint
+   *
+   * @param file getScriptName() or path to script
+   * @param line starting with 0
+   */
+  protected void removeBreakpoint(final String file, final int line) {
+    ApplicationManager.getApplication().invokeAndWait(() -> XDebuggerTestUtil.removeBreakpoint(getProject(), getFileByPath(file), line),
+                                                      ModalityState.defaultModalityState());
+    removeBreakpointInfo(file, line);
+  }
+
+  private void addBreakpointInfo(String file, int line) {
+    myBreakpoints.add(Pair.create(file, line));
+  }
+
+  private void removeBreakpointInfo(String file, int line) {
+    myBreakpoints.remove(Pair.create(file, line));
   }
 
   protected void toggleBreakpointInEgg(final String file, final String innerPath, final int line) {
@@ -278,7 +298,7 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
       XDebuggerTestUtil.toggleBreakpoint(getProject(), innerFile, line);
     });
 
-    addOrRemoveBreakpoint(file, line);
+    addBreakpointInfo(file, line);
   }
 
   public boolean canPutBreakpointAt(Project project, String file, int line) {
@@ -301,12 +321,7 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
         final XLineBreakpoint lineBreakpoint = (XLineBreakpoint)breakpoint;
 
         if (lineBreakpoint.getLine() == line) {
-          new WriteAction() {
-            @Override
-            protected void run(@NotNull Result result) {
-              lineBreakpoint.setSuspendPolicy(policy);
-            }
-          }.execute();
+          WriteAction.runAndWait(() -> lineBreakpoint.setSuspendPolicy(policy));
         }
       }
     }
@@ -323,15 +338,19 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
     return null;
   }
 
-  protected int getNumberOfReferringObjects(String name) throws PyDebuggerException {
+  protected List<String> getNumberOfReferringObjects(String name) throws PyDebuggerException {
     XValue var = XDebuggerTestUtil.evaluate(mySession, name).first;
     final PyReferringObjectsValue value = new PyReferringObjectsValue((PyDebugValue)var);
-    EvaluationCallback<Integer> callback = new EvaluationCallback<>();
+    EvaluationCallback<List<String>> callback = new EvaluationCallback<>();
 
     myDebugProcess.loadReferrers(value, new PyDebugCallback<XValueChildrenList>() {
       @Override
       public void ok(XValueChildrenList valueList) {
-        callback.evaluated(valueList.size());
+        ArrayList<String> values = new ArrayList<>();
+        for (int i = 0; i < valueList.size(); ++i) {
+          values.add(valueList.getName(i));
+        }
+        callback.evaluated(values);
       }
 
       @Override
@@ -340,7 +359,7 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
       }
     });
 
-    final Pair<Integer, String> result = callback.waitFor(NORMAL_TIMEOUT);
+    final Pair<List<String>, String> result = callback.waitFor(NORMAL_TIMEOUT);
     if (result.second != null) {
       throw new PyDebuggerException(result.second);
     }
@@ -399,6 +418,35 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
     this.shouldPrintOutput = shouldPrintOutput;
   }
 
+  public String formatStr(int x, int collectionLength) {
+    return String.format("%0" + Integer.toString(collectionLength).length() + "d", x);
+  }
+
+  public boolean hasChildWithName(XValueChildrenList children, String name) {
+    for (int i = 0; i < children.size(); i++)
+      // Dictionary key names are followed by the hash so we need to consider only
+      // the first word of a name. For lists this operation doesn't have any effect.
+      if (children.getName(i).split(" ")[0].equals(name)) return true;
+    return false;
+  }
+
+  public boolean hasChildWithName(XValueChildrenList children, int name) {
+    return hasChildWithName(children, Integer.toString(name));
+  }
+
+  public boolean hasChildWithValue(XValueChildrenList children, String value) {
+    for (int i = 0; i < children.size(); i++) {
+      PyDebugValue current = (PyDebugValue)children.getValue(i);
+      if (current.getValue().equals(value)) return true;
+    }
+    return false;
+  }
+
+  public boolean hasChildWithValue(XValueChildrenList children, int value) {
+    return hasChildWithValue(children, Integer.toString(value));
+  }
+
+
   @Override
   public void setUp(final String testName) throws Exception {
     if (myFixture == null) {
@@ -410,8 +458,9 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
   public void tearDown() throws Exception {
     try {
       EdtTestUtil.runInEdtAndWait(() ->finishSession());
-    }finally {
-      PyBaseDebuggerTask.super.tearDown();
+    }
+    finally {
+      super.tearDown();
     }
   }
 
@@ -419,11 +468,7 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
     disposeDebugProcess();
 
     if (mySession != null) {
-      new WriteAction() {
-        protected void run(@NotNull Result result) {
-          mySession.stop();
-        }
-      }.execute();
+      WriteAction.runAndWait(() -> mySession.stop());
 
       waitFor(mySession.getDebugProcess().getProcessHandler()); //wait for process termination after session.stop() which is async
 
@@ -488,7 +533,7 @@ public abstract class PyBaseDebuggerTask extends PyExecutionFixtureTestTask {
     }
   }
 
-  protected static class Variable {
+  public static class Variable {
     private final XTestValueNode myValueNode;
 
     public Variable(XValue value) {

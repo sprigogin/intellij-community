@@ -1,22 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
-import com.intellij.ide.ui.LafManager;
-import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.notification.EventLog;
 import com.intellij.notification.Notification;
 import com.intellij.openapi.Disposable;
@@ -37,8 +21,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class BalloonLayoutImpl implements BalloonLayout {
   private final ComponentAdapter myResizeListener = new ComponentAdapter() {
@@ -53,7 +37,7 @@ public class BalloonLayoutImpl implements BalloonLayout {
 
   protected final List<Balloon> myBalloons = new ArrayList<>();
   private final Map<Balloon, BalloonLayoutData> myLayoutData = new HashMap<>();
-  private Integer myWidth;
+  private GetInt myWidth;
 
   private final Alarm myRelayoutAlarm = new Alarm();
   private final Runnable myRelayoutRunnable = () -> {
@@ -76,8 +60,6 @@ public class BalloonLayoutImpl implements BalloonLayout {
     fireRelayout();
   };
 
-  private LafManagerListener myLafListener;
-
   private final List<Runnable> myListeners = new ArrayList<>();
 
   public BalloonLayoutImpl(@NotNull JRootPane parent, @NotNull Insets insets) {
@@ -89,10 +71,6 @@ public class BalloonLayoutImpl implements BalloonLayout {
 
   public void dispose() {
     myLayeredPane.removeComponentListener(myResizeListener);
-    if (myLafListener != null) {
-      LafManager.getInstance().removeLafManagerListener(myLafListener);
-      myLafListener = null;
-    }
     for (Balloon balloon : new ArrayList<>(myBalloons)) {
       Disposer.dispose(balloon);
     }
@@ -151,26 +129,13 @@ public class BalloonLayoutImpl implements BalloonLayout {
       myLayoutData.put(balloon, balloonLayoutData);
     }
     Disposer.register(balloon, new Disposable() {
+      @Override
       public void dispose() {
         clearNMore(balloon);
         remove(balloon, false);
         queueRelayout();
       }
     });
-
-    if (myLafListener == null && layoutData != null) {
-      myLafListener = new LafManagerListener() {
-        @Override
-        public void lookAndFeelChanged(LafManager source) {
-          for (BalloonLayoutData layoutData : myLayoutData.values()) {
-            if (layoutData.lafHandler != null) {
-              layoutData.lafHandler.run();
-            }
-          }
-        }
-      };
-      LafManager.getInstance().addLafManagerListener(myLafListener);
-    }
 
     calculateSize();
     relayout();
@@ -266,9 +231,9 @@ public class BalloonLayoutImpl implements BalloonLayout {
     BalloonLayoutData layoutData = myLayoutData.get(balloon);
     if (layoutData == null) {
       Dimension size = balloon.getPreferredSize();
-      return myWidth == null ? size : new Dimension(myWidth, size.height);
+      return myWidth == null ? size : new Dimension(myWidth.i(), size.height);
     }
-    return new Dimension(myWidth, layoutData.height);
+    return new Dimension(myWidth.i(), layoutData.height);
   }
 
   public boolean isEmpty() {
@@ -290,7 +255,7 @@ public class BalloonLayoutImpl implements BalloonLayout {
       }
     }
 
-    myWidth = BalloonLayoutConfiguration.FixedWidth;
+    myWidth = BalloonLayoutConfiguration::FixedWidth;
   }
 
   private void relayout() {
@@ -349,5 +314,9 @@ public class BalloonLayoutImpl implements BalloonLayout {
       eachColumnHeight += eachSize.height;
     }
     return columns;
+  }
+
+  private interface GetInt {
+    int i();
   }
 }

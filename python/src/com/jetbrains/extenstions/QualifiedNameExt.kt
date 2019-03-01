@@ -18,6 +18,9 @@ package com.jetbrains.extenstions
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
@@ -27,6 +30,7 @@ import com.intellij.psi.util.QualifiedName
 import com.jetbrains.extensions.getSdk
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.psi.PyClass
+import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.resolve.*
 import com.jetbrains.python.psi.stubs.PyModuleNameIndex
 import com.jetbrains.python.psi.types.TypeEvalContext
@@ -37,18 +41,29 @@ interface ContextAnchor {
   val project: Project
   val qualifiedNameResolveContext: PyQualifiedNameResolveContext?
   val scope: GlobalSearchScope
+  fun getRoots(): Array<VirtualFile> {
+    return sdk?.rootProvider?.getFiles(OrderRootType.CLASSES) ?: emptyArray()
+  }
 }
 
-class ModuleBasedContextAnchor(module: Module) : ContextAnchor {
-  override val sdk = module.getSdk()
-  override val project = module.project
-  override val qualifiedNameResolveContext = fromModule(module)
-  override val scope = module.moduleContentScope
+class ModuleBasedContextAnchor(val module: Module) : ContextAnchor {
+  override val sdk: Sdk? = module.getSdk()
+  override val project: Project = module.project
+  override val qualifiedNameResolveContext: PyQualifiedNameResolveContext = fromModule(module)
+  override val scope: GlobalSearchScope = module.moduleContentScope
+  override fun getRoots(): Array<VirtualFile> {
+    val manager = ModuleRootManager.getInstance(module)
+    return super.getRoots() + manager.contentRoots + manager.sourceRoots
+  }
 }
 
 class ProjectSdkContextAnchor(override val project: Project, override val sdk: Sdk?) : ContextAnchor {
-  override val qualifiedNameResolveContext = sdk?.let { fromSdk(project, it) }
-  override val scope = GlobalSearchScope.projectScope(project) //TODO: Check if project scope includes SDK
+  override val qualifiedNameResolveContext: PyQualifiedNameResolveContext? = sdk?.let { fromSdk(project, it) }
+  override val scope: GlobalSearchScope = GlobalSearchScope.projectScope(project) //TODO: Check if project scope includes SDK
+  override fun getRoots(): Array<VirtualFile> {
+    val manager = ProjectRootManager.getInstance(project)
+    return super.getRoots() + manager.contentRoots + manager.contentSourceRoots
+  }
 }
 
 
@@ -120,11 +135,14 @@ fun QualifiedName.getElementAndResolvableName(context: QNameResolveContext, stop
   // Drill as deep, as we can
   while (currentName.componentCount > 0 && element == null) {
     if (psiDirectory != null) { // Resolve against folder
-      element = resolveModuleAt(currentName, psiDirectory, resolveContext).firstOrNull()
+      // There could be folder and module on the same level. Empty folder should be ignored in this case.
+      element = resolveModuleAt(currentName, psiDirectory, resolveContext).filterNot {
+        it is PsiDirectory && it.children.filterIsInstance<PyFile>().isEmpty()
+      }.firstOrNull()
     }
 
     if (element == null) { // Resolve against roots
-      element = resolveQualifiedName(currentName, resolveContext).firstOrNull()
+      element = resolveQualifiedNameWithClasses(currentName, resolveContext).firstOrNull()
     }
 
     if (element != null || stopOnFirstFail) {

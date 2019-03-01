@@ -38,17 +38,17 @@ public class ClassInnerStuffCache {
 
   @NotNull
   public PsiField[] getFields() {
-    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(getAllFields())));
+    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(calcFields())));
   }
 
   @NotNull
   public PsiMethod[] getMethods() {
-    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(getAllMethods())));
+    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(calcMethods())));
   }
 
   @NotNull
   public PsiClass[] getInnerClasses() {
-    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(getAllInnerClasses())));
+    return copy(CachedValuesManager.getCachedValue(myClass, () -> makeResult(calcInnerClasses())));
   }
 
   @Nullable
@@ -100,21 +100,21 @@ public class ClassInnerStuffCache {
   }
 
   @NotNull
-  private PsiField[] getAllFields() {
+  private PsiField[] calcFields() {
     List<PsiField> own = myClass.getOwnFields();
     List<PsiField> ext = PsiAugmentProvider.collectAugments(myClass, PsiField.class);
     return ArrayUtil.mergeCollections(own, ext, PsiField.ARRAY_FACTORY);
   }
 
   @NotNull
-  private PsiMethod[] getAllMethods() {
+  private PsiMethod[] calcMethods() {
     List<PsiMethod> own = myClass.getOwnMethods();
     List<PsiMethod> ext = PsiAugmentProvider.collectAugments(myClass, PsiMethod.class);
     return ArrayUtil.mergeCollections(own, ext, PsiMethod.ARRAY_FACTORY);
   }
 
   @NotNull
-  private PsiClass[] getAllInnerClasses() {
+  private PsiClass[] calcInnerClasses() {
     List<PsiClass> own = myClass.getOwnInnerClasses();
     List<PsiClass> ext = PsiAugmentProvider.collectAugments(myClass, PsiClass.class);
     return ArrayUtil.mergeCollections(own, ext, PsiClass.ARRAY_FACTORY);
@@ -152,7 +152,7 @@ public class ClassInnerStuffCache {
     Map<String, PsiMethod[]> cachedMethods = ContainerUtil.newTroveMap();
     for (Map.Entry<String, List<PsiMethod>> entry : collectedMethods.entrySet()) {
       List<PsiMethod> list = entry.getValue();
-      cachedMethods.put(entry.getKey(), list.toArray(new PsiMethod[list.size()]));
+      cachedMethods.put(entry.getKey(), list.toArray(PsiMethod.EMPTY_ARRAY));
     }
     return cachedMethods;
   }
@@ -184,7 +184,7 @@ public class ClassInnerStuffCache {
   }
 
   private PsiMethod getSyntheticMethod(String text) {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myClass.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myClass.getProject());
     PsiMethod method = factory.createMethodFromText(text, myClass);
     return new LightMethod(myClass.getManager(), method, myClass) {
       @Override

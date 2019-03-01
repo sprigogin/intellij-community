@@ -15,20 +15,27 @@
  */
 package com.intellij.execution.filters;
 
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.Trinity;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.*;
 import com.intellij.psi.search.PsiShortNamesCache;
+import com.intellij.psi.util.ClassUtil;
+import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiElementFilter;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -37,6 +44,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.ToIntFunction;
 
 public class ExceptionWorker {
   @NonNls private static final String AT = "at";
@@ -48,38 +56,35 @@ public class ExceptionWorker {
   private PsiClass[] myClasses = PsiClass.EMPTY_ARRAY;
   private PsiFile[] myFiles = PsiFile.EMPTY_ARRAY;
   private String myMethod;
-  private Trinity<TextRange, TextRange, TextRange> myInfo;
+  private ParsedLine myInfo;
   private final ExceptionInfoCache myCache;
+  private PsiElementFilter myLocationRefiner;
 
   public ExceptionWorker(@NotNull ExceptionInfoCache cache) {
     myProject = cache.getProject();
     myCache = cache;
   }
 
-  public Filter.Result execute(final String line, final int textEndOffset) {
+  public Filter.Result execute(@NotNull String line, final int textEndOffset) {
+    return execute(line, textEndOffset, null);
+  }
+
+  public Filter.Result execute(@NotNull String line, final int textEndOffset, @Nullable PsiElementFilter elementMatcher) {
     myResult = null;
     myInfo = parseExceptionLine(line);
-    if (myInfo == null) {
+    if (myInfo == null || myProject.isDisposed()) {
       return null;
     }
 
-    myMethod = myInfo.getSecond().substring(line);
+    myMethod = myInfo.methodNameRange.substring(line);
 
-    final String fileAndLine = myInfo.third.substring(line).trim();
-
-    final int colonIndex = fileAndLine.lastIndexOf(':');
-    if (colonIndex < 0) return null;
-
-    final int lineNumber = getLineNumber(fileAndLine.substring(colonIndex + 1));
-    if (lineNumber < 0) return null;
-
-    Pair<PsiClass[], PsiFile[]> pair = myCache.resolveClass(myInfo.first.substring(line).trim());
+    Pair<PsiClass[], PsiFile[]> pair = myCache.resolveClass(myInfo.classFqnRange.substring(line).trim());
     myClasses = pair.first;
     myFiles = pair.second;
-    if (myFiles.length == 0) {
+    if (myFiles.length == 0 && myInfo.fileName != null) {
       // try find the file with the required name
       //todo[nik] it would be better to use FilenameIndex here to honor the scope by it isn't accessible in Open API
-      myFiles = PsiShortNamesCache.getInstance(myProject).getFilesByName(fileAndLine.substring(0, colonIndex).trim());
+      myFiles = PsiShortNamesCache.getInstance(myProject).getFilesByName(myInfo.fileName);
     }
     if (myFiles.length == 0) return null;
 
@@ -93,8 +98,8 @@ public class ExceptionWorker {
 
     final int textStartOffset = textEndOffset - line.length();
 
-    final int highlightStartOffset = textStartOffset + myInfo.third.getStartOffset();
-    final int highlightEndOffset = textStartOffset + myInfo.third.getEndOffset();
+    int highlightStartOffset = textStartOffset + myInfo.fileLineRange.getStartOffset();
+    int highlightEndOffset = textStartOffset + myInfo.fileLineRange.getEndOffset();
 
     ProjectFileIndex index = ProjectRootManager.getInstance(myProject).getFileIndex();
     List<VirtualFile> virtualFilesInLibraries = new ArrayList<>();
@@ -122,13 +127,29 @@ public class ExceptionWorker {
     else {
       virtualFiles = virtualFilesInContent;
     }
-    HyperlinkInfo linkInfo = HyperlinkInfoFactory.getInstance().createMultipleFilesHyperlinkInfo(virtualFiles, lineNumber - 1, myProject);
+    ToIntFunction<PsiFile> columnFinder =
+      elementMatcher == null || myInfo.lineNumber <= 0 ? null : new ExceptionColumnFinder(elementMatcher, myInfo.lineNumber - 1);
+    HyperlinkInfo linkInfo =
+      HyperlinkInfoFactory.getInstance().createMultipleFilesHyperlinkInfo(virtualFiles, myInfo.lineNumber - 1, myProject, columnFinder);
     Filter.Result result = new Filter.Result(highlightStartOffset, highlightEndOffset, linkInfo, attributes);
+    if (myMethod.startsWith("access$")) {
+      myLocationRefiner = elementMatcher;
+    }
+    else if (myMethod.startsWith("lambda$")) {
+      myLocationRefiner = new FunctionCallMatcher();
+    }
+    else {
+      myLocationRefiner = new StackFrameMatcher(line, myInfo);
+    }
     myResult = result;
     return result;
   }
 
-  private static int getLineNumber(String lineString) {
+  public PsiElementFilter getLocationRefiner() {
+    return myLocationRefiner;
+  }
+
+  private static int getLineNumber(@NotNull String lineString) {
     // some quick checks to avoid costly exceptions
     if (lineString.isEmpty() || lineString.length() > 9 || !Character.isDigit(lineString.charAt(0))) {
       return -1;
@@ -158,18 +179,18 @@ public class ExceptionWorker {
     return ArrayUtil.getFirstElement(myFiles);
   }
 
-  public Trinity<TextRange, TextRange, TextRange> getInfo() {
+  public ParsedLine getInfo() {
     return myInfo;
   }
 
-  private static int findAtPrefix(String line) {
+  private static int findAtPrefix(@NotNull String line) {
     if (line.startsWith(AT_PREFIX)) return 0;
 
     int startIdx = line.indexOf(STANDALONE_AT);
     return startIdx < 0 ? line.indexOf(AT_PREFIX) : startIdx;
   }
 
-  private static int findFirstRParenAfterDigit(String line) {
+  private static int findFirstRParenAfterDigit(@NotNull String line) {
     int rParenIdx = -1;
     int rParenCandidate = line.lastIndexOf(')');
     //Looking for minimal position for ')' after a digit
@@ -183,42 +204,96 @@ public class ExceptionWorker {
   }
 
   @Nullable
-  public static Trinity<TextRange, TextRange, TextRange> parseExceptionLine(final String line) {
-    int startIdx = findAtPrefix(line);
-
-    TextRange yourKitLink = startIdx < 0 ? getYourKitLinkRange(line) : null;
-    int rParenIdx = yourKitLink != null ? yourKitLink.getEndOffset() - 2 : findFirstRParenAfterDigit(line);
-    if (rParenIdx < 0) return null;
-
-    final int lParenIdx = line.lastIndexOf('(', rParenIdx);
-    if (lParenIdx < 0) return null;
-    
-    final int dotIdx = line.lastIndexOf('.', lParenIdx);
-    if (dotIdx < 0 || dotIdx < startIdx) return null;
-    int moduleIdx = line.indexOf('/');
-    int classNameIdx = moduleIdx > -1 && moduleIdx < lParenIdx && moduleIdx < dotIdx ? moduleIdx + 1 : startIdx + 1 + (startIdx >= 0 ? AT.length() : 0);
-
-    // class, method, link
-    return Trinity.create(new TextRange(classNameIdx, handleSpaces(line, dotIdx, -1)),
-                          new TextRange(handleSpaces(line, dotIdx + 1, 1), handleSpaces(line, lParenIdx, -1)),
-                          yourKitLink != null ? yourKitLink : new TextRange(lParenIdx + 1, rParenIdx));
+  public static ParsedLine parseExceptionLine(@NotNull String line) {
+    ParsedLine result = parseNormalStackTraceLine(line);
+    if (result == null) result = parseYourKitLine(line);
+    if (result == null) result = parseForcedLine(line);
+    return result;
   }
 
   @Nullable
-  private static TextRange getYourKitLinkRange(String line) {
+  private static ParsedLine parseNormalStackTraceLine(@NotNull String line) {
+    int startIdx = findAtPrefix(line);
+    int rParenIdx = findFirstRParenAfterDigit(line);
+    if (rParenIdx < 0) return null;
+
+    TextRange methodName = findMethodNameCandidateBefore(line, startIdx, rParenIdx);
+    if (methodName == null) return null;
+
+    int lParenIdx = methodName.getEndOffset();
+    int dotIdx = methodName.getStartOffset() - 1;
+    int moduleIdx = line.indexOf('/');
+    int classNameIdx = moduleIdx > -1 && moduleIdx < dotIdx ? moduleIdx + 1 : startIdx + 1 + (startIdx >= 0 ? AT.length() : 0);
+
+    return ParsedLine.createFromFileAndLine(new TextRange(classNameIdx, handleSpaces(line, dotIdx, -1)),
+                                            trimRange(line, methodName),
+                                            lParenIdx + 1, rParenIdx, line);
+  }
+
+  @NotNull
+  private static TextRange trimRange(@NotNull String line, @NotNull TextRange range) {
+    int start = handleSpaces(line, range.getStartOffset(), 1);
+    int end = handleSpaces(line, range.getEndOffset(), -1);
+    if (start != range.getStartOffset() || end != range.getEndOffset()) {
+      return TextRange.create(start, end);
+    }
+    return range;
+  }
+
+  @Nullable
+  private static ParsedLine parseYourKitLine(@NotNull String line) {
     int lineEnd = line.length() - 1;
     if (lineEnd > 0 && line.charAt(lineEnd) == '\n') lineEnd--;
     if (lineEnd > 0 && Character.isDigit(line.charAt(lineEnd))) {
       int spaceIndex = line.lastIndexOf(' ');
       int rParenIdx = line.lastIndexOf(')');
       if (rParenIdx > 0 && spaceIndex == rParenIdx + 1) {
-        return new TextRange(spaceIndex + 1, lineEnd + 1);
+        TextRange methodName = findMethodNameCandidateBefore(line, 0, rParenIdx);
+        if (methodName != null) {
+          return ParsedLine.createFromFileAndLine(new TextRange(0, methodName.getStartOffset() - 1),
+                                                  methodName,
+                                                  spaceIndex + 1, lineEnd + 1, 
+                                                  line);
+        }
       }
     }
     return null;
   }
 
-  private static int handleSpaces(String line, int pos, int delta) {
+  @Nullable
+  private static ParsedLine parseForcedLine(@NotNull String line) {
+    String dash = "- ";
+    if (!line.trim().startsWith(dash)) return null;
+
+    String linePrefix = "line=";
+    int lineNumberStart = line.indexOf(linePrefix);
+    if (lineNumberStart < 0) return null;
+    
+    int lineNumberEnd = line.indexOf(' ', lineNumberStart);
+    if (lineNumberEnd < 0) return null;
+
+    TextRange methodName = findMethodNameCandidateBefore(line, 0, lineNumberStart);
+    if (methodName == null) return null;
+
+    int lineNumber = getLineNumber(line.substring(lineNumberStart + linePrefix.length(), lineNumberEnd));
+    if (lineNumber < 0) return null;
+
+    return new ParsedLine(trimRange(line, TextRange.create(line.indexOf(dash) + dash.length(), methodName.getStartOffset() - 1)), 
+                          methodName, 
+                          TextRange.create(lineNumberStart, lineNumberEnd), null, lineNumber);
+  }
+  
+  private static TextRange findMethodNameCandidateBefore(@NotNull String line, int start, int end) {
+    int lParenIdx = line.lastIndexOf('(', end);
+    if (lParenIdx < 0) return null;
+
+    int dotIdx = line.lastIndexOf('.', lParenIdx);
+    if (dotIdx < 0 || dotIdx < start) return null;
+    
+    return TextRange.create(dotIdx + 1, lParenIdx);
+  }
+
+  private static int handleSpaces(@NotNull String line, int pos, int delta) {
     int len = line.length();
     while (pos >= 0 && pos < len) {
       final char c = line.charAt(pos);
@@ -226,5 +301,138 @@ public class ExceptionWorker {
       pos += delta;
     }
     return pos;
+  }
+
+  public static class ParsedLine {
+    @NotNull public final TextRange classFqnRange;
+    @NotNull public final TextRange methodNameRange;
+    @NotNull public final TextRange fileLineRange;
+    @Nullable public final String fileName;
+    public final int lineNumber;
+
+    ParsedLine(@NotNull TextRange classFqnRange,
+               @NotNull TextRange methodNameRange,
+               @NotNull TextRange fileLineRange, @Nullable String fileName, int lineNumber) {
+      this.classFqnRange = classFqnRange;
+      this.methodNameRange = methodNameRange;
+      this.fileLineRange = fileLineRange;
+      this.fileName = fileName;
+      this.lineNumber = lineNumber;
+    }
+
+    @Nullable
+    private static ParsedLine createFromFileAndLine(@NotNull TextRange classFqnRange,
+                                                    @NotNull TextRange methodNameRange,
+                                                    int fileLineStart, int fileLineEnd, @NotNull String line) {
+      TextRange fileLineRange = TextRange.create(fileLineStart, fileLineEnd);
+      String fileAndLine = fileLineRange.substring(line);
+
+      int colonIndex = fileAndLine.lastIndexOf(':');
+      if (colonIndex < 0) return null;
+
+      int lineNumber = getLineNumber(fileAndLine.substring(colonIndex + 1));
+      if (lineNumber < 0) return null;
+
+      return new ParsedLine(classFqnRange, methodNameRange, fileLineRange, fileAndLine.substring(0, colonIndex).trim(), lineNumber);
+    } 
+  }
+  
+  private static class StackFrameMatcher implements PsiElementFilter {
+    private final String myMethodName;
+    private final String myClassName;
+    private final boolean myHasDollarInName;
+
+    private StackFrameMatcher(@NotNull String line, @NotNull ParsedLine info) {
+      myMethodName = info.methodNameRange.substring(line);
+      myClassName = info.classFqnRange.substring(line);
+      myHasDollarInName = StringUtil.getShortName(myClassName).contains("$");
+    }
+
+    @Override
+    public boolean isAccepted(@NotNull PsiElement element) {
+      if (!(element instanceof PsiIdentifier)) return false;
+      if (myMethodName.equals("<init>")) {
+        if (myHasDollarInName || element.textMatches(StringUtil.getShortName(myClassName))) {
+          PsiElement parent = element.getParent();
+          while (parent instanceof PsiJavaCodeReferenceElement) {
+            parent = parent.getParent();
+          }
+          if (parent instanceof PsiAnonymousClass) {
+            return isTargetClass(parent) || isTargetClass(((PsiAnonymousClass)parent).getSuperClass());
+          }
+          if (parent instanceof PsiNewExpression) {
+            PsiJavaCodeReferenceElement ref = ((PsiNewExpression)parent).getClassOrAnonymousClassReference();
+            return ref != null && isTargetClass(ref.resolve());
+          }
+        }
+      }
+      else if (element.textMatches(myMethodName)) {
+        PsiElement parent = element.getParent();
+        if (parent instanceof PsiReferenceExpression) {
+          PsiElement target = ((PsiReferenceExpression)parent).resolve();
+          return target instanceof PsiMethod && isTargetClass(((PsiMethod)target).getContainingClass());
+        }
+      }
+      return false;
+    }
+
+    private boolean isTargetClass(PsiElement maybeClass) {
+      if (!(maybeClass instanceof PsiClass)) return false;
+      PsiClass declaredClass = (PsiClass)maybeClass;
+      String declaredName = declaredClass.getQualifiedName();
+      if (myClassName.equals(declaredName)) return true;
+      PsiClass calledClass = ClassUtil.findPsiClass(maybeClass.getManager(), myClassName, declaredClass, true);
+      if (calledClass == null) {
+        calledClass = ClassUtil.findPsiClass(maybeClass.getManager(), myClassName, null, true);
+      }
+      return calledClass == declaredClass || declaredName != null && InheritanceUtil.isInheritor(calledClass, false, declaredName);
+    }
+  }
+
+  private static class ExceptionColumnFinder implements ToIntFunction<PsiFile> {
+    private final PsiElementFilter myElementMatcher;
+    private final int myLineNumber;
+
+    private ExceptionColumnFinder(@NotNull PsiElementFilter elementMatcher, int lineNumber) {
+      myElementMatcher = elementMatcher;
+      myLineNumber = lineNumber;
+    }
+
+    @Override
+    public int applyAsInt(PsiFile file) {
+      if (DumbService.isDumb(file.getProject())) return 0; // may need to resolve refs
+      Document document = FileDocumentManager.getInstance().getDocument(file.getVirtualFile());
+      if (document == null || document.getLineCount() <= myLineNumber) return 0;
+      if (!PsiDocumentManager.getInstance(file.getProject()).isCommitted(document)) return 0;
+      int startOffset = document.getLineStartOffset(myLineNumber);
+      int endOffset = document.getLineEndOffset(myLineNumber);
+      PsiElement element = file.findElementAt(startOffset);
+      List<PsiElement> candidates = new ArrayList<>();
+      while (element != null && element.getTextRange().getStartOffset() < endOffset) {
+        if (myElementMatcher.isAccepted(element)) {
+          candidates.add(element);
+          if (candidates.size() > 1) return 0;
+        }
+        element = PsiTreeUtil.nextLeaf(element);
+      }
+      if (candidates.size() == 1) {
+        return candidates.get(0).getTextRange().getStartOffset() - startOffset;
+      }
+      return 0;
+    }
+  }
+
+  private static class FunctionCallMatcher implements PsiElementFilter {
+    @Override
+    public boolean isAccepted(@NotNull PsiElement element) {
+      if (!(element instanceof PsiIdentifier)) return false;
+      PsiElement parent = element.getParent();
+      if (!(parent instanceof PsiReferenceExpression)) return false;
+      PsiMethodCallExpression call = ObjectUtils.tryCast(parent.getParent(), PsiMethodCallExpression.class);
+      if (call == null) return false;
+      PsiMethod target = call.resolveMethod();
+      if (target == null) return false;
+      return LambdaUtil.getFunctionalInterfaceMethod(target.getContainingClass()) == target;
+    }
   }
 }

@@ -1,26 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
+import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiFileFactory;
 import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.TempFiles;
 import org.jetbrains.annotations.NotNull;
+import org.junit.Assert;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,7 +51,7 @@ public class GlobalSearchScopeTest extends PlatformTestCase {
   }
 
   public void testNotScope() {
-    VirtualFile moduleRoot = new TempFiles(myFilesToDelete).createTempVDir();
+    VirtualFile moduleRoot = getTempDir().createTempVDir();
     ModuleRootModificationUtil.addContentRoot(getModule(), moduleRoot.getPath());
 
     GlobalSearchScope projectScope = GlobalSearchScope.projectScope(getProject());
@@ -117,7 +106,53 @@ public class GlobalSearchScopeTest extends PlatformTestCase {
     PsiTestUtil.addContentRoot(getModule(), contentRoot);
     PsiTestUtil.addLibrary(getModule(), libRoot.getPath());
 
-    assertTrue(GlobalSearchScopes.directoryScope(myProject, libRoot, true).isSearchInLibraries());
-    assertTrue(GlobalSearchScopes.directoriesScope(myProject, true, libRoot, contentRoot).isSearchInLibraries());
+    assertTrue(GlobalSearchScopesCore.directoryScope(myProject, libRoot, true).isSearchInLibraries());
+    assertTrue(GlobalSearchScopesCore.directoriesScope(myProject, true, libRoot, contentRoot).isSearchInLibraries());
+  }
+
+  public void testUnionWithEmptyScopeMustNotAffectCompare() {
+    VirtualFile moduleRoot = getTempDir().createTempVDir();
+    assertNotNull(moduleRoot);
+    PsiTestUtil.addSourceRoot(getModule(), moduleRoot);
+    VirtualFile moduleRoot2 = getTempDir().createTempVDir();
+    assertNotNull(moduleRoot2);
+    PsiTestUtil.addSourceRoot(getModule(), moduleRoot2);
+
+    GlobalSearchScope modScope = getModule().getModuleContentScope();
+    int compare = modScope.compare(moduleRoot, moduleRoot2);
+    assertTrue(compare != 0);
+    GlobalSearchScope union = modScope.uniteWith(GlobalSearchScope.EMPTY_SCOPE);
+    int compare2 = union.compare(moduleRoot, moduleRoot2);
+    assertEquals(compare, compare2);
+
+    assertEquals(modScope.compare(moduleRoot2, moduleRoot), union.compare(moduleRoot2, moduleRoot));
+  }
+
+  public void testIsInScopeDoesNotAcceptRandomNonPhysicalFilesByDefault() {
+    PsiFile file = PsiFileFactory.getInstance(myProject).createFileFromText(PlainTextLanguage.INSTANCE, "");
+    VirtualFile vFile = file.getViewProvider().getVirtualFile();
+
+    assertFalse(GlobalSearchScope.allScope(myProject).contains(vFile));
+    assertFalse(PsiSearchScopeUtil.isInScope(GlobalSearchScope.allScope(myProject), file));
+
+    assertTrue(file.getResolveScope().contains(vFile));
+    assertTrue(PsiSearchScopeUtil.isInScope(file.getResolveScope(), file));
+  }
+
+  public void testUnionWithEmptyAndUnion() {
+    GlobalSearchScope scope = GlobalSearchScope.EMPTY_SCOPE.uniteWith(GlobalSearchScope.EMPTY_SCOPE);
+    assertEquals(GlobalSearchScope.EMPTY_SCOPE, scope);
+    GlobalSearchScope scope2 = GlobalSearchScope.union(new GlobalSearchScope[]{GlobalSearchScope.EMPTY_SCOPE, GlobalSearchScope.EMPTY_SCOPE});
+    assertEquals(GlobalSearchScope.EMPTY_SCOPE, scope2);
+    GlobalSearchScope p = GlobalSearchScope.projectScope(getProject());
+    GlobalSearchScope scope3 = GlobalSearchScope.union(new GlobalSearchScope[]{GlobalSearchScope.EMPTY_SCOPE, p, GlobalSearchScope.EMPTY_SCOPE});
+    assertEquals(p, scope3);
+
+    GlobalSearchScope m = GlobalSearchScope.moduleScope(getModule());
+    GlobalSearchScope pm = m.uniteWith(p);
+    Assert.assertNotEquals(m, pm);
+
+    GlobalSearchScope scope4 = GlobalSearchScope.union(new GlobalSearchScope[]{GlobalSearchScope.EMPTY_SCOPE, p, GlobalSearchScope.EMPTY_SCOPE, pm, m});
+    assertEquals(pm, scope4);
   }
 }

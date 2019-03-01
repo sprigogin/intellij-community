@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.util;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
@@ -86,10 +74,10 @@ public class GitPreservingProcess {
 
   public void execute(@Nullable final Computable<Boolean> autoLoadDecision) {
     Runnable operation = () -> {
-      LOG.debug("starting");
-      boolean savedSuccessfully = save();
+      Ref<Boolean> savedSuccessfully = Ref.create();
+      ProgressManager.getInstance().executeNonCancelableSection(() -> savedSuccessfully.set(save()));
       LOG.debug("save result: " + savedSuccessfully);
-      if (savedSuccessfully) {
+      if (savedSuccessfully.get()) {
         try {
           LOG.debug("running operation");
           myOperation.run();
@@ -98,7 +86,7 @@ public class GitPreservingProcess {
         finally {
           if (autoLoadDecision == null || autoLoadDecision.compute()) {
             LOG.debug("loading");
-            load();
+            ProgressManager.getInstance().executeNonCancelableSection(() -> load());
           }
           else {
             mySaver.notifyLocalChangesAreNotRestored();
@@ -118,6 +106,7 @@ public class GitPreservingProcess {
   private GitChangesSaver configureSaver(@NotNull GitVcsSettings.UpdateChangesPolicy saveMethod) {
     GitChangesSaver saver = GitChangesSaver.getSaver(myProject, myGit, myProgressIndicator, myStashMessage, saveMethod);
     MergeDialogCustomizer mergeDialogCustomizer = new MergeDialogCustomizer() {
+      @NotNull
       @Override
       public String getMultipleFileMergeDescription(@NotNull Collection<VirtualFile> files) {
         return String.format(
@@ -125,18 +114,20 @@ public class GitPreservingProcess {
           myOperationTitle, myDestinationName);
       }
 
+      @NotNull
       @Override
       public String getLeftPanelTitle(@NotNull VirtualFile file) {
         return "Uncommitted changes from stash";
       }
 
+      @NotNull
       @Override
       public String getRightPanelTitle(@NotNull VirtualFile file, VcsRevisionNumber revisionNumber) {
         return String.format("<html>Changes from <b><code>%s</code></b></html>", myDestinationName);
       }
     };
 
-    GitConflictResolver.Params params = new GitConflictResolver.Params().
+    GitConflictResolver.Params params = new GitConflictResolver.Params(myProject).
       setReverse(true).
       setMergeDialogCustomizer(mergeDialogCustomizer).
       setErrorNotificationTitle("Local changes were not restored");

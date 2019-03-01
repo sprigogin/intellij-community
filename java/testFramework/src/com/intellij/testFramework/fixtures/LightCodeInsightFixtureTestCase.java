@@ -1,6 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures;
 
 import com.intellij.lang.Language;
@@ -15,10 +13,7 @@ import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
-import com.intellij.testFramework.IdeaTestUtil;
-import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.UsefulTestCase;
+import com.intellij.testFramework.*;
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,76 +23,53 @@ import java.io.File;
  * @author peter
  */
 public abstract class LightCodeInsightFixtureTestCase extends UsefulTestCase {
-  public static final LightProjectDescriptor JAVA_1_4 = new DefaultLightProjectDescriptor() {
+  protected static class ProjectDescriptor extends DefaultLightProjectDescriptor {
+    protected final LanguageLevel myLanguageLevel;
+    private final boolean myWithAnnotations;
+
+    public ProjectDescriptor(@NotNull LanguageLevel languageLevel) {
+      this(languageLevel, false);
+    }
+
+    public ProjectDescriptor(@NotNull LanguageLevel languageLevel, boolean withAnnotations) {
+      myLanguageLevel = languageLevel;
+      myWithAnnotations = withAnnotations;
+    }
+
     @Override
     public Sdk getSdk() {
-      return IdeaTestUtil.getMockJdk14();
+      Sdk jdk = IdeaTestUtil.getMockJdk(myLanguageLevel.toJavaVersion());
+      return myWithAnnotations ? PsiTestUtil.addJdkAnnotations(jdk) : jdk;
     }
 
     @Override
     public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_4);
+      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(myLanguageLevel);
     }
-  };
+  }
 
-  public static final LightProjectDescriptor JAVA_1_5 = new DefaultLightProjectDescriptor() {
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_5);
-    }
-  };
+  @NotNull public static final LightProjectDescriptor JAVA_1_4 = new ProjectDescriptor(LanguageLevel.JDK_1_4);
+  @NotNull public static final LightProjectDescriptor JAVA_1_4_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_4, true);
+  @NotNull public static final LightProjectDescriptor JAVA_1_5 = new ProjectDescriptor(LanguageLevel.JDK_1_5);
+  @NotNull public static final LightProjectDescriptor JAVA_1_6 = new ProjectDescriptor(LanguageLevel.JDK_1_6);
+  @NotNull public static final LightProjectDescriptor JAVA_1_7 = new ProjectDescriptor(LanguageLevel.JDK_1_7);
+  @NotNull public static final LightProjectDescriptor JAVA_1_7_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_7, true);
+  @NotNull public static final LightProjectDescriptor JAVA_8 = new ProjectDescriptor(LanguageLevel.JDK_1_8);
+  @NotNull public static final LightProjectDescriptor JAVA_8_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_8, true);
+  @NotNull public static final LightProjectDescriptor JAVA_9 = new ProjectDescriptor(LanguageLevel.JDK_1_9);
+  @NotNull public static final LightProjectDescriptor JAVA_9_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_1_9, true);
+  @NotNull public static final LightProjectDescriptor JAVA_10 = new ProjectDescriptor(LanguageLevel.JDK_10);
+  @NotNull public static final LightProjectDescriptor JAVA_10_ANNOTATED = new ProjectDescriptor(LanguageLevel.JDK_10, true);
+  @NotNull public static final LightProjectDescriptor JAVA_11 = new ProjectDescriptor(LanguageLevel.JDK_11);
+  @NotNull public static final LightProjectDescriptor JAVA_12 = new ProjectDescriptor(LanguageLevel.JDK_12_PREVIEW);
+  @NotNull public static final LightProjectDescriptor JAVA_X = new ProjectDescriptor(LanguageLevel.JDK_X);
 
-  public static final LightProjectDescriptor JAVA_1_6 = new DefaultLightProjectDescriptor() {
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_6);
-    }
-  };
-
-  public static final LightProjectDescriptor JAVA_1_7 = new DefaultLightProjectDescriptor() {
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_7);
-    }
-  };
-
-  public static final LightProjectDescriptor JAVA_8 = new DefaultLightProjectDescriptor() {
+  public static final LightProjectDescriptor JAVA_LATEST = new ProjectDescriptor(LanguageLevel.HIGHEST) {
     @Override
     public Sdk getSdk() {
-      return IdeaTestUtil.getMockJdk18();
-    }
-
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_8);
+      return IdeaTestUtil.getMockJdk17();
     }
   };
-
-  public static final LightProjectDescriptor JAVA_9 = new DefaultLightProjectDescriptor() {
-    @Override
-    public Sdk getSdk() {
-      return IdeaTestUtil.getMockJdk9();
-    }
-
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_9);
-    }
-  };
-
-  public static final LightProjectDescriptor JAVA_X = new DefaultLightProjectDescriptor() {
-    @Override
-    public Sdk getSdk() {
-      return IdeaTestUtil.getMockJdk9();
-    }
-
-    @Override
-    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_X);
-    }
-  };
-
-  public static final LightProjectDescriptor JAVA_LATEST = new DefaultLightProjectDescriptor();
 
   protected JavaCodeInsightTestFixture myFixture;
   protected Module myModule;
@@ -109,21 +81,31 @@ public abstract class LightCodeInsightFixtureTestCase extends UsefulTestCase {
     IdeaTestFixtureFactory factory = IdeaTestFixtureFactory.getFixtureFactory();
     TestFixtureBuilder<IdeaProjectTestFixture> fixtureBuilder = factory.createLightFixtureBuilder(getProjectDescriptor());
     IdeaProjectTestFixture fixture = fixtureBuilder.getFixture();
-    myFixture = JavaTestFixtureFactory.getFixtureFactory().createCodeInsightFixture(fixture, new LightTempDirTestFixtureImpl(true));
+    myFixture = JavaTestFixtureFactory.getFixtureFactory().createCodeInsightFixture(fixture, getTempDirFixture());
 
-    myFixture.setUp();
     myFixture.setTestDataPath(getTestDataPath());
+    myFixture.setUp();
 
     myModule = myFixture.getModule();
 
     LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_6);
   }
 
+  @NotNull
+  protected TempDirTestFixture getTempDirFixture() {
+    IdeaTestExecutionPolicy policy = IdeaTestExecutionPolicy.current();
+    return policy != null
+           ? policy.createTempDirTestFixture()
+           : new LightTempDirTestFixtureImpl(true);
+  }
+
   @Override
-  @SuppressWarnings("Duplicates")
   protected void tearDown() throws Exception {
     try {
       myFixture.tearDown();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       myFixture = null;
@@ -168,7 +150,7 @@ public abstract class LightCodeInsightFixtureTestCase extends UsefulTestCase {
   }
 
   public PsiElementFactory getElementFactory() {
-    return JavaPsiFacade.getInstance(getProject()).getElementFactory();
+    return JavaPsiFacade.getElementFactory(getProject());
   }
 
   protected PsiFile createLightFile(FileType fileType, String text) {

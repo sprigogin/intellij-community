@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.ex;
 
 import com.intellij.BundleBase;
@@ -87,7 +73,7 @@ public class ConfigurableExtensionPointUtil {
   @NotNull
   private static ConfigurableWrapper addChildrenRec(@NotNull String id,
                                                     @NotNull Map<String, ConfigurableWrapper> idToConfigurable,
-                                                    @NotNull Set<String> visited,
+                                                    @NotNull Set<? super String> visited,
                                                     @NotNull Map<String, List<String>> idTree) {
     ConfigurableWrapper wrapper = idToConfigurable.get(id);
     if (visited.contains(id)) {
@@ -144,7 +130,7 @@ public class ConfigurableExtensionPointUtil {
    * @param project       a project used to create a project settings group or {@code null}
    * @return the root configurable group that represents a tree of settings
    */
-  public static ConfigurableGroup getConfigurableGroup(@NotNull List<Configurable> configurables, @Nullable Project project) {
+  public static ConfigurableGroup getConfigurableGroup(@NotNull List<? extends Configurable> configurables, @Nullable Project project) {
     Map<String, List<Configurable>> map = groupConfigurables(configurables);
     Map<String, Node<SortedConfigurableGroup>> tree = ContainerUtil.newHashMap();
     for (Map.Entry<String, List<Configurable>> entry : map.entrySet()) {
@@ -204,7 +190,7 @@ public class ConfigurableExtensionPointUtil {
     Node<SortedConfigurableGroup> node = tree.remove(groupId);
     if (node.myChildren != null) {
       for (Iterator<Object> iterator = node.myChildren.iterator(); iterator.hasNext(); iterator.remove()) {
-        @SuppressWarnings("unchecked") // expected type
+        // expected type
         String childId = (String)iterator.next();
         node.myValue.myList.add(getGroup(tree, childId));
       }
@@ -213,7 +199,7 @@ public class ConfigurableExtensionPointUtil {
   }
 
   private static void addGroup(Map<String, Node<SortedConfigurableGroup>> tree, Project project,
-                               String groupId, List<Configurable> configurables, ResourceBundle alternative) {
+                               String groupId, List<? extends Configurable> configurables, ResourceBundle alternative) {
     String id = "configurable.group." + groupId;
     ResourceBundle bundle = getBundle(id + ".settings.display.name", configurables, alternative);
     if (bundle == null) {
@@ -264,7 +250,7 @@ public class ConfigurableExtensionPointUtil {
    * @param configurables a list of settings to process
    * @return the map of different groups of settings
    */
-  public static Map<String, List<Configurable>> groupConfigurables(@NotNull List<Configurable> configurables) {
+  public static Map<String, List<Configurable>> groupConfigurables(@NotNull List<? extends Configurable> configurables) {
     Map<String, Node<ConfigurableWrapper>> tree = new THashMap<>();
     for (Configurable configurable : configurables) {
       if (!(configurable instanceof ConfigurableWrapper)) {
@@ -365,20 +351,20 @@ public class ConfigurableExtensionPointUtil {
     if (withIdeSettings) {
       Application application = ApplicationManager.getApplication();
       if (application != null) {
-        for (ConfigurableEP<Configurable> extension : application.getExtensions(Configurable.APPLICATION_CONFIGURABLE)) {
+        for (ConfigurableEP<Configurable> extension : Configurable.APPLICATION_CONFIGURABLE.getExtensionList()) {
           addValid(list, ConfigurableWrapper.wrapConfigurable(extension, true), null);
         }
       }
     }
     if (project != null && !project.isDisposed()) {
-      for (ConfigurableEP<Configurable> extension : project.getExtensions(Configurable.PROJECT_CONFIGURABLE)) {
+      for (ConfigurableEP<Configurable> extension : Configurable.PROJECT_CONFIGURABLE.getExtensionList(project)) {
         addValid(list, ConfigurableWrapper.wrapConfigurable(extension, true), project);
       }
     }
     return list;
   }
 
-  private static void addValid(List<Configurable> list, Configurable configurable, Project project) {
+  private static void addValid(List<? super Configurable> list, Configurable configurable, Project project) {
     if (isValid(configurable, project)) {
       list.add(configurable);
     }
@@ -402,7 +388,7 @@ public class ConfigurableExtensionPointUtil {
 
   @Nullable
   public static ResourceBundle getBundle(@NotNull String resource,
-                                         @Nullable Iterable<Configurable> configurables,
+                                         @Nullable Iterable<? extends Configurable> configurables,
                                          @Nullable ResourceBundle alternative) {
     ResourceBundle bundle = OptionsBundle.getBundle();
     if (getString(bundle, resource) != null) {
@@ -506,18 +492,14 @@ public class ConfigurableExtensionPointUtil {
   /**
    * @deprecated create a new instance of configurable instead
    */
+  @Deprecated
   @NotNull
   public static <T extends Configurable> T findProjectConfigurable(@NotNull Project project, @NotNull Class<T> configurableClass) {
-    return findConfigurable(project.getExtensions(Configurable.PROJECT_CONFIGURABLE), configurableClass);
+    return findConfigurable(Configurable.PROJECT_CONFIGURABLE.getExtensionList(project), configurableClass);
   }
 
   @NotNull
-  public static <T extends Configurable> T findApplicationConfigurable(@NotNull Class<T> configurableClass) {
-    return findConfigurable(Configurable.APPLICATION_CONFIGURABLE.getExtensions(), configurableClass);
-  }
-
-  @NotNull
-  private static <T extends Configurable> T findConfigurable(ConfigurableEP<Configurable>[] extensions, Class<T> configurableClass) {
+  private static <T extends Configurable> T findConfigurable(@NotNull List<ConfigurableEP<Configurable>> extensions, Class<T> configurableClass) {
     for (ConfigurableEP<Configurable> extension : extensions) {
       if (extension.canCreateConfigurable()) {
         final Configurable configurable = extension.createConfigurable();
@@ -531,16 +513,16 @@ public class ConfigurableExtensionPointUtil {
 
   @Nullable
   public static Configurable createProjectConfigurableForProvider(@NotNull Project project, Class<? extends ConfigurableProvider> providerClass) {
-    return createConfigurableForProvider(project.getExtensions(Configurable.PROJECT_CONFIGURABLE), providerClass);
+    return createConfigurableForProvider(Configurable.PROJECT_CONFIGURABLE.getExtensionList(project), providerClass);
   }
 
   @Nullable
   public static Configurable createApplicationConfigurableForProvider(Class<? extends ConfigurableProvider> providerClass) {
-    return createConfigurableForProvider(Configurable.APPLICATION_CONFIGURABLE.getExtensions(), providerClass);
+    return createConfigurableForProvider(Configurable.APPLICATION_CONFIGURABLE.getExtensionList(), providerClass);
   }
 
   @Nullable
-  private static Configurable createConfigurableForProvider(ConfigurableEP<Configurable>[] extensions, Class<? extends ConfigurableProvider> providerClass) {
+  private static Configurable createConfigurableForProvider(@NotNull List<ConfigurableEP<Configurable>> extensions, Class<? extends ConfigurableProvider> providerClass) {
     for (ConfigurableEP<Configurable> extension : extensions) {
       if (extension.providerClass != null) {
         final Class<Object> aClass = extension.findClassNoExceptions(extension.providerClass);

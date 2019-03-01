@@ -17,6 +17,7 @@ public class ProblemsViewPanel extends NewErrorTreeViewPanel {
   @Override
   protected void fillRightToolbarGroup(DefaultActionGroup group) {
     super.fillRightToolbarGroup(group);
+    group.addSeparator();
     group.add(new CompilerPropertiesAction());
   }
 
@@ -30,11 +31,6 @@ public class ProblemsViewPanel extends NewErrorTreeViewPanel {
     //    group.add(action);
     //  }
     //}
-  }
-
-  @Override
-  protected boolean shouldShowFirstErrorInEditor() {
-    return false;
   }
 
   @Override

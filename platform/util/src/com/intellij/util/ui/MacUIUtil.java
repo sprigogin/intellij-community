@@ -8,14 +8,14 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.Gray;
 import com.intellij.ui.mac.foundation.Foundation;
-import com.intellij.util.ui.tree.WideSelectionTreeUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.TreePath;
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
 import java.awt.geom.GeneralPath;
-import java.lang.reflect.Field;
 
 public class MacUIUtil {
 
@@ -24,64 +24,7 @@ public class MacUIUtil {
   public static final int MAC_COMBO_BORDER_V_OFFSET = SystemInfo.isMacOSLion ? 1 : 0;
   private static Cursor INVERTED_TEXT_CURSOR;
 
-  private MacUIUtil() {
-  }
-
-  public static void paintFocusRing(Graphics2D g2d, Color ringColor, Rectangle bounds) {
-    paintFocusRing(g2d, ringColor, bounds, false);
-  }
-
-  public static void paintFocusRing(Graphics2D g, Color ringColor, Rectangle bounds, boolean oval) {
-    int correction = UIUtil.isUnderDarcula() ? 50 : 0;
-    final Color[] colors = new Color[]{
-      ColorUtil.toAlpha(ringColor, 180 - correction),
-      ColorUtil.toAlpha(ringColor, 120 - correction),
-      ColorUtil.toAlpha(ringColor, 70  - correction),
-      ColorUtil.toAlpha(ringColor, 100 - correction),
-      ColorUtil.toAlpha(ringColor, 50  - correction)
-    };
-
-    final Object oldAntialiasingValue = g.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
-    final Object oldStrokeControlValue = g.getRenderingHint(RenderingHints.KEY_STROKE_CONTROL);
-
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, !oval &&
-                         USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
-
-
-    final Rectangle r = new Rectangle(bounds.x - 3, bounds.y - 3, bounds.width + 6, bounds.height + 6);
-
-    g.setColor(colors[0]);
-    drawRectOrOval(g, oval, 5, r.x + 2, r.y + 2, r.width - 5, r.height - 5);
-
-    g.setColor(colors[1]);
-    drawRectOrOval(g, oval, 7, r.x + 1, r.y + 1, r.width - 3, r.height - 3);
-
-    g.setColor(colors[2]);
-    drawRectOrOval(g, oval, 9, r.x, r.y, r.width - 1, r.height - 1);
-
-    g.setColor(colors[3]);
-    drawRectOrOval(g, oval, 0, r.x + 3, r.y + 3, r.width - 7, r.height - 7);
-
-    g.setColor(colors[4]);
-    drawRectOrOval(g, oval, 0, r.x + 4, r.y + 4, r.width - 9, r.height - 9);
-
-    // restore rendering hints
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, oldAntialiasingValue);
-    g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, oldStrokeControlValue);
-  }
-
-  private static void drawRectOrOval(Graphics2D g, boolean oval, int arc, int x, int y, int width, int height) {
-    if (oval) {
-      g.drawOval(x, y, width, height);
-    } else {
-      if (arc == 0) {
-        g.drawRect(x, y, width, height);
-      } else {
-        g.drawRoundRect(x, y, width, height, arc, arc);
-      }
-    }
-  }
+  private MacUIUtil() {}
 
   public static void hideCursor() {
     if (SystemInfo.isMac && Registry.is("ide.mac.hide.cursor.when.typing")) {
@@ -125,7 +68,7 @@ public class MacUIUtil {
                          USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
 
     int _y = MAC_COMBO_BORDER_V_OFFSET;
-    
+
     final GeneralPath path1 = new GeneralPath();
     path1.moveTo(2, _y + 4);
     path1.quadTo(2, +_y + 2, 4, _y + 2);
@@ -185,21 +128,7 @@ public class MacUIUtil {
     }
   }
 
-  @Deprecated
-  public static void doNotFillBackground(@NotNull final JTree tree, @NotNull final DefaultTreeCellRenderer renderer) {
-    if (WideSelectionTreeUI.isWideSelection(tree)) {
-        renderer.setOpaque(false);
-        try {
-          final Field fillBackground = DefaultTreeCellRenderer.class.getDeclaredField("fillBackground");
-          fillBackground.setAccessible(true);
-          fillBackground.set(renderer, false);
-        }
-        catch (Exception e) {
-          // nothing
-        }
-    }
-  }
-
+  @NotNull
   public static Cursor getInvertedTextCursor() {
     if (INVERTED_TEXT_CURSOR == null) {
       final Toolkit toolkit = Toolkit.getDefaultToolkit();
@@ -207,5 +136,20 @@ public class MacUIUtil {
       INVERTED_TEXT_CURSOR = toolkit.createCustomCursor(cursorImage, new Point(15, 13), "InvertedTextCursor");
     }
     return INVERTED_TEXT_CURSOR;
+  }
+
+  /**
+   * By default, ctrl+click changes selection in swing trees and tables
+   * (see {@link javax.swing.plaf.basic.BasicTreeUI#selectPathForEvent(TreePath, MouseEvent)}
+   * or {@link javax.swing.plaf.basic.BasicTableUI.Handler#mousePressed(MouseEvent)}),
+   * while it should leave the selection intact and show context menu.
+   */
+  public static MouseEvent fixMacContextMenuIssue(MouseEvent e) {
+    if (SwingUtilities.isLeftMouseButton(e) && e.isControlDown() && e.getID() == MouseEvent.MOUSE_PRESSED) {
+      int modifiers = e.getModifiers() & ~(InputEvent.CTRL_MASK | InputEvent.BUTTON1_MASK) | InputEvent.BUTTON3_MASK;
+      return new MouseEvent(e.getComponent(), e.getID(), e.getWhen(), modifiers, e.getX(), e.getY(), e.getClickCount(),
+                            true, MouseEvent.BUTTON3);
+    }
+    return e;
   }
 }

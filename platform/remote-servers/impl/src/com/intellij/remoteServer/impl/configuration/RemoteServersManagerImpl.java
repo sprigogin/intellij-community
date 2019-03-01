@@ -1,7 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.configuration;
 
 import com.intellij.configurationStore.ComponentSerializationUtil;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
@@ -10,6 +11,7 @@ import com.intellij.remoteServer.configuration.RemoteServer;
 import com.intellij.remoteServer.configuration.RemoteServerListener;
 import com.intellij.remoteServer.configuration.RemoteServersManager;
 import com.intellij.remoteServer.configuration.ServerConfiguration;
+import com.intellij.remoteServer.util.CloudConfigurationBase;
 import com.intellij.util.messages.MessageBus;
 import com.intellij.util.text.UniqueNameGenerator;
 import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
@@ -19,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -27,8 +30,8 @@ import java.util.List;
 @State(name = "RemoteServers", storages = @Storage("remote-servers.xml"))
 public class RemoteServersManagerImpl extends RemoteServersManager implements PersistentStateComponent<RemoteServersManagerState> {
   public static final SkipDefaultValuesSerializationFilters SERIALIZATION_FILTERS = new SkipDefaultValuesSerializationFilters();
-  private List<RemoteServer<?>> myServers = new ArrayList<>();
-  private List<RemoteServerState> myUnknownServers = new ArrayList<>();
+  private final List<RemoteServer<?>> myServers = new ArrayList<>();
+  private final List<RemoteServerState> myUnknownServers = new ArrayList<>();
   private final MessageBus myMessageBus;
 
   public RemoteServersManagerImpl(MessageBus messageBus) {
@@ -104,20 +107,36 @@ public class RemoteServersManagerImpl extends RemoteServersManager implements Pe
   }
 
   @Override
-  public void loadState(RemoteServersManagerState state) {
+  public void loadState(@NotNull RemoteServersManagerState state) {
     myUnknownServers.clear();
     myServers.clear();
+
+    List<CloudConfigurationBase<?>> needsMigration = new LinkedList<>();
     for (RemoteServerState server : state.myServers) {
       ServerType<?> type = findServerType(server.myTypeId);
       if (type == null) {
         myUnknownServers.add(server);
       }
       else {
-        myServers.add(createConfiguration(type, server));
+        RemoteServer<? extends ServerConfiguration> nextServer = createConfiguration(type, server);
+        myServers.add(nextServer);
+        ServerConfiguration nextConfig = nextServer.getConfiguration();
+        if (nextConfig instanceof CloudConfigurationBase && ((CloudConfigurationBase<?>)nextConfig).shouldMigrateToPasswordSafe()) {
+          needsMigration.add((CloudConfigurationBase<?>)nextConfig);
+        }
       }
+    }
+
+    if (!needsMigration.isEmpty()) {
+      ApplicationManager.getApplication().invokeLater(() -> {
+        for (CloudConfigurationBase nextConfig : needsMigration) {
+          nextConfig.migrateToPasswordSafe();
+        }
+      });
     }
   }
 
+  @NotNull
   private static <C extends ServerConfiguration> RemoteServerImpl<C> createConfiguration(ServerType<C> type, RemoteServerState server) {
     C configuration = type.createDefaultConfiguration();
     PersistentStateComponent<?> serializer = configuration.getSerializer();

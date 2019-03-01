@@ -24,6 +24,7 @@ import com.intellij.psi.statistics.JavaStatisticsManager;
 import com.intellij.psi.statistics.StatisticsInfo;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.patterns.PsiJavaPatterns.psiElement;
@@ -35,13 +36,13 @@ public class JavaCompletionStatistician extends CompletionStatistician{
   private static final ElementPattern<PsiElement> SUPER_CALL = psiElement().afterLeaf(psiElement().withText(".").afterLeaf(PsiKeyword.SUPER));
 
   @Override
-  public StatisticsInfo serialize(final LookupElement element, final CompletionLocation location) {
+  public StatisticsInfo serialize(@NotNull final LookupElement element, @NotNull final CompletionLocation location) {
     Object o = element.getObject();
 
     if (o instanceof PsiLocalVariable || o instanceof PsiParameter || 
         o instanceof PsiThisExpression || o instanceof PsiKeyword || 
-        element.getUserData(JavaCompletionUtil.SUPER_METHOD_PARAMETERS) != null || 
-        element.getUserData(FunctionalExpressionCompletionProvider.FUNCTIONAL_EXPR_ITEM) != null) {
+        element.getUserData(JavaCompletionUtil.SUPER_METHOD_PARAMETERS) != null ||
+        FunctionalExpressionCompletionProvider.isFunExprItem(element)) {
       return StatisticsInfo.EMPTY;
     }
 
@@ -50,7 +51,7 @@ public class JavaCompletionStatistician extends CompletionStatistician{
     }
 
     PsiElement position = location.getCompletionParameters().getPosition();
-    if (SUPER_CALL.accepts(position) || ReferenceExpressionCompletionContributor.IN_SWITCH_LABEL.accepts(position)) {
+    if (SUPER_CALL.accepts(position) || JavaCompletionContributor.IN_SWITCH_LABEL.accepts(position)) {
       return StatisticsInfo.EMPTY;
     }
 
@@ -84,7 +85,10 @@ public class JavaCompletionStatistician extends CompletionStatistician{
     }
 
     PsiType expectedType = firstInfo != null ? firstInfo.getDefaultType() : null;
-    String context = JavaClassNameCompletionContributor.AFTER_NEW.accepts(position) ? JavaStatisticsManager.getAfterNewKey(expectedType) : "";
+    String context =
+      JavaClassNameCompletionContributor.AFTER_NEW.accepts(position) ? JavaStatisticsManager.getAfterNewKey(expectedType) :
+      PreferByKindWeigher.isExceptionPosition(position) ? "exception" :
+      "";
     return new StatisticsInfo(context, JavaStatisticsManager.getMemberUseKey2(psiClass));
   }
 

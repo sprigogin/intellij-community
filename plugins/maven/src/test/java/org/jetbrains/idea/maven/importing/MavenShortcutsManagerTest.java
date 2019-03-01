@@ -27,6 +27,7 @@ import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.tasks.MavenKeymapExtension;
 import org.jetbrains.idea.maven.tasks.MavenShortcutsManager;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -45,6 +46,9 @@ public class MavenShortcutsManagerTest extends MavenImportingTestCase {
   public void tearDown() throws Exception {
     try {
       MavenKeymapExtension.clearActions(myProject);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       myShortcutsManager = null;
@@ -176,10 +180,10 @@ public class MavenShortcutsManagerTest extends MavenImportingTestCase {
     assertKeymapContains(m, goal);
   }
 
-  public void testDeletingActionOnProjectRemoval() {
+  public void testDeletingActionOnProjectRemoval() throws IOException {
     final VirtualFile p1 = createModulePom("p1", "<groupId>test</groupId>" +
-                                           "<artifactId>p1</artifactId>" +
-                                           "<version>1</version>");
+                                                 "<artifactId>p1</artifactId>" +
+                                                 "<version>1</version>");
 
     VirtualFile p2 = createModulePom("p2", "<groupId>test</groupId>" +
                                            "<artifactId>p2</artifactId>" +
@@ -195,12 +199,7 @@ public class MavenShortcutsManagerTest extends MavenImportingTestCase {
     assertKeymapContains(p1, goal);
     assertKeymapContains(p2, goal);
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        p1.delete(this);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> p1.delete(this));
 
     waitForReadingCompletion();
 

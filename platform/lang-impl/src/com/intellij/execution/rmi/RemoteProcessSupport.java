@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.rmi;
 
 import com.intellij.execution.ExecutionException;
@@ -39,18 +25,13 @@ import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.FixedFuture;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.rmi.PortableRemoteObject;
 import java.rmi.Remote;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Future;
 
 /**
@@ -156,12 +137,14 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
         }
       }
     }
-    if (ref.isNull()) throw new RuntimeException("Unable to acquire remote proxy for: " + getName(target));
     RunningInfo info = ref.get();
-    if (info.handler == null) {
-      String message = info instanceof FailedInfo ? ((FailedInfo)info).stderr : null;
-      Throwable cause = info instanceof FailedInfo ? ((FailedInfo)info).cause : null;
-      throw new ExecutionException(message, cause);
+    if (info instanceof FailedInfo) {
+      FailedInfo o = (FailedInfo)info;
+      String message = o.cause != null && StringUtil.isEmptyOrSpaces(o.stderr) ? o.cause.getMessage() : o.stderr;
+      throw new ExecutionException(message, o.cause);
+    }
+    else if (info == null || info.handler == null) {
+      throw new ExecutionException("Unable to acquire remote proxy for: " + getName(target));
     }
     return acquire(info);
   }
@@ -258,12 +241,11 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
 
   private EntryPoint acquire(final RunningInfo port) throws Exception {
     EntryPoint result = RemoteUtil.executeWithClassLoader(() -> {
-      Registry registry = LocateRegistry.getRegistry("localhost", port.port);
+      Registry registry = LocateRegistry.getRegistry(getLocalHost(), port.port);
       Remote remote = ObjectUtils.assertNotNull(registry.lookup(port.name));
 
-      if (Remote.class.isAssignableFrom(myValueClass)) {
-        EntryPoint entryPoint = narrowImpl(remote, myValueClass);
-        if (entryPoint == null) return null;
+      if (myValueClass.isInstance(remote)) {
+        EntryPoint entryPoint = myValueClass.cast(remote);
         return RemoteUtil.substituteClassLoader(entryPoint, myValueClass.getClassLoader());
       }
       else {
@@ -273,12 +255,6 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
     // init hard ref that will keep it from DGC and thus preventing from System.exit
     port.entryPointHardRef = result;
     return result;
-  }
-
-  @Nullable
-  private static <T> T narrowImpl(@Nullable Remote remote, @NotNull Class<T> to) {
-    //noinspection unchecked
-    return (T)(to.isInstance(remote) ? remote : PortableRemoteObject.narrow(remote, to));
   }
 
   private ProcessListener getProcessListener(@NotNull final Pair<Target, Parameters> key) {
@@ -345,7 +321,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
           }
           fireModificationCountChanged();
           try {
-            RemoteDeadHand.TwoMinutesTurkish.startCooking("localhost", result.port);
+            RemoteDeadHand.TwoMinutesTurkish.startCooking(getLocalHost(), result.port);
           }
           catch (Throwable e) {
             LOG.warn("The cook failed to start due to " + ExceptionUtil.getRootCause(e));
@@ -353,6 +329,11 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
         }
       }
     };
+  }
+
+  @NotNull
+  private static String getLocalHost() {
+    return ObjectUtils.notNull(System.getProperty(RemoteServer.SERVER_HOSTNAME), "127.0.0.1");
   }
 
   private boolean dropProcessInfo(Pair<Target, Parameters> key, @Nullable Throwable error, @Nullable ProcessHandler handler) {

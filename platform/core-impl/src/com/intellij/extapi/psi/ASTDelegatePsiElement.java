@@ -41,7 +41,6 @@ import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -202,7 +201,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
 
   @NotNull
   protected <T extends PsiElement> T findNotNullChildByType(IElementType type) {
-    return notNullChild(this.<T>findChildByType(type));
+    return notNullChild(findChildByType(type));
   }
 
   @Nullable
@@ -213,7 +212,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
 
   @NotNull
   protected <T extends PsiElement> T findNotNullChildByType(TokenSet type) {
-    return notNullChild(this.<T>findChildByType(type));
+    return notNullChild(findChildByType(type));
   }
 
   @Nullable
@@ -400,5 +399,11 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
       }
     }
     return anchorBefore;
+  }
+
+  @Override
+  public boolean textMatches(@NotNull CharSequence text) {
+    ASTNode node = getNode();
+    return node instanceof TreeElement ? ((TreeElement)node).textMatches(text) : super.textMatches(text);
   }
 }

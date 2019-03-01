@@ -17,7 +17,6 @@ import java.util.List;
  * Not thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 1/16/12 5:06 PM
  */
 public class RichTextControlBuilder {
   
@@ -72,7 +71,7 @@ public class RichTextControlBuilder {
         final int i = s.indexOf(RICH_TEXT_TOKEN_END);
         if (i >= 0) {
           // Meta-token ends within the current string.
-          metaTokenData.append(s.substring(0, i));
+          metaTokenData.append(s, 0, i);
           final JComponent component = metaDataProcessor.process(metaTokenData.toString());
           if (component != null) {
             rowComponents.add(component);

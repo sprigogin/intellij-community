@@ -1,12 +1,13 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.stdlib
 
-import com.intellij.psi.PsiReference
 import com.jetbrains.python.PyNames
+import com.jetbrains.python.codeInsight.stdlib.DUNDER_POST_INIT
 import com.jetbrains.python.codeInsight.stdlib.PyNamedTupleType
-import com.jetbrains.python.codeInsight.stdlib.PyStdlibClassMembersProvider
+import com.jetbrains.python.codeInsight.stdlib.PyNamedTupleType.NAMEDTUPLE_SPECIAL_ATTRIBUTES
+import com.jetbrains.python.codeInsight.stdlib.PyNamedTupleTypeProvider
+import com.jetbrains.python.codeInsight.stdlib.parseStdDataclassParameters
 import com.jetbrains.python.inspections.PyInspectionExtension
-import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyReferenceExpression
 import com.jetbrains.python.psi.types.PyClassLikeType
@@ -28,15 +29,14 @@ class PyStdlibInspectionExtension : PyInspectionExtension() {
     return false
   }
 
-  override fun ignoreUnresolvedReference(node: PyElement, reference: PsiReference, context: TypeEvalContext): Boolean {
-    if (node is PyReferenceExpression && node.isQualified) {
-      val qualifier = node.qualifier
-      if (qualifier is PyReferenceExpression) {
-        return PyStdlibClassMembersProvider.referenceToMockPatch(qualifier, context) &&
-               PyStdlibClassMembersProvider.MOCK_PATCH_MEMBERS.find { it.name == node.name } != null
-      }
-    }
+  override fun ignoreProtectedSymbol(expression: PyReferenceExpression, context: TypeEvalContext): Boolean {
+    val qualifier = expression.qualifier
+    return qualifier != null &&
+           expression.referencedName in NAMEDTUPLE_SPECIAL_ATTRIBUTES &&
+           PyNamedTupleTypeProvider.isNamedTuple(context.getType(qualifier), context)
+  }
 
-    return false
+  override fun ignoreMethodParameters(function: PyFunction, context: TypeEvalContext): Boolean {
+    return function.name == DUNDER_POST_INIT && function.containingClass?.let { parseStdDataclassParameters(it, context) != null } == true
   }
 }

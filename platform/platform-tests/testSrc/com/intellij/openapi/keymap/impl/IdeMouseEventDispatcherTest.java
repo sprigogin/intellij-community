@@ -26,12 +26,13 @@ public class IdeMouseEventDispatcherTest extends LightPlatformTestCase {
   private static final MouseShortcut OUR_SHORTCUT = new MouseShortcut(MouseEvent.BUTTON2, 0, 1);
   private static final MouseShortcut OUR_SHORTCUT_WITH_MODIFIER = new MouseShortcut(MouseEvent.BUTTON1, InputEvent.CTRL_MASK, 1);
 
-  private IdeMouseEventDispatcher myDispatcher = new IdeMouseEventDispatcher();
+  private final IdeMouseEventDispatcher myDispatcher = new IdeMouseEventDispatcher();
   private KeymapImpl keymap;
   private Keymap mySavedKeymap;
   private JFrame myEventSource;
   private int myActionExecutionCount;
 
+  @Override
   public void setUp() throws Exception {
     assumeFalse("Test cannot be run in headless environment", GraphicsEnvironment.isHeadless());
 
@@ -58,6 +59,9 @@ public class IdeMouseEventDispatcherTest extends LightPlatformTestCase {
       KeymapManagerEx.getInstanceEx().getSchemeManager().removeScheme(keymap);
       KeymapManagerEx.getInstanceEx().setActiveKeymap(mySavedKeymap);
       ActionManager.getInstance().unregisterAction(OUR_TEST_ACTION);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();

@@ -45,6 +45,7 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler,
   public static final String REFACTORING_NAME = RefactoringBundle.message("replace.inheritance.with.delegation.title");
 
   private static final MemberInfo.Filter<PsiMember> MEMBER_INFO_FILTER = new MemberInfo.Filter<PsiMember>() {
+    @Override
     public boolean includeMember(PsiMember element) {
       if (element instanceof PsiMethod) {
         final PsiMethod method = (PsiMethod)element;
@@ -122,7 +123,7 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler,
 
     final Set<PsiClass> baseClasses = basesToMemberInfos.keySet();
     new InheritanceToDelegationDialog(project, aClass,
-                                      baseClasses.toArray(new PsiClass[baseClasses.size()]), basesToMemberInfos).show();
+                                      baseClasses.toArray(PsiClass.EMPTY_ARRAY), basesToMemberInfos).show();
   }
 
   private static List<MemberInfo> createBaseClassMemberInfos(PsiClass baseClass) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.lang.jvm.JvmMethod;
@@ -48,6 +34,7 @@ public interface PsiMethod extends PsiMember, PsiNameIdentifierOwner, PsiModifie
    *
    * @return the method return type, or null if the method is a constructor.
    */
+  @Override
   @Nullable
   PsiType getReturnType();
 
@@ -90,6 +77,7 @@ public interface PsiMethod extends PsiMember, PsiNameIdentifierOwner, PsiModifie
    *
    * @return true if the method is a constructor, false otherwise
    */
+  @Override
   boolean isConstructor();
 
   /**
@@ -97,6 +85,7 @@ public interface PsiMethod extends PsiMember, PsiNameIdentifierOwner, PsiModifie
    *
    * @return true if the method is varargs, false otherwise.
    */
+  @Override
   boolean isVarArgs();
 
   /**
@@ -179,6 +168,7 @@ public interface PsiMethod extends PsiMember, PsiNameIdentifierOwner, PsiModifie
    *         or implement any other method.
    * @deprecated use {@link #findDeepestSuperMethods()} instead
    */
+  @Deprecated
   @Nullable
   PsiMethod findDeepestSuperMethod();
 
@@ -199,6 +189,11 @@ public interface PsiMethod extends PsiMember, PsiNameIdentifierOwner, PsiModifie
 
   @NotNull
   HierarchicalMethodSignature getHierarchicalMethodSignature();
+
+  @Override
+  default boolean hasParameters() {
+    return !getParameterList().isEmpty();
+  }
 
   @NotNull
   @Override

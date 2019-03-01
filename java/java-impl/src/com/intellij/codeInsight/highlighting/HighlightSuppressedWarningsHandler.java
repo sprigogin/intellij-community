@@ -45,13 +45,19 @@ class HighlightSuppressedWarningsHandler extends HighlightUsagesHandlerBase<PsiL
 
   private final PsiAnnotation myTarget;
   private final PsiLiteralExpression mySuppressedExpression;
+  @NotNull
   private final ProperTextRange myPriorityRange;
 
-  HighlightSuppressedWarningsHandler(@NotNull Editor editor, @NotNull PsiFile file, @NotNull PsiAnnotation target, @Nullable PsiLiteralExpression suppressedExpression) {
+
+  HighlightSuppressedWarningsHandler(@NotNull Editor editor,
+                                     @NotNull PsiFile file,
+                                     @NotNull PsiAnnotation target,
+                                     @Nullable PsiLiteralExpression suppressedExpression,
+                                     @NotNull ProperTextRange priorityRange) {
     super(editor, file);
     myTarget = target;
     mySuppressedExpression = suppressedExpression;
-    myPriorityRange = VisibleHighlightingPassFactory.calculateVisibleRange(myEditor);
+    myPriorityRange = priorityRange;
   }
 
   @Override
@@ -107,7 +113,7 @@ class HighlightSuppressedWarningsHandler extends HighlightUsagesHandlerBase<PsiL
     final LocalInspectionsPass pass = new LocalInspectionsPass(myFile, myFile.getViewProvider().getDocument(),
                                                                parent.getTextRange().getStartOffset(), parent.getTextRange().getEndOffset(),
                                                                myPriorityRange,
-                                                               false, HighlightInfoProcessor.getEmpty());
+                                                               false, HighlightInfoProcessor.getEmpty(), true);
     InspectionProfileImpl inspectionProfile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
     for (PsiLiteralExpression target : targets) {
       final Object value = target.getValue();
@@ -115,7 +121,7 @@ class HighlightSuppressedWarningsHandler extends HighlightUsagesHandlerBase<PsiL
         continue;
       }
       List<InspectionToolWrapper> tools = inspectionProfile.findToolsById((String)value, target);
-      if (tools == null) {
+      if (tools.isEmpty()) {
         continue;
       }
 
@@ -129,7 +135,7 @@ class HighlightSuppressedWarningsHandler extends HighlightUsagesHandlerBase<PsiL
         continue;
       }
       final InspectionManagerEx managerEx = (InspectionManagerEx)InspectionManager.getInstance(project);
-      final GlobalInspectionContextImpl context = managerEx.createNewGlobalContext(false);
+      final GlobalInspectionContextImpl context = managerEx.createNewGlobalContext();
       for (InspectionToolWrapper toolWrapper : toolsCopy) {
         toolWrapper.initialize(context);
       }

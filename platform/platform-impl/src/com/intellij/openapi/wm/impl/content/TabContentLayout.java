@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
 import com.intellij.ide.dnd.DnDSupport;
 import com.intellij.ide.dnd.DnDTarget;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.UIBundle;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.awt.RelativeRectangle;
@@ -26,45 +14,44 @@ import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.ui.content.ContentManagerEvent;
 import com.intellij.ui.content.TabbedContent;
+import com.intellij.ui.tabs.JBTabPainter;
+import com.intellij.ui.tabs.JBTabsFactory;
+import com.intellij.ui.tabs.JBTabsPosition;
+import com.intellij.ui.tabs.newImpl.singleRow.MoreTabsIcon;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.BaseButtonBehavior;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 class TabContentLayout extends ContentLayout {
 
   static final int MORE_ICON_BORDER = 6;
+  public static final int TAB_LAYOUT_START = 4;
   LayoutData myLastLayout;
 
   ArrayList<ContentTabLabel> myTabs = new ArrayList<>();
   final Map<Content, ContentTabLabel> myContent2Tabs = new HashMap<>();
 
-  private Map<String, BufferedImage> myCached = new com.intellij.util.containers.HashMap<>();
-
-  private final MoreIcon myMoreIcon = new MoreIcon() {
+  private final MoreTabsIcon myMoreIcon = new MoreTabsIcon() {
+    @Override
+    @Nullable
     protected Rectangle getIconRec() {
       return myLastLayout.moreRect;
     }
-
-    protected boolean isActive() {
-      return myUi.myWindow.isActive();
-    }
-
-    protected int getIconY(final Rectangle iconRec) {
-      return iconRec.height / TAB_ARC - getIconHeight() / TAB_ARC;
-    }
   };
+  List<AnAction> myDoubleClickActions = ContainerUtil.newArrayList();
 
   TabContentLayout(ToolWindowContentUi ui) {
     super(ui);
 
     new BaseButtonBehavior(myUi) {
+      @Override
       protected void execute(final MouseEvent e) {
         if (!myUi.isCurrent(TabContentLayout.this)) return;
 
@@ -100,6 +87,10 @@ class TabContentLayout extends ContentLayout {
     myIdLabel = null;
   }
 
+  void setTabDoubleClickActions(@NotNull AnAction... actions) {
+    myDoubleClickActions = ContainerUtil.newArrayList(actions);
+  }
+
   private static void showPopup(MouseEvent e, List<ContentTabLabel> tabs) {
     final List<Content> contentsToShow = ContainerUtil.map(tabs, ContentTabLabel::getContent);
     final SelectContentStep step = new SelectContentStep(contentsToShow);
@@ -112,7 +103,7 @@ class TabContentLayout extends ContentLayout {
     ContentManager manager = myUi.myManager;
     LayoutData data = new LayoutData(myUi);
 
-    data.eachX = 2;
+    data.eachX = TAB_LAYOUT_START;
     data.eachY = 0;
 
     if (isIdVisible()) {
@@ -145,12 +136,11 @@ class TabContentLayout extends ContentLayout {
       for (ContentTabLabel eachTab : myTabs) {
         final Dimension eachSize = eachTab.getPreferredSize();
         data.requiredWidth += eachSize.width;
-        data.requiredWidth++;
         data.toLayout.add(eachTab);
       }
 
 
-      data.moreRectWidth = myMoreIcon.getIconWidth() + MORE_ICON_BORDER * TAB_ARC;
+      data.moreRectWidth = calcMoreIconWidth();
       data.toFitWidth = bounds.getSize().width - data.eachX;
 
       final ContentTabLabel selectedTab = myContent2Tabs.get(selected);
@@ -198,22 +188,20 @@ class TabContentLayout extends ContentLayout {
 
     if (data.toDrop.size() > 0) {
       data.moreRect = new Rectangle(data.eachX + MORE_ICON_BORDER, 0, myMoreIcon.getIconWidth(), bounds.height);
-      final int selectedIndex = manager.getIndexOfContent(manager.getSelectedContent());
-      if (selectedIndex == 0) {
-        myMoreIcon.setPaintedIcons(false, true);
-      }
-      else if (selectedIndex == manager.getContentCount() - 1) {
-        myMoreIcon.setPaintedIcons(true, false);
-      }
-      else {
-        myMoreIcon.setPaintedIcons(true, true);
-      }
+      myMoreIcon.updateCounter(data.toDrop.size());
     }
     else {
       data.moreRect = null;
     }
 
+    final Rectangle moreRect = data.moreRect == null ? null : new Rectangle(data.eachX, 0, myMoreIcon.getIconWidth()+MORE_ICON_BORDER, bounds.height);
+
+    myUi.isResizableArea = p -> moreRect == null || !moreRect.contains(p);
     myLastLayout = data;
+  }
+
+  private int calcMoreIconWidth() {
+    return myMoreIcon.getIconWidth() + MORE_ICON_BORDER * TAB_ARC;
   }
 
   @Override
@@ -226,10 +214,14 @@ class TabContentLayout extends ContentLayout {
         result += insets.left + insets.right;
       }
     }
-    if (myLastLayout != null) {
-      result += myLastLayout.moreRectWidth + myLastLayout.requiredWidth;
-      result -= myLastLayout.toLayout.size() > 1 ? myLastLayout.moreRectWidth + 1 : -14;
+
+    Content selected = myUi.myManager.getSelectedContent();
+    if (selected == null && myUi.myManager.getContents().length>0) {
+      selected = myUi.myManager.getContents()[0];
     }
+
+    result += selected != null ? myContent2Tabs.get(selected).getMinimumSize().width + (myTabs.size() > 1 ? calcMoreIconWidth() : 0) : 0;
+
     return result;
   }
 
@@ -242,7 +234,14 @@ class TabContentLayout extends ContentLayout {
   }
 
   boolean isToDrawTabs() {
-    return myTabs.size() > 1;
+    if(myTabs.size() > 1) return true;
+
+      if(myTabs.size() == 1)  {
+        String title = myTabs.get(0).getContent().getToolwindowTitle();
+        return !StringUtil.isEmpty(title);
+      }
+
+      return false;
   }
 
   static class LayoutData {
@@ -268,102 +267,44 @@ class TabContentLayout extends ContentLayout {
     }
   }
 
+  private JBTabPainter tabPainter = JBTabPainter.Companion.getTOOL_WINDOW();
+
   @Override
   public void paintComponent(Graphics g) {
     if (!isToDrawTabs()) return;
 
-    boolean prevSelected = false;
-    for (int i = 0; i < myTabs.size(); i++) {
-      boolean last = (i == myTabs.size() - 1) || ((i + 1 < myTabs.size() && myTabs.get(i + 1).getBounds().width == 0));
-      ContentTabLabel each = myTabs.get(i);
-      Rectangle r = each.getBounds();
+    Graphics2D g2d = (Graphics2D)g.create();
+    for (ContentTabLabel each : myTabs) {
+      if (JBTabsFactory.getUseNewTabs()) {
+        Rectangle r = each.getBounds();
 
-      StringBuilder key = new StringBuilder().append(i);
-      if (each.isSelected()) key.append('s');
-      if (prevSelected) key.append('p');
-      if (last) key.append('l');
-      if (myUi.myWindow.isActive()) key.append('a');
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-      BufferedImage image = myCached.get(key.toString());
-      if (image == null || image.getWidth() != r.width || image.getHeight() != r.height) {
-        image = drawToBuffer(r, each.isSelected(), last, prevSelected, myUi.myWindow.isActive());
-        myCached.put(key.toString(), image);
-      }
-      
-      if (image != null) {
-        UIUtil.drawImage(g, image, isIdVisible() ? r.x : r.x - 2, r.y, null);
-      }
-      
-      prevSelected = each.isSelected();
-    }
-  }
-  
-  @Nullable
-  private static BufferedImage drawToBuffer(Rectangle r, boolean selected, boolean last, boolean prevSelected, boolean active) {
-    if (r.width <= 0 || r.height <= 0) return null;
-    BufferedImage image = UIUtil.createImage(r.width, r.height, BufferedImage.TYPE_INT_ARGB);
-    Graphics2D g2d = image.createGraphics();
-    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-    if (selected) {
-      if (!UIUtil.isUnderDarcula()) {
-      g2d.setColor(active ? new Color(0, 0, 0, 70) : new Color(0, 0, 0, 90));
-      g2d.fillRect(0, 0, r.width, r.height);
-
-      g2d.setColor(new Color(0, 0, 0, 140));
-      g2d.drawLine(0, 0, r.width - 1, 0);
-      g2d.drawLine(0, 1, 0, r.height - 1);
-
-      g2d.setColor(new Color(0, 0, 0, 20));
-      g2d.drawLine(1, 1, r.width - 1, 1);
-      g2d.drawLine(1, 2, 1, r.height - 2);
-      g2d.drawLine(1, r.height - 1, r.width - 1, r.height - 1);
-
-      g2d.setColor(new Color(0, 0, 0, 60));
-      g2d.drawLine(r.width - 1, 1, r.width - 1, r.height - 2);
-      }
-
-      if (active) {
-        g2d.setColor(new Color(100, 150, 230, 50));
-        g2d.fill(new Rectangle(0, 0, r.width, r.height));
-      }
-    }
-    else {
-      g2d.setPaint(UIUtil.getGradientPaint(0, 0, new Color(0, 0, 0, 10), 0, r.height, new Color(0, 0, 0, 30)));
-      g2d.fillRect(0, 0, r.width, r.height);
-
-      final Color c = new Color(255, 255, 255, UIUtil.isUnderDarcula() ? 10 : 80);
-      if (last) {
-        if (prevSelected) {
-          g2d.setColor(c);
-          g2d.drawRect(0, 0, r.width - 2, r.height - 1);
-        } else {
-          g2d.setColor(c);
-          g2d.drawRect(1, 0, r.width - 3, r.height - 1);
-
-          g2d.setColor(new Color(0, 0, 0, 60));
-          g2d.drawLine(0, 0, 0, r.height);
-        }
-
-        g2d.setColor(new Color(0, 0, 0, 60));
-        g2d.drawLine(r.width - 1, 0, r.width - 1, r.height);
-      } else {
-        if (prevSelected) {
-          g2d.setColor(c);
-          g2d.drawRect(0, 0, r.width - 1, r.height - 1);
+        if (each.isSelected()) {
+          tabPainter.paintSelectedTab(JBTabsPosition.top, g2d, r, null, myUi.myWindow.isActive(), each.isHovered());
         }
         else {
-          g2d.setColor(c);
-          g2d.drawRect(1, 0, r.width - 2, r.height - 1);
+          //TODO set borderThickness
+          tabPainter.paintTab(JBTabsPosition.top, g2d, r, 1, null, each.isHovered());
+        }
+      }
+      else {
+        if (each.isSelected() || each.isHovered()) {
+          Color color = each.isSelected() ?
+                        JBUI.CurrentTheme.ToolWindow.tabSelectedBackground(myUi.myWindow.isActive()) :
+                        JBUI.CurrentTheme.ToolWindow.tabHoveredBackground(myUi.myWindow.isActive());
 
-          g2d.setColor(new Color(0, 0, 0, 60));
-          g2d.drawLine(0, 0, 0, r.height);
+          Rectangle r = each.getBounds();
+          g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+          g2d.setColor(color);
+
+          g2d.fillRect(isIdVisible() ? r.x : r.x - 2, r.y, r.width, r.height);
+          g2d.dispose();
         }
       }
     }
-
     g2d.dispose();
-    return image;
   }
 
   @Override
@@ -395,8 +336,6 @@ class TabContentLayout extends ContentLayout {
       myUi.add(each);
       ToolWindowContentUi.initMouseListeners(each, myUi, false);
     }
-    
-    myCached.clear();
   }
 
   @Override
@@ -413,13 +352,11 @@ class TabContentLayout extends ContentLayout {
     if (content instanceof DnDTarget) {
       DnDTarget target = (DnDTarget)content;
       DnDSupport.createBuilder(tab)
-        .setDropHandler(target)
-        .setTargetChecker(target)
-        .setCleanUpOnLeaveCallback(() -> target.cleanUpOnLeave())
-        .install();
+                .setDropHandler(target)
+                .setTargetChecker(target)
+                .setCleanUpOnLeaveCallback(() -> target.cleanUpOnLeave())
+                .install();
     }
-    
-    myCached.clear();
   }
 
   @Override
@@ -429,13 +366,6 @@ class TabContentLayout extends ContentLayout {
       myTabs.remove(tab);
       myContent2Tabs.remove(event.getContent());
     }
-    
-    myCached.clear();
-  }
-
-  @Override
-  public boolean shouldDrawDecorations() {
-    return isToDrawTabs();
   }
 
   @Override
@@ -455,6 +385,7 @@ class TabContentLayout extends ContentLayout {
     return new RelativeRectangle(label.getParent(), label.getBounds());
   }
 
+  @Override
   public Component getComponentFor(Content content) {
     return myContent2Tabs.get(content);
   }

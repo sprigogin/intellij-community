@@ -38,7 +38,7 @@ public class CompileScopeTestBuilder {
   private final boolean myForceBuild;
   private final Set<BuildTargetType<?>> myTargetTypes = new HashSet<>();
   private final Set<BuildTarget<?>> myTargets = new HashSet<>();
-  private LinkedHashMap<BuildTarget<?>, Set<File>> myFiles = new LinkedHashMap<>();
+  private final LinkedHashMap<BuildTarget<?>, Set<File>> myFiles = new LinkedHashMap<>();
 
   public static CompileScopeTestBuilder rebuild() {
     return new CompileScopeTestBuilder(true);
@@ -117,7 +117,7 @@ public class CompileScopeTestBuilder {
     return this;
   }
 
-  public CompileScopeTestBuilder artifacts(JpsArtifact[] artifacts) {
+  public CompileScopeTestBuilder artifacts(JpsArtifact... artifacts) {
     for (JpsArtifact artifact : artifacts) {
       myTargets.add(new ArtifactBuildTarget(artifact));
     }

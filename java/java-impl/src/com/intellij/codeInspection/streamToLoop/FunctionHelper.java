@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamToLoop;
 
 import com.intellij.codeInspection.streamToLoop.StreamToLoopInspection.StreamToLoopReplacementContext;
@@ -25,11 +11,10 @@ import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.LambdaRefactoringUtil;
 import com.intellij.util.ArrayUtil;
-import com.siyeh.ig.psiutils.EquivalenceChecker;
-import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.MethodCallUtils;
+import com.siyeh.ig.psiutils.*;
 import one.util.streamex.EntryStream;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
@@ -48,7 +33,7 @@ import java.util.function.Consumer;
 abstract class FunctionHelper {
   private static final Logger LOG = Logger.getInstance(FunctionHelper.class);
 
-  private PsiType myResultType;
+  private final PsiType myResultType;
 
   FunctionHelper(PsiType resultType) {
     myResultType = resultType;
@@ -99,7 +84,7 @@ abstract class FunctionHelper {
    */
   void rename(String oldName, String newName, StreamToLoopReplacementContext context) {}
 
-  void registerReusedElements(Consumer<PsiElement> consumer) {}
+  void registerReusedElements(Consumer<? super PsiElement> consumer) {}
 
   @Nullable
   String getParameterName(int index) {
@@ -146,10 +131,9 @@ abstract class FunctionHelper {
   @Contract("null, _, _ -> null")
   @Nullable
   static FunctionHelper create(PsiExpression expression, int paramCount, boolean allowReturns) {
+    expression = PsiUtil.skipParenthesizedExprDown(expression);
     if(expression == null) return null;
-    PsiType type = expression instanceof PsiFunctionalExpression
-                   ? ((PsiFunctionalExpression)expression).getFunctionalInterfaceType()
-                   : expression.getType();
+    PsiType type = FunctionalExpressionUtils.getFunctionalExpressionType(expression);
     if(!(type instanceof PsiClassType)) return null;
     PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(type);
     if (interfaceMethod == null || interfaceMethod.getParameterList().getParametersCount() != paramCount) return null;
@@ -166,7 +150,7 @@ abstract class FunctionHelper {
       if (lambdaExpression == null) {
         if (PsiType.VOID.equals(returnType) && body instanceof PsiCodeBlock) {
           List<PsiReturnStatement> returns = getReturns(body);
-          if (!allowReturns && !returns.isEmpty()) return null;
+          if (!allowReturns && (!returns.isEmpty() || !ControlFlowUtils.codeBlockMayCompleteNormally((PsiCodeBlock)body))) return null;
           // Return inside loop is not supported yet
           for (PsiReturnStatement ret : returns) {
             if (PsiTreeUtil.getParentOfType(ret, PsiLoopStatement.class, true, PsiLambdaExpression.class) != null) {
@@ -188,7 +172,7 @@ abstract class FunctionHelper {
       }
       return new MethodReferenceFunctionHelper(returnType, type, methodRef);
     }
-    if (expression instanceof PsiReferenceExpression && ExpressionUtils.isSimpleExpression(expression)) {
+    if (expression instanceof PsiReferenceExpression && ExpressionUtils.isSafelyRecomputableExpression(expression)) {
       return new SimpleReferenceFunctionHelper(returnType, expression, interfaceMethod.getName());
     }
     if (expression instanceof PsiMethodCallExpression) {
@@ -288,7 +272,7 @@ abstract class FunctionHelper {
    */
   @NotNull
   static <T extends PsiElement> T replaceVarReference(@NotNull T expressionOrCodeBlock,
-                                                      String name,
+                                                      @NotNull String name,
                                                       String replacement,
                                                       StreamToLoopReplacementContext context) {
     if (name.equals(replacement)) return expressionOrCodeBlock;
@@ -329,7 +313,7 @@ abstract class FunctionHelper {
     private PsiMethodReferenceExpression myMethodRef;
     private PsiExpression myExpression;
 
-    public MethodReferenceFunctionHelper(PsiType returnType, PsiType functionalInterfaceType, PsiMethodReferenceExpression methodRef) {
+    MethodReferenceFunctionHelper(PsiType returnType, PsiType functionalInterfaceType, PsiMethodReferenceExpression methodRef) {
       super(returnType);
       myMethodRef = methodRef;
       myType = functionalInterfaceType;
@@ -360,8 +344,8 @@ abstract class FunctionHelper {
     }
 
     @Override
-    void registerReusedElements(Consumer<PsiElement> consumer) {
-      consumer.accept(myMethodRef);
+    void registerReusedElements(Consumer<? super PsiElement> consumer) {
+      consumer.accept(myMethodRef.getQualifier());
     }
 
     @Override
@@ -370,7 +354,7 @@ abstract class FunctionHelper {
       PsiExpression qualifier = methodRef.getQualifierExpression();
       if(qualifier != null) {
         String qualifierText = qualifier.getText();
-        if(!ExpressionUtils.isSimpleExpression(qualifier)) {
+        if(!ExpressionUtils.isSafelyRecomputableExpression(qualifier)) {
           if (myQualifierType != null) {
             String nameCandidate = "expr";
             SuggestedNameInfo info = JavaCodeStyleManager.getInstance(context.getProject())
@@ -396,7 +380,12 @@ abstract class FunctionHelper {
       myExpression = LambdaUtil.extractSingleExpressionFromBody(lambda.getBody());
       LOG.assertTrue(myExpression != null);
       EntryStream.zip(lambda.getParameterList().getParameters(), argumentValues)
-        .forKeyValue((param, newName) -> myExpression = replaceVarReference(myExpression, param.getName(), newName, context));
+        .forKeyValue((param, newName) -> {
+          String oldName = param.getName();
+          if (oldName != null) {
+            myExpression = replaceVarReference(myExpression, oldName, newName, context);
+          }
+        });
     }
 
     @Override
@@ -473,7 +462,7 @@ abstract class FunctionHelper {
     }
 
     @Override
-    void registerReusedElements(Consumer<PsiElement> consumer) {
+    void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myExpression);
     }
 
@@ -489,7 +478,7 @@ abstract class FunctionHelper {
     private final String myName;
     private PsiExpression myExpression;
 
-    public SimpleReferenceFunctionHelper(PsiType returnType, PsiExpression reference, String methodName) {
+    SimpleReferenceFunctionHelper(PsiType returnType, PsiExpression reference, String methodName) {
       super(returnType);
       myReference = reference;
       myName = methodName;
@@ -512,7 +501,7 @@ abstract class FunctionHelper {
     }
 
     @Override
-    void registerReusedElements(Consumer<PsiElement> consumer) {
+    void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myReference);
     }
   }
@@ -522,7 +511,7 @@ abstract class FunctionHelper {
     private final String myTemplate;
     private PsiExpression myExpression;
 
-    public InlinedFunctionHelper(PsiType type, int argCount, String template) {
+    InlinedFunctionHelper(PsiType type, int argCount, String template) {
       super(type);
       myArgCount = argCount;
       myTemplate = template;
@@ -557,17 +546,20 @@ abstract class FunctionHelper {
       return myParameters[0];
     }
 
+    @Override
     PsiExpression getExpression() {
       // Usage logic presume that this method is called only if myBody is PsiExpression
       return (PsiExpression)myBody;
     }
 
+    @Override
     void transform(StreamToLoopReplacementContext context, String... argumentValues) {
       LOG.assertTrue(argumentValues.length == myParameters.length);
       EntryStream.zip(myParameters, argumentValues).forKeyValue(
         (oldName, newName) -> myBody = replaceVarReference(myBody, oldName, newName, context));
     }
 
+    @Override
     void rename(String oldName, String newName, StreamToLoopReplacementContext context) {
       int idx = ArrayUtil.indexOf(myParameters, newName);
       if(idx >= 0) {
@@ -585,10 +577,11 @@ abstract class FunctionHelper {
     }
 
     @Override
-    void registerReusedElements(Consumer<PsiElement> consumer) {
+    void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myBody);
     }
 
+    @Override
     String getParameterName(int index) {
       return myParameters[index];
     }
@@ -604,7 +597,7 @@ abstract class FunctionHelper {
         PsiElement body = lambda.getBody();
         LOG.assertTrue(body != null);
         boolean mayBeNotFinal = ReferencesSearch.search(parameter, new LocalSearchScope(body))
-          .forEach(e -> PsiTreeUtil.getParentOfType(e.getElement(), PsiLambdaExpression.class, PsiClass.class) == lambda);
+          .allMatch(e -> PsiTreeUtil.getParentOfType(e.getElement(), PsiLambdaExpression.class, PsiClass.class) == lambda);
         if (!mayBeNotFinal) {
           var.markFinal();
         }
@@ -628,9 +621,12 @@ abstract class FunctionHelper {
     String getStatementText() {
       PsiElement[] children = myBody.getChildren();
       // Keep everything except braces
-      return StreamEx.of(children, 1, children.length - 1).map(PsiElement::getText).joining().trim();
+      return StreamEx.of(children, 1, children.length - 1)
+                     .dropWhile(e -> e instanceof PsiWhiteSpace)
+                     .map(PsiElement::getText).joining();
     }
 
+    @Override
     void transform(StreamToLoopReplacementContext context, String... argumentValues) {
       super.transform(context, argumentValues);
       List<PsiReturnStatement> returns = getReturns(myBody);

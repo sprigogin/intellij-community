@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.actions;
 
 import com.intellij.CommonBundle;
@@ -60,7 +46,7 @@ import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.lw.*;
 import com.intellij.uiDesigner.make.PreviewNestedFormLoader;
 import com.intellij.util.PathsList;
-import com.intellij.util.containers.HashSet;
+import com.jgoodies.forms.layout.CellConstraints;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -70,10 +56,7 @@ import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.StringTokenizer;
+import java.util.*;
 
 /**
  * @author Anton Katilin
@@ -102,17 +85,19 @@ public final class PreviewFormAction extends AnAction{
         throw new RuntimeException(exc);
       }
     }
-    return new InstrumentationClassFinder(urls.toArray(new URL[urls.size()]));
+    return new InstrumentationClassFinder(urls.toArray(new URL[0]));
   }
 
-  public void actionPerformed(final AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final GuiEditor editor = FormEditingUtil.getActiveEditor(e.getDataContext());
     if (editor != null) {
       showPreviewFrame(editor.getModule(), editor.getFile(), editor.getStringDescriptorLocale());
     }
   }
 
-  public void update(final AnActionEvent e) {
+  @Override
+  public void update(@NotNull final AnActionEvent e) {
     final GuiEditor editor = FormEditingUtil.getActiveEditor(e.getDataContext());
 
     if(editor == null){
@@ -230,6 +215,7 @@ public final class PreviewFormAction extends AnAction{
       FormEditingUtil.iterateStringDescriptors(
         rootContainer,
         new FormEditingUtil.StringDescriptorVisitor<IComponent>() {
+          @Override
           public boolean visit(final IComponent component, final StringDescriptor descriptor) {
             if (descriptor.getBundleName() != null) {
               bundleSet.add(descriptor.getDottedBundleName());
@@ -251,10 +237,11 @@ public final class PreviewFormAction extends AnAction{
             }
           }
         }
-        FileSetCompileScope scope = new FileSetCompileScope(virtualFiles, modules.toArray(new Module[modules.size()]));
+        FileSetCompileScope scope = new FileSetCompileScope(virtualFiles, modules.toArray(Module.EMPTY_ARRAY));
 
         CompilerManager.getInstance(module.getProject()).make(scope, new CompileStatusNotification() {
-          public void finished(boolean aborted, int errors, int warnings, final CompileContext compileContext) {
+          @Override
+          public void finished(boolean aborted, int errors, int warnings, @NotNull final CompileContext compileContext) {
             if (!aborted && errors == 0) {
               runPreviewProcess(tempPath, sources, module, formFile, stringDescriptorLocale);
             }
@@ -276,6 +263,7 @@ public final class PreviewFormAction extends AnAction{
     FormEditingUtil.iterate(
       rootContainer,
       new FormEditingUtil.ComponentVisitor<LwComponent>() {
+        @Override
         public boolean visit(final LwComponent iComponent) {
           iComponent.setBinding(null);
           return true;
@@ -283,7 +271,6 @@ public final class PreviewFormAction extends AnAction{
       }
     );
     if (rootContainer.getComponentCount() == 1) {
-      //noinspection HardCodedStringLiteral
       ((LwComponent)rootContainer.getComponent(0)).setBinding(PREVIEW_BINDING_FIELD);
     }
   }
@@ -293,7 +280,7 @@ public final class PreviewFormAction extends AnAction{
     // 3. Now we are ready to launch Java process
     final JavaParameters parameters = new JavaParameters();
     parameters.getClassPath().add(tempPath);
-    parameters.getClassPath().add(PathManager.findFileInLibDirectory("jgoodies-forms.jar").getAbsolutePath());
+    parameters.getClassPath().add(PathManager.getJarPathForClass(CellConstraints.class));
     final List<String> paths = sources.getPathList();
     for (final String path : paths) {
       parameters.getClassPath().add(path);
@@ -335,23 +322,27 @@ public final class PreviewFormAction extends AnAction{
     private final String myTempPath;
     private final String myStatusbarMessage;
 
-    public MyRunProfile(final Module module, final JavaParameters params, final String tempPath, final String statusbarMessage) {
+    MyRunProfile(final Module module, final JavaParameters params, final String tempPath, final String statusbarMessage) {
       myModule = module;
       myParams = params;
       myTempPath = tempPath;
       myStatusbarMessage = statusbarMessage;
     }
 
+    @Override
     public Icon getIcon() {
       return null;
     }
 
+    @Override
     public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) throws ExecutionException {
       return new JavaCommandLineState(env) {
+        @Override
         protected JavaParameters createJavaParameters() {
           return myParams;
         }
 
+        @Override
         @NotNull
         public ExecutionResult execute(@NotNull final Executor executor, @NotNull final ProgramRunner runner) throws ExecutionException {
           try {
@@ -372,10 +363,13 @@ public final class PreviewFormAction extends AnAction{
       };
     }
 
+    @NotNull
+    @Override
     public String getName() {
       return UIDesignerBundle.message("title.form.preview");
     }
 
+    @Override
     @NotNull
     public Module[] getModules() {
       return new Module[] {myModule};

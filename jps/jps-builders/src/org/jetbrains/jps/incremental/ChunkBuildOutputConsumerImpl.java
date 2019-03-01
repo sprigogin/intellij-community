@@ -33,11 +33,11 @@ import java.util.Map;
 */
 class ChunkBuildOutputConsumerImpl implements ModuleLevelBuilder.OutputConsumer {
   private final CompileContext myContext;
-  private Map<BuildTarget<?>, BuildOutputConsumerImpl> myTarget2Consumer = new THashMap<>();
-  private Map<String, CompiledClass> myClasses = new THashMap<>();
-  private Map<BuildTarget<?>, Collection<CompiledClass>> myTargetToClassesMap = new THashMap<>();
+  private final Map<BuildTarget<?>, BuildOutputConsumerImpl> myTarget2Consumer = new THashMap<>();
+  private final Map<String, CompiledClass> myClasses = new THashMap<>();
+  private final Map<BuildTarget<?>, Collection<CompiledClass>> myTargetToClassesMap = new THashMap<>();
 
-  public ChunkBuildOutputConsumerImpl(CompileContext context) {
+  ChunkBuildOutputConsumerImpl(CompileContext context) {
     myContext = context;
   }
 

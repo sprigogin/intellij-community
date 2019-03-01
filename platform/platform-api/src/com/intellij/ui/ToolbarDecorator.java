@@ -31,8 +31,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Konstantin Bulenkov
@@ -334,7 +334,7 @@ public abstract class ToolbarDecorator implements CommonActionsPanel.ListenerFac
     final JComponent contextComponent = getComponent();
     myActionsPanel = new CommonActionsPanel(this, contextComponent,
                              myToolbarPosition,
-                             myExtraActions.toArray(new AnActionButton[myExtraActions.size()]),
+                             myExtraActions.toArray(new AnActionButton[0]),
                              myButtonComparator,
                              myAddName, myRemoveName, myMoveUpName, myMoveDownName, myEditName,
                              myAddIcon, buttons);
@@ -428,7 +428,7 @@ public abstract class ToolbarDecorator implements CommonActionsPanel.ListenerFac
       }
     }
 
-    return buttons.toArray(new CommonActionsPanel.Buttons[buttons.size()]);
+    return buttons.toArray(new CommonActionsPanel.Buttons[0]);
   }
 
   @Override
@@ -470,33 +470,38 @@ public abstract class ToolbarDecorator implements CommonActionsPanel.ListenerFac
       }
     };
   }
-  
+
+  @Nullable
   public static AnActionButton findAddButton(@NotNull JComponent container) {
     return findButton(container, CommonActionsPanel.Buttons.ADD);
   }
 
+  @Nullable
   public static AnActionButton findEditButton(@NotNull JComponent container) {
     return findButton(container, CommonActionsPanel.Buttons.EDIT);
   }
 
+  @Nullable
   public static AnActionButton findRemoveButton(@NotNull JComponent container) {
     return findButton(container, CommonActionsPanel.Buttons.REMOVE);
   }
 
+  @Nullable
   public static AnActionButton findUpButton(@NotNull JComponent container) {
     return findButton(container, CommonActionsPanel.Buttons.UP);
   }
 
+  @Nullable
   public static AnActionButton findDownButton(@NotNull JComponent container) {
     return findButton(container, CommonActionsPanel.Buttons.DOWN);
   }
 
+  @Nullable
   private static AnActionButton findButton(JComponent comp, CommonActionsPanel.Buttons type) {
     final CommonActionsPanel panel = UIUtil.findComponentOfType(comp, CommonActionsPanel.class);
     if (panel != null) {
       return panel.getAnActionButton(type);
     }
-    //noinspection ConstantConditions
     return null;
   }
 

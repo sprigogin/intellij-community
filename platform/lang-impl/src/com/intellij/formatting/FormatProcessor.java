@@ -32,14 +32,14 @@ public class FormatProcessor {
   private static final Logger LOG = Logger.getInstance("#com.intellij.formatting.FormatProcessor");
   
   private final WrapBlocksState myWrapState;
-  private boolean myReformatContext;
+  private final boolean myReformatContext;
   private final Document myDocument;
   
   @NotNull
   private final FormattingProgressCallback myProgressCallback;
 
   @NotNull
-  private StateProcessor myStateProcessor;
+  private final StateProcessor myStateProcessor;
 
   public FormatProcessor(final FormattingDocumentModel docModel,
                          Block rootBlock,
@@ -189,7 +189,7 @@ public class FormatProcessor {
     }
 
     IndentAdjuster adjuster = myWrapState.getIndentAdjuster();
-    return adjuster.adjustLineIndent(current, info);
+    return adjuster.adjustLineIndent(info);
   }
 
   @Nullable
@@ -239,7 +239,6 @@ public class FormatProcessor {
     AbstractBlockWrapper parentBlockToUse = getLastNestedCompositeBlockForSameRange(parent);
     if (!(parentBlockToUse instanceof CompositeBlockWrapper)) return 0;
     final List<AbstractBlockWrapper> subBlocks = ((CompositeBlockWrapper)parentBlockToUse).getChildren();
-    //noinspection ConstantConditions
     if (subBlocks != null) {
       for (int i = 0; i < subBlocks.size(); i++) {
         AbstractBlockWrapper block = subBlocks.get(i);

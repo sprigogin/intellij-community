@@ -124,7 +124,7 @@ public class CaughtExceptionImmediatelyRethrownInspection extends BaseInspection
       final PsiTryStatement tryStatement = catchSection.getTryStatement();
       final PsiCatchSection[] catchSections = tryStatement.getCatchSections();
       int index = 0;
-      while (catchSections[index] != catchSection && index < catchSections.length) {
+      while (catchSections[index] != catchSection) {
         index++;
       }
       final PsiType type = parameter.getType();
@@ -160,7 +160,7 @@ public class CaughtExceptionImmediatelyRethrownInspection extends BaseInspection
       return false;
     }
 
-    private static void processExceptionClasses(PsiType type, Processor<PsiClass> processor) {
+    private static void processExceptionClasses(PsiType type, Processor<? super PsiClass> processor) {
       if (type instanceof PsiClassType) {
         final PsiClassType classType = (PsiClassType)type;
         final PsiClass aClass = classType.resolve();

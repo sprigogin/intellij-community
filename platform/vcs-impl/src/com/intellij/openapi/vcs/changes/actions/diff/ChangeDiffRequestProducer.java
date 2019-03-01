@@ -43,6 +43,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.*;
+import com.intellij.openapi.vcs.changes.actions.diff.lst.LocalChangeListDiffRequest;
 import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain;
 import com.intellij.openapi.vcs.impl.LineStatusTrackerManager;
 import com.intellij.openapi.vcs.merge.MergeData;
@@ -55,10 +56,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static com.intellij.diff.DiffRequestFactoryImpl.DIFF_TITLE_RENAME_SEPARATOR;
 import static com.intellij.util.ObjectUtils.tryCast;
 
 public class ChangeDiffRequestProducer implements DiffRequestProducer, ChangeDiffRequestChain.Producer {
@@ -168,15 +169,15 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer, ChangeDif
 
   @Nullable
   public static ChangeDiffRequestProducer create(@Nullable Project project, @NotNull Change change) {
-    return create(project, change, Collections.emptyMap());
+    return create(project, change, null);
   }
 
   @Nullable
   public static ChangeDiffRequestProducer create(@Nullable Project project,
                                                  @NotNull Change change,
-                                                 @NotNull Map<Key, Object> changeContext) {
+                                                 @Nullable Map<Key, Object> changeContext) {
     if (!canCreate(project, change)) return null;
-    return new ChangeDiffRequestProducer(project, change, changeContext);
+    return new ChangeDiffRequestProducer(project, change, ContainerUtil.notNullize(changeContext));
   }
 
   public static boolean canCreate(@Nullable Project project, @NotNull Change change) {
@@ -414,11 +415,9 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer, ChangeDif
 
   @NotNull
   public static String getRequestTitle(@NotNull Change change) {
-    ContentRevision bRev = change.getBeforeRevision();
-    ContentRevision aRev = change.getAfterRevision();
-    FilePath bPath = bRev != null ? bRev.getFile() : null;
-    FilePath aPath = aRev != null ? aRev.getFile() : null;
-    return DiffRequestFactoryImpl.getTitle(bPath, aPath, " -> ");
+    FilePath bPath = ChangesUtil.getBeforePath(change);
+    FilePath aPath = ChangesUtil.getAfterPath(change);
+    return DiffRequestFactoryImpl.getTitle(bPath, aPath, DIFF_TITLE_RENAME_SEPARATOR);
   }
 
   @NotNull

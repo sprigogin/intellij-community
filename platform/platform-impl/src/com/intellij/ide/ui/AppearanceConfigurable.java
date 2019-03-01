@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui;
 
+import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.QuickChangeLookAndFeel;
 import com.intellij.openapi.actionSystem.ActionPlaces;
@@ -27,11 +14,11 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.ex.DefaultColorSchemesManager;
 import com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl;
-import com.intellij.openapi.options.BaseConfigurable;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.ui.FontComboBox;
@@ -50,20 +37,10 @@ import java.util.Hashtable;
 /**
  * @author Eugene Belyaev
  */
-public class AppearanceConfigurable extends BaseConfigurable implements SearchableConfigurable {
+public class AppearanceConfigurable implements SearchableConfigurable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.ui.AppearanceConfigurable");
 
   private MyComponent myComponent;
-
-  public AppearanceConfigurable() {
-    myComponent = new MyComponent();
-  }
-
-  private void initComponent() {
-    if (myComponent == null)  {
-      myComponent = new MyComponent();
-    }
-  }
 
   @Override
   public String getDisplayName() {
@@ -82,13 +59,16 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
   public JComponent createComponent() {
     UISettings settings = UISettings.getInstance();
 
-    initComponent();
+    if (myComponent == null)  {
+      myComponent = new MyComponent();
+    }
 
     myComponent.myFontSizeCombo.setModel(new DefaultComboBoxModel(UIUtil.getStandardFontSizes()));
     myComponent.myPresentationModeFontSize.setModel(new DefaultComboBoxModel(UIUtil.getStandardFontSizes()));
     myComponent.myFontSizeCombo.setEditable(true);
     myComponent.myPresentationModeFontSize.setEditable(true);
 
+    //noinspection unchecked
     myComponent.myLafComboBox.setModel(new DefaultComboBoxModel(LafManager.getInstance().getInstalledLookAndFeels()));
     myComponent.myLafComboBox.setRenderer(new LafComboBoxRenderer());
 
@@ -142,33 +122,45 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     myComponent.myBackgroundImageButton.addActionListener(ActionUtil.createActionListener(
       "Images.SetBackgroundImage", myComponent.myPanel, ActionPlaces.UNKNOWN));
 
+    myComponent.myDarkWindowHeaders.setSelected(Registry.is("ide.mac.allowDarkWindowDecorations"));
+    updateDarkWindowHeaderVisibility();
+    myComponent.myLafComboBox.addItemListener(x -> updateDarkWindowHeaderVisibility());
+
     return myComponent.myPanel;
+  }
+
+  private void updateDarkWindowHeaderVisibility() {
+    Object item = myComponent.myLafComboBox.getSelectedItem();
+    boolean isDarkLaf = item instanceof UIManager.LookAndFeelInfo && ((UIManager.LookAndFeelInfo)item).getClassName().endsWith("DarculaLaf");
+    myComponent.myDarkWindowHeaders.setVisible(SystemInfo.isMac && isDarkLaf);
   }
 
   @Override
   public void apply() {
-    initComponent();
-    UISettings settings = UISettings.getInstance();
-    int _fontSize = getIntValue(myComponent.myFontSizeCombo, settings.getFontSize());
-    int _presentationFontSize = getIntValue(myComponent.myPresentationModeFontSize, settings.getPresentationModeFontSize());
+    if (myComponent == null) return; // nothing to apply
+
+    UISettings settingsManager = UISettings.getInstance();
+    UISettingsState settings = settingsManager.getState();
+    int _fontSize = getIntValue(myComponent.myFontSizeCombo, settingsManager.getFontSize());
+    int _presentationFontSize = getIntValue(myComponent.myPresentationModeFontSize, settingsManager.getPresentationModeFontSize());
     boolean update = false;
     boolean shouldUpdateUI = false;
     String _fontFace = myComponent.myFontCombo.getFontName();
     LafManager lafManager = LafManager.getInstance();
-    if (_fontSize != settings.getFontSize() || !Comparing.equal(settings.getFontFace(), _fontFace)) {
-      settings.setFontSize(_fontSize);
-      settings.setFontFace(_fontFace);
+    if (_fontSize != settingsManager.getFontSize() || !Comparing.equal(settingsManager.getFontFace(), _fontFace)) {
+      settingsManager.setFontSize(_fontSize);
+      settingsManager.setFontFace(_fontFace);
       shouldUpdateUI = true;
       update = true;
     }
 
-    if (_presentationFontSize != settings.getPresentationModeFontSize()) {
+    if (_presentationFontSize != settingsManager.getPresentationModeFontSize()) {
       settings.setPresentationModeFontSize(_presentationFontSize);
       shouldUpdateUI = true;
     }
 
-    if (myComponent.myAntialiasingInIDE.getSelectedItem() != settings.getIdeAAType()) {
-      settings.setIdeAAType((AntialiasingType)myComponent.myAntialiasingInIDE.getSelectedItem());
+    if (myComponent.myAntialiasingInIDE.getSelectedItem() != settingsManager.getIdeAAType()) {
+      settingsManager.setIdeAAType((AntialiasingType)myComponent.myAntialiasingInIDE.getSelectedItem());
       for (Window w : Window.getWindows()) {
         for (JComponent c : UIUtil.uiTraverser(w).filter(JComponent.class)) {
           GraphicsUtil.setAntialiasingType(c, AntialiasingType.getAAHintForSwingComponent());
@@ -177,8 +169,8 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
       shouldUpdateUI = true;
     }
 
-    if (myComponent.myAntialiasingInEditor.getSelectedItem() != settings.getEditorAAType()) {
-      settings.setEditorAAType((AntialiasingType)myComponent.myAntialiasingInEditor.getSelectedItem());
+    if (myComponent.myAntialiasingInEditor.getSelectedItem() != settingsManager.getEditorAAType()) {
+      settingsManager.setEditorAAType((AntialiasingType)myComponent.myAntialiasingInEditor.getSelectedItem());
       shouldUpdateUI = true;
     }
 
@@ -225,6 +217,11 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     update |= settings.getNavigateToPreview() != (myComponent.myNavigateToPreviewCheckBox.isVisible() && myComponent.myNavigateToPreviewCheckBox.isSelected());
     settings.setNavigateToPreview(myComponent.myNavigateToPreviewCheckBox.isSelected());
 
+    boolean updateSupportScreenReaders = myComponent.isSupportScreenReadersModified();
+    if (updateSupportScreenReaders) {
+      GeneralSettings.getInstance().setSupportScreenReaders(myComponent.mySupportScreenReadersCheckBox.isSelected());
+    }
+
     ColorBlindness blindness = myComponent.myColorBlindnessPanel.getColorBlindness();
     boolean updateEditorScheme = false;
     if (settings.getColorBlindness() != blindness) {
@@ -239,6 +236,12 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
     update |= settings.getShowIconInQuickNavigation() != myComponent.myHideIconsInQuickNavigation.isSelected();
     settings.setShowIconInQuickNavigation(myComponent.myHideIconsInQuickNavigation.isSelected());
+
+    if (isModified(myComponent.myDarkWindowHeaders, Registry.is("ide.mac.allowDarkWindowDecorations"))) {
+      Registry.get("ide.mac.allowDarkWindowDecorations").setValue(myComponent.myDarkWindowHeaders.isSelected());
+      update = true;
+      shouldUpdateUI = true;
+    }
 
     if (!Comparing.equal(myComponent.myLafComboBox.getSelectedItem(), lafManager.getCurrentLookAndFeel())) {
       UIManager.LookAndFeelInfo lafInfo = (UIManager.LookAndFeelInfo)myComponent.myLafComboBox.getSelectedItem();
@@ -255,10 +258,10 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     if (!myComponent.myOverrideLAFFonts.isSelected()) {
       assert !shouldUpdateUI;
       int defSize = JBUI.Fonts.label().getSize();
-      settings.setFontSize(defSize);
+      settingsManager.setFontSize(defSize);
       myComponent.myFontSizeCombo.getModel().setSelectedItem(String.valueOf(defSize));
       String defName = JBUI.Fonts.label().getFontName();
-      settings.setFontFace(defName);
+      settingsManager.setFontFace(defName);
       myComponent.myFontCombo.setFontName(defName);
     }
 
@@ -285,7 +288,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     }
 
     if (update) {
-      settings.fireUISettingsChanged();
+      settingsManager.fireUISettingsChanged();
     }
     myComponent.updateCombo();
 
@@ -318,11 +321,13 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
   @Override
   public void reset() {
-    initComponent();
-    UISettings settings = UISettings.getInstance();
+    if (myComponent == null) return; // nothing to reset
+
+    UISettings settingsManager = UISettings.getInstance();
+    UISettingsState settings = settingsManager.getState();
 
     if (settings.getOverrideLafFonts()) {
-      myComponent.myFontCombo.setFontName(settings.getFontFace());
+      myComponent.myFontCombo.setFontName(settingsManager.getFontFace());
     } else {
       myComponent.myFontCombo.setFontName(UIUtil.getLabelFont().getFamily());
     }
@@ -330,10 +335,10 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     //myComponent.myAntialiasingCheckBox.setSelected(settings.ANTIALIASING_IN_IDE);
     //myComponent.myLCDRenderingScopeCombo.setSelectedItem(settings.LCD_RENDERING_SCOPE);
 
-    myComponent.myAntialiasingInIDE.setSelectedItem(settings.getIdeAAType());
-    myComponent.myAntialiasingInEditor.setSelectedItem(settings.getEditorAAType());
+    myComponent.myAntialiasingInIDE.setSelectedItem(settingsManager.getIdeAAType());
+    myComponent.myAntialiasingInEditor.setSelectedItem(settingsManager.getEditorAAType());
 
-    myComponent.myFontSizeCombo.setSelectedItem(Integer.toString(settings.getFontSize()));
+    myComponent.myFontSizeCombo.setSelectedItem(Integer.toString(settingsManager.getFontSize()));
     myComponent.myPresentationModeFontSize.setSelectedItem(Integer.toString(settings.getPresentationModeFontSize()));
     myComponent.myAnimateWindowsCheckBox.setSelected(settings.getAnimateWindows());
     myComponent.myWindowShortcutsCheckBox.setSelected(settings.getShowToolWindowsNumbers());
@@ -348,6 +353,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     myComponent.myHideNavigationPopupsCheckBox.setSelected(settings.getHideNavigationOnFocusLoss());
     myComponent.myAltDNDCheckBox.setSelected(settings.getDndWithPressedAltOnly());
     myComponent.myLafComboBox.setSelectedItem(LafManager.getInstance().getCurrentLookAndFeel());
+    myComponent.myDarkWindowHeaders.setSelected(Registry.is("ide.mac.allowDarkWindowDecorations"));
     myComponent.myOverrideLAFFonts.setSelected(settings.getOverrideLafFonts());
     myComponent.myDisableMnemonics.setSelected(settings.getDisableMnemonics());
     myComponent.myUseSmallLabelsOnTabs.setSelected(settings.getUseSmallLabelsOnTabs());
@@ -357,6 +363,14 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     myComponent.mySmoothScrollingCheckBox.setSelected(settings.getSmoothScrolling());
     myComponent.myNavigateToPreviewCheckBox.setSelected(settings.getNavigateToPreview());
     myComponent.myNavigateToPreviewCheckBox.setVisible(false);//disabled for a while
+
+    myComponent.mySupportScreenReadersCheckBox.setSelected(GeneralSettings.getInstance().isSupportScreenReaders());
+    myComponent.mySupportScreenReadersCheckBox.setEnabled(!GeneralSettings.isSupportScreenReadersOverridden());
+    myComponent.mySupportScreenReadersCheckBox.setToolTipText(
+      GeneralSettings.isSupportScreenReadersOverridden()
+      ? "The option is overridden by the JVM property: \"" + GeneralSettings.SUPPORT_SCREEN_READERS + "\""
+      : null);
+
     myComponent.myColorBlindnessPanel.setColorBlindness(settings.getColorBlindness());
     myComponent.myDisableMnemonicInControlsCheckBox.setSelected(settings.getDisableMnemonicsInControls());
 
@@ -393,17 +407,19 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
   @Override
   public boolean isModified() {
-    initComponent();
-    UISettings settings = UISettings.getInstance();
+    if (myComponent == null) return false; // nothing to check
+
+    UISettings settingsManager = UISettings.getInstance();
+    UISettingsState settings = settingsManager.getState();
 
     boolean isModified = false;
-    isModified |= !Comparing.equal(myComponent.myFontCombo.getFontName(), settings.getFontFace()) && myComponent.myOverrideLAFFonts.isSelected();
-    isModified |= !Comparing.equal(myComponent.myFontSizeCombo.getEditor().getItem(), Integer.toString(settings.getFontSize()));
+    isModified |= !Comparing.equal(myComponent.myFontCombo.getFontName(), settingsManager.getFontFace()) && myComponent.myOverrideLAFFonts.isSelected();
+    isModified |= !Comparing.equal(myComponent.myFontSizeCombo.getEditor().getItem(), Integer.toString(settingsManager.getFontSize()));
 
-    isModified |= myComponent.myAntialiasingInIDE.getSelectedItem() != settings.getIdeAAType();
-    isModified |= myComponent.myAntialiasingInEditor.getSelectedItem() != settings.getEditorAAType();
+    isModified |= myComponent.myAntialiasingInIDE.getSelectedItem() != settingsManager.getIdeAAType();
+    isModified |= myComponent.myAntialiasingInEditor.getSelectedItem() != settingsManager.getEditorAAType();
 
-    isModified |= myComponent.myAnimateWindowsCheckBox.isSelected() != settings.getAnimateWindows();
+    isModified |= myComponent.myAnimateWindowsCheckBox.isSelected() != settingsManager.getAnimateWindows();
     isModified |= myComponent.myWindowShortcutsCheckBox.isSelected() != settings.getShowToolWindowsNumbers();
     isModified |= myComponent.myShowToolStripesCheckBox.isSelected() == settings.getHideToolStripes();
     isModified |= myComponent.myCbDisplayIconsInMenu.isSelected() != settings.getShowIconsInMenus();
@@ -422,6 +438,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     isModified |= myComponent.myRightLayoutCheckBox.isSelected() != settings.getRightHorizontalSplit();
     isModified |= myComponent.mySmoothScrollingCheckBox.isSelected() != settings.getSmoothScrolling();
     isModified |= myComponent.myNavigateToPreviewCheckBox.isSelected() != settings.getNavigateToPreview();
+    isModified |= myComponent.isSupportScreenReadersModified();
     isModified |= myComponent.myColorBlindnessPanel.getColorBlindness() != settings.getColorBlindness();
 
     isModified |= myComponent.myHideIconsInQuickNavigation.isSelected() != settings.getShowIconInQuickNavigation();
@@ -432,6 +449,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     isModified |= myComponent.myHideNavigationPopupsCheckBox.isSelected() != settings.getHideNavigationOnFocusLoss();
     isModified |= myComponent.myAltDNDCheckBox.isSelected() != settings.getDndWithPressedAltOnly();
     isModified |= !Comparing.equal(myComponent.myLafComboBox.getSelectedItem(), LafManager.getInstance().getCurrentLookAndFeel());
+    isModified |= isModified(myComponent.myDarkWindowHeaders, Registry.is("ide.mac.allowDarkWindowDecorations"));
     if (WindowManagerEx.getInstanceEx().isAlphaModeSupported()) {
       isModified |= myComponent.myEnableAlphaModeCheckBox.isSelected() != settings.getEnableAlphaMode();
       int delay = -1;
@@ -478,7 +496,6 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     private JTextField myAlphaModeDelayTextField;
     private JSlider myAlphaModeRatioSlider;
     private JLabel myFontSizeLabel;
-    private JLabel myFontNameLabel;
     private JPanel myTransparencyPanel;
     private JCheckBox myOverrideLAFFonts;
 
@@ -497,12 +514,14 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     private ComboBox myPresentationModeFontSize;
     private JCheckBox mySmoothScrollingCheckBox;
     private JCheckBox myNavigateToPreviewCheckBox;
+    private JCheckBox mySupportScreenReadersCheckBox;
     private ColorBlindnessPanel myColorBlindnessPanel;
     private JComboBox myAntialiasingInIDE;
     private JComboBox myAntialiasingInEditor;
     private JButton myBackgroundImageButton;
+    private JBCheckBox myDarkWindowHeaders;
 
-    public MyComponent() {
+    MyComponent() {
       myOverrideLAFFonts.addActionListener(__ -> updateCombo());
       if (!Registry.is("ide.transparency.mode.for.windows")) {
         myTransparencyPanel.getParent().remove(myTransparencyPanel);
@@ -514,8 +533,12 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
       myFontCombo.setEnabled(enableChooser);
       myFontSizeCombo.setEnabled(enableChooser);
-      myFontNameLabel.setEnabled(enableChooser);
       myFontSizeLabel.setEnabled(enableChooser);
+    }
+
+    boolean isSupportScreenReadersModified() {
+      return mySupportScreenReadersCheckBox.isEnabled() &&
+             mySupportScreenReadersCheckBox.isSelected() != GeneralSettings.getInstance().isSupportScreenReaders();
     }
 
     private void createUIComponents() {

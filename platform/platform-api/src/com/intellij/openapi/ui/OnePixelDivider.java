@@ -22,7 +22,6 @@ import com.intellij.openapi.util.Weighted;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeGlassPane;
 import com.intellij.openapi.wm.IdeGlassPaneUtil;
-import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.OnePixelSplitter;
 import com.intellij.util.Producer;
@@ -40,11 +39,11 @@ import java.awt.event.MouseEvent;
 public class OnePixelDivider extends Divider {
   public static final Color BACKGROUND = new JBColor(() -> {
     final Color bg = UIManager.getColor("OnePixelDivider.background");
-    return bg != null ? bg : new JBColor(Gray.xC5, Gray.x51);
+    return bg != null ? bg : JBColor.border();
   });
 
   private boolean myVertical;
-  private Splittable mySplitter;
+  private final Splittable mySplitter;
   private boolean myResizeEnabled;
   private boolean mySwitchOrientationEnabled;
   protected Point myPoint;
@@ -192,6 +191,7 @@ public class OnePixelDivider extends Divider {
     myGlassPane.addMousePreprocessor(myListener, myDisposable);
   }
 
+  @Override
   public void setOrientation(boolean vertical) {
     removeAll();
     myVertical = vertical;
@@ -241,6 +241,7 @@ public class OnePixelDivider extends Divider {
     }
   }
 
+  @Override
   public void setResizeEnabled(boolean resizeEnabled) {
     myResizeEnabled = resizeEnabled;
     if (!myResizeEnabled) {
@@ -253,6 +254,7 @@ public class OnePixelDivider extends Divider {
     }
   }
 
+  @Override
   public void setSwitchOrientationEnabled(boolean switchOrientationEnabled) {
     mySwitchOrientationEnabled = switchOrientationEnabled;
   }

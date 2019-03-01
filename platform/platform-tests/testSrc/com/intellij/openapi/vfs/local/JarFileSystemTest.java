@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.local;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -34,6 +20,7 @@ import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Rule;
 import org.junit.Test;
@@ -49,12 +36,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.jar.JarFile;
-import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.io.IoTestUtil.assertTimestampsEqual;
 import static com.intellij.testFramework.PlatformTestUtil.assertPathsEqual;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.*;
+import static com.intellij.testFramework.UsefulTestCase.assertOneElement;
+import static com.intellij.testFramework.UsefulTestCase.assertSameElements;
 
 public class JarFileSystemTest extends BareTestFixtureTestCase {
   @Rule public TempDirectory tempDir = new TempDirectory();
@@ -106,7 +92,8 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
     assertNotNull(vFile);
 
     VirtualFile jarRoot = findByPath(jar.getPath() + JarFileSystem.JAR_SEPARATOR);
-    assertThat(Stream.of(jarRoot.getChildren()).map(VirtualFile::getName)).containsExactly("META-INF");
+    VirtualFile child = assertOneElement(jarRoot.getChildren());
+    assertEquals("META-INF", child.getName());
 
     VirtualFile entry = findByPath(jar.getPath() + JarFileSystem.JAR_SEPARATOR + JarFile.MANIFEST_NAME);
     assertEquals("", VfsUtilCore.loadText(entry));
@@ -133,9 +120,13 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
     assertTrue(updated.get());
     assertTrue(entry.isValid());
     assertEquals("update", VfsUtilCore.loadText(entry));
-    assertThat(Stream.of(jarRoot.getChildren()).map(VirtualFile::getName)).containsExactlyInAnyOrder("META-INF", "some.txt");
+    List<String> children = ContainerUtil.map(jarRoot.getChildren(), f -> f.getName());
+    assertEquals(2, children.size());
+    assertSameElements(children, "META-INF", "some.txt");
+
     VirtualFile newEntry = findByPath(jar.getPath() + JarFileSystem.JAR_SEPARATOR + "some.txt");
     assertEquals("some text", VfsUtilCore.loadText(newEntry));
+    JarFileSystemImpl.cleanupForNextTest();
   }
 
   @Test
@@ -182,16 +173,16 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
               Random random = new Random();
               for (int j = 0; j < 2 * number; ++j) {
                 BasicJarHandler handler = handlers.get(random.nextInt(handlers.size()));
-
-                int op = random.nextInt(2);
-                if (op == 0) {
+                if (random.nextBoolean()) {
                   assertNotNull(handler.getAttributes(JarFile.MANIFEST_NAME));
                 }
-                else if (op == 1) assertNotNull(handler.contentsToByteArray(JarFile.MANIFEST_NAME));
+                else {
+                  assertNotNull(handler.contentsToByteArray(JarFile.MANIFEST_NAME));
+                }
               }
             }
-            catch (Throwable ignore) {
-              ignore.printStackTrace();
+            catch (Throwable t) {
+              t.printStackTrace();
             }
           }));
         }
@@ -201,6 +192,9 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
     }
     catch (TimeoutException e) {
       fail("Deadlock detected");
+    }
+    finally {
+      JarFileSystemImpl.cleanupForNextTest();
     }
   }
 
@@ -218,7 +212,7 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
       // for performance reasons we create file copy on windows when we read contents and have the handle open to the copy
       Field resolved = handler.getClass().getDeclaredField("myFileWithMirrorResolved");
       resolved.setAccessible(true);
-      assertTrue(resolved.get(handler) == null);
+      assertNull(resolved.get(handler));
     }
 
     jarFileSystem.setNoCopyJarForPath(jar.getPath() + JarFileSystem.JAR_SEPARATOR);
@@ -273,10 +267,14 @@ public class JarFileSystemTest extends BareTestFixtureTestCase {
     VirtualFile small1 = jarRoot.findChild("small1");
     VirtualFile small2 = jarRoot.findChild("small2");
     VirtualFile large = jarRoot.findChild("large");
-    try (InputStream is1 = small1.getInputStream(); InputStream is2 = small2.getInputStream(); InputStream il = large.getInputStream()) {
+    try (InputStream is1 = small1.getInputStream();
+         InputStream is2 = small2.getInputStream();
+         InputStream il = large.getInputStream()) {
       assertSame(is1.getClass(), is2.getClass());
       assertNotSame(is1.getClass(), il.getClass());
     }
+
+    JarFileSystemImpl.cleanupForNextTest();
   }
 
   private static VirtualFile findByPath(String path) {

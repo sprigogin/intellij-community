@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
 import com.google.common.collect.Lists;
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -27,7 +13,6 @@ import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColoredTextContainer;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.util.containers.HashSet;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.frame.*;
@@ -55,7 +40,7 @@ public class PyStackFrame extends XStackFrame {
   public static final int IPYTHON_VALUES_IND = SPECIAL_TYPES_IND + 1;
   public static final int NUMBER_OF_GROUPS = IPYTHON_VALUES_IND + 1;
 
-  private Project myProject;
+  private final Project myProject;
   private final PyFrameAccessor myDebugProcess;
   private final PyStackFrameInfo myFrameInfo;
   private final XSourcePosition myPosition;
@@ -86,25 +71,25 @@ public class PyStackFrame extends XStackFrame {
 
   @Override
   public void customizePresentation(@NotNull ColoredTextContainer component) {
-    component.setIcon(AllIcons.Debugger.StackFrame);
+    component.setIcon(AllIcons.Debugger.Frame);
 
     if (myPosition == null) {
       component.append("<frame not available>", SimpleTextAttributes.GRAY_ATTRIBUTES);
       return;
     }
 
-    boolean isExternal = true;
     final VirtualFile file = myPosition.getFile();
-    AccessToken lock = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
-      final Document document = FileDocumentManager.getInstance().getDocument(file);
-      if (document != null) {
-        isExternal = !ProjectRootManager.getInstance(myProject).getFileIndex().isInContent(file);
-      }
-    }
-    finally {
-      lock.finish();
-    }
+    boolean isExternal =
+      ReadAction.compute(() -> {
+
+        final Document document = FileDocumentManager.getInstance().getDocument(file);
+        if (document != null) {
+          return !ProjectRootManager.getInstance(myProject).getFileIndex().isInContent(file);
+        }
+        else {
+          return true;
+        }
+      });
 
     component.append(myFrameInfo.getName(), gray(SimpleTextAttributes.REGULAR_ATTRIBUTES, isExternal));
     component.append(", ", gray(SimpleTextAttributes.REGULAR_ATTRIBUTES, isExternal));
@@ -130,6 +115,7 @@ public class PyStackFrame extends XStackFrame {
   @Override
   public void computeChildren(@NotNull final XCompositeNode node) {
     if (node.isObsolete()) return;
+    myDebugProcess.setCurrentRootNode(node);
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
       try {
         boolean cached = myDebugProcess.isCurrentFrameCached();
@@ -175,7 +161,8 @@ public class PyStackFrame extends XStackFrame {
         }
         else {
           int groupIndex = -1;
-          if (name.startsWith(DOUBLE_UNDERSCORE) && (name.endsWith(DOUBLE_UNDERSCORE)) && name.length() > 4) {
+          if (name.startsWith(DOUBLE_UNDERSCORE) && (name.endsWith(DOUBLE_UNDERSCORE)) && name.length() > 4 &&
+              !name.equals("__exception__")) {
             groupIndex = DUNDER_VALUES_IND;
           }
           else if (pyValue.isIPythonHidden()) {
@@ -215,7 +202,7 @@ public class PyStackFrame extends XStackFrame {
         node.addChildren(list, true);
       }
 
-      @Nullable
+      @NotNull
       @Override
       public Icon getIcon() {
         return AllIcons.Debugger.WatchLastReturnValue;
@@ -238,7 +225,7 @@ public class PyStackFrame extends XStackFrame {
         node.addChildren(list, true);
       }
 
-      @Nullable
+      @NotNull
       @Override
       public Icon getIcon() {
         return PythonIcons.Python.Debug.SpecialVar;
@@ -257,10 +244,6 @@ public class PyStackFrame extends XStackFrame {
 
   public String getThreadFrameId() {
     return myFrameInfo.getThreadId() + ":" + myFrameInfo.getId();
-  }
-
-  public String getFrameName() {
-    return myFrameInfo.getName();
   }
 
   protected XSourcePosition getPosition() {

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.config;
 
 import com.intellij.ide.DataManager;
@@ -5,9 +6,8 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.actionSystem.Separator;
-import com.intellij.openapi.options.BaseConfigurable;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.actions.IconWithTextAction;
@@ -33,16 +33,18 @@ import javax.swing.*;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Dmitry Avdeev
  */
 @SuppressWarnings("unchecked")
-public class TaskRepositoriesConfigurable extends BaseConfigurable implements Configurable.NoScroll {
+public class TaskRepositoriesConfigurable implements Configurable.NoScroll, SearchableConfigurable {
 
+  public static final String ID = "tasks.servers";
   private static final String EMPTY_PANEL = "empty.panel";
+
   private JPanel myPanel;
   private JPanel myServersPanel;
   private final JBList myRepositoriesList;
@@ -59,7 +61,6 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
 
   private final Consumer<TaskRepository> myChangeListener;
   private int count;
-  @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
   private final Map<TaskRepository, String> myRepoNames = ConcurrentFactoryMap.createMap(repository->
       Integer.toString(count++)
 
@@ -146,6 +147,7 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     myServersPanel.add(toolbarDecorator.createPanel(), BorderLayout.CENTER);
 
     myRepositoriesList.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(@NotNull ListSelectionEvent e) {
         TaskRepository repository = getSelectedRepository();
         if (repository != null) {
@@ -191,6 +193,7 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     return (TaskRepository)myRepositoriesList.getSelectedValue();
   }
 
+  @Override
   @Nls
   public String getDisplayName() {
     return "Servers";
@@ -201,6 +204,7 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     return "reference.settings.project.tasks.servers";
   }
 
+  @Override
   public JComponent createComponent() {
     return myPanel;
   }
@@ -210,17 +214,20 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     return myRepositoriesList;
   }
 
+  @Override
   public boolean isModified() {
     return !myRepositories.equals(getReps());
   }
 
-  public void apply() throws ConfigurationException {
+  @Override
+  public void apply() {
     List<TaskRepository> newRepositories = ContainerUtil.map(myRepositories, taskRepository -> taskRepository.clone());
     myManager.setRepositories(newRepositories);
     myManager.updateIssues(null);
     RecentTaskRepositories.getInstance().addRepositories(myRepositories);
   }
 
+  @Override
   public void reset() {
     myRepoNames.clear();
     myRepositoryEditor.removeAll();
@@ -241,7 +248,7 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     for (TaskRepository clone : myRepositories) {
       addRepositoryEditor(clone);
     }
-    
+
     if (!myRepositories.isEmpty()) {
       myRepositoriesList.setSelectedValue(myRepositories.get(0), true);
     }
@@ -251,19 +258,34 @@ public class TaskRepositoriesConfigurable extends BaseConfigurable implements Co
     return Arrays.asList(myManager.getAllRepositories());
   }
 
+  @Override
   public void disposeUIResources() {
     for (TaskRepositoryEditor editor : myEditors) {
       Disposer.dispose(editor);
     }
   }
 
+  @NotNull
+  @Override
+  public String getId() {
+    return ID;
+  }
+
+  @Nullable
+  @Override
+  public Runnable enableSearch(String option) {
+    TaskRepository matched =
+      myRepositories.stream().filter(repository -> repository.getRepositoryType().getName().contains(option)).findFirst().orElse(null);
+    return matched == null ? null : () -> myRepositoriesList.setSelectedValue(matched, true);
+  }
+
   private abstract class AddServerAction extends IconWithTextAction implements DumbAware {
 
-    public AddServerAction(TaskRepositorySubtype subtype) {
+    AddServerAction(TaskRepositorySubtype subtype) {
       super(subtype.getName(), "New " + subtype.getName() + " server", subtype.getIcon());
     }
 
-    public AddServerAction(TaskRepository repository) {
+    AddServerAction(TaskRepository repository) {
       super(repository.getUrl(), repository.getUrl(), repository.getIcon());
     }
 

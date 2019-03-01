@@ -6,7 +6,7 @@ import queue
 import threading
 from typing import (
     Any, Callable, ContextManager, Dict, Iterable, List, Mapping, Optional,
-    Sequence, TypeVar,
+    Sequence, Tuple, TypeVar, Union,
 )
 
 _T = TypeVar('_T')
@@ -18,7 +18,14 @@ class Namespace: ...
 _Namespace = Namespace
 
 class BaseManager(ContextManager[BaseManager]):
-    def register(self, typeid: str, callable: Any = ...) -> None: ...
+    address: Union[str, Tuple[str, int]]
+    def connect(self) -> None: ...
+    @classmethod
+    def register(cls, typeid: str, callable: Optional[Callable] = ...,
+                 proxytype: Any = ...,
+                 exposed: Optional[Sequence[str]] = ...,
+                 method_to_typeid: Optional[Mapping[str, str]] = ...,
+                 create_method: bool = ...) -> None: ...
     def shutdown(self) -> None: ...
     def start(self, initializer: Optional[Callable[..., Any]] = ...,
               initargs: Iterable[Any] = ...) -> None: ...

@@ -38,6 +38,12 @@ enum Operation {
   <error descr="'valueOf(String)' is already defined in 'Operation'">void valueOf(String s)</error> {}
 }
 
+enum enumWithTypeParameterInValueOf {
+  ;
+
+  <error descr="'valueOf(String)' is already defined in 'enumWithTypeParameterInValueOf'">static <T> void valueOf(String s)</error> {}
+}
+
 <error descr="There is no default constructor available in 'Operation'">class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error></error> {
 }
 
@@ -130,8 +136,8 @@ interface Barz {
     void baz();
 }
 
-enum Fooz implements Barz {
-    <error descr="Class 'Fooz' must implement abstract method 'baz()' in 'Barz'">FOO</error>;
+<error descr="Class 'Fooz' must either be declared abstract or implement abstract method 'baz()' in 'Barz'">enum Fooz implements Barz</error> {
+    FOO;
 }
 
 ///////////////////////

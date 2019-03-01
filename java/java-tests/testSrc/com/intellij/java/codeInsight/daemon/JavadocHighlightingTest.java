@@ -53,6 +53,11 @@ public class JavadocHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testParam2() { doTest(); }
   public void testParam3() { doTest(); }
   public void testParam4() { doTest(); }
+  public void testTypeParam() {
+    myInspection.METHOD_OPTIONS.ACCESS_JAVADOC_REQUIRED_FOR = "private"; 
+    myInspection.METHOD_OPTIONS.REQUIRED_TAGS = "@param"; 
+    doTest(); 
+  }
   public void testSee0() { doTest(); }
   public void testSee1() { doTest(); }
   public void testSee2() { doTest(); }
@@ -61,6 +66,7 @@ public class JavadocHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testSee5() { doTest(); }
   public void testSee6() { doTest(); }
   public void testLinkToItself() { doTest(); }
+  public void testLinkToMethodNoParams() { doTest(); }
   public void testSeeConstants() { doTest(); }
   public void testSeeNonRefs() { doTest(); }
   public void testReturn0() { doTest(); }
@@ -79,6 +85,7 @@ public class JavadocHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testValueNotOnField() { doTest(); }
   public void testValueNotOnStaticField() { doTest(); }
   public void testValueOnNotInitializedField() { doTest(); }
+  public void testEnumValueOfReference() { doTest(); }
   public void testPackageInfo1() { doTest("packageInfo/p1/package-info.java"); }
   public void testPackageInfo2() { doTest("packageInfo/p2/package-info.java"); }
   public void testPackageInfo3() { doTest("packageInfo/p3/package-info.java"); }
@@ -121,7 +128,7 @@ public class JavadocHighlightingTest extends LightDaemonAnalyzerTestCase {
         "http://example.com/ABC-1123", "http://example.com/ABC-2", "http://example.com/ABC-22", "http://example.com/ABC-11");
       List<WebReference> refs = PlatformTestUtil.collectWebReferences(myFile);
       assertTrue(refs.stream().allMatch(PsiReferenceBase::isSoft));
-      assertEquals(expected, refs.stream().map(WebReference::getUrl).collect(Collectors.toList()));
+      assertEquals(expected, ContainerUtil.map(refs, WebReference::getUrl));
     }
     finally {
       navigationConfiguration.setLinks(oldLinks);

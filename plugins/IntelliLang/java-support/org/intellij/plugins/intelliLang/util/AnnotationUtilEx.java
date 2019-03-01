@@ -289,6 +289,7 @@ public class AnnotationUtilEx {
 
   private static PsiAnnotation[] getHierarchyAnnotations(PsiModifierListOwner listOwner) {
     final Set<PsiAnnotation> all = new HashSet<PsiAnnotation>() {
+      @Override
       public boolean add(PsiAnnotation o) {
         // don't overwrite "higher level" annotations
         return !contains(o) && super.add(o);
@@ -305,6 +306,6 @@ public class AnnotationUtilEx {
         ContainerUtil.addAll(all, modifierList.getAnnotations());
       }
     }
-    return all.isEmpty() ? PsiAnnotation.EMPTY_ARRAY : all.toArray(new PsiAnnotation[all.size()]);
+    return all.isEmpty() ? PsiAnnotation.EMPTY_ARRAY : all.toArray(PsiAnnotation.EMPTY_ARRAY);
   }
 }

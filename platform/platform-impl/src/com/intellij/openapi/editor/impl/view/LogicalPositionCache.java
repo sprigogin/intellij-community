@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.diagnostic.Dumpable;
@@ -34,7 +20,6 @@ import java.util.Collections;
  * Caches information allowing faster offset<->logicalPosition conversions even for long lines.
  * Requests for conversion can be made from under read action, document changes and cache invalidation should be done in EDT.
  */
-@SuppressWarnings("SynchronizeOnThis")
 class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, Dumpable {
   private final Document myDocument;
   private final EditorView myView;
@@ -58,17 +43,21 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
   }
 
   @Override
-  public void beforeDocumentChange(DocumentEvent event) {
+  public void beforeDocumentChange(@NotNull DocumentEvent event) {
     myUpdateInProgress = true;
     myDocumentChangeOldEndLine = getAdjustedLineNumber(event.getOffset() + event.getOldLength());
   }
 
   @Override
-  public void documentChanged(DocumentEvent event) {
-    int startLine = myDocument.getLineNumber(event.getOffset());
-    int newEndLine = getAdjustedLineNumber(event.getOffset() + event.getNewLength());
-    invalidateLines(startLine, myDocumentChangeOldEndLine, newEndLine, isSimpleText(event.getNewFragment()));
-    myUpdateInProgress = false;
+  public void documentChanged(@NotNull DocumentEvent event) {
+    try {
+      int startLine = myDocument.getLineNumber(event.getOffset());
+      int newEndLine = getAdjustedLineNumber(event.getOffset() + event.getNewLength());
+      invalidateLines(startLine, myDocumentChangeOldEndLine, newEndLine, isSimpleText(event.getNewFragment()));
+    }
+    finally {
+      myUpdateInProgress = false;
+    }
   }
 
   // text for which offset<->logicalColumn conversion is trivial
@@ -101,7 +90,7 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
     LineData lineData = getLineInfo(line);
     return new LogicalPosition(line, lineData.offsetToLogicalColumn(myDocument, line, myTabSize, offset));
   }
-  
+
   synchronized int offsetToLogicalColumn(int line, int intraLineOffset) {
     if (myUpdateInProgress) throw new IllegalStateException();
     if (line < 0 || line >= myDocument.getLineCount()) return 0;
@@ -233,9 +222,9 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
   private static class LineData {
     private static final LineData TRIVIAL = new LineData(null);
     private static final int CACHE_FREQUENCY = 1024; // logical column will be cached for each CACHE_FREQUENCY-th character on the line
-    
+
     private final int[] columnCache;
-    
+
     private LineData(int[] columnData) {
       columnCache = columnData;
     }
@@ -282,7 +271,7 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
       int startColumn = cacheIndex == 0 ? 0 : columnCache[cacheIndex - 1];
       return calcColumn(document.getImmutableCharSequence(), startOffset, startColumn, offset, tabSize);
     }
-    
+
     private int logicalColumnToOffset(@NotNull Document document, int line, int tabSize, int logicalColumn) {
       int lineStartOffset = document.getLineStartOffset(line);
       int lineEndOffset = document.getLineEndOffset(line);

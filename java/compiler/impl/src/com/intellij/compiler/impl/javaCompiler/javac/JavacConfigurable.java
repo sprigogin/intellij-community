@@ -45,12 +45,14 @@ public class JavacConfigurable implements Configurable{
     myProject = project;
     myJavacSettings = javacSettings;
     myAdditionalOptionsField.setDialogCaption(CompilerBundle.message("java.compiler.option.additional.command.line.parameters"));
+    myAdditionalOptionsField.setDescriptor(null, false);
   }
 
   private void createUIComponents() {
     myOptionsOverride = new CompilerModuleOptionsComponent(myProject);
   }
 
+  @Override
   public String getDisplayName() {
     return null;
   }
@@ -60,10 +62,12 @@ public class JavacConfigurable implements Configurable{
     return null;
   }
 
+  @Override
   public JComponent createComponent() {
     return myPanel;
   }
 
+  @Override
   public boolean isModified() {
     boolean isModified = false;
     isModified |= ComparingUtils.isModified(myCbPreferTargetJdkCompiler, myJavacSettings.PREFER_TARGET_JDK_COMPILER);
@@ -76,6 +80,7 @@ public class JavacConfigurable implements Configurable{
     return isModified;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     myJavacSettings.PREFER_TARGET_JDK_COMPILER =  myCbPreferTargetJdkCompiler.isSelected();
     myJavacSettings.DEPRECATION =  myCbDeprecation.isSelected();
@@ -86,6 +91,7 @@ public class JavacConfigurable implements Configurable{
     myJavacSettings.ADDITIONAL_OPTIONS_OVERRIDE.putAll(myOptionsOverride.getModuleOptionsMap());
   }
 
+  @Override
   public void reset() {
     myCbPreferTargetJdkCompiler.setSelected(myJavacSettings.PREFER_TARGET_JDK_COMPILER);
     myCbDeprecation.setSelected(myJavacSettings.DEPRECATION);
@@ -93,8 +99,5 @@ public class JavacConfigurable implements Configurable{
     myCbGenerateNoWarnings.setSelected(myJavacSettings.GENERATE_NO_WARNINGS);
     myAdditionalOptionsField.setText(myJavacSettings.ADDITIONAL_OPTIONS_STRING);
     myOptionsOverride.setModuleOptionsMap(myJavacSettings.ADDITIONAL_OPTIONS_OVERRIDE);
-  }
-
-  public void disposeUIResources() {
   }
 }

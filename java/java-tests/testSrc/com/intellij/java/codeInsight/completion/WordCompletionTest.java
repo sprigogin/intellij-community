@@ -18,6 +18,7 @@ package com.intellij.java.codeInsight.completion;
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.completion.CompletionTestCase;
 import com.intellij.lang.StdLanguages;
+import com.intellij.patterns.PlatformPatterns;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.PsiReferenceRegistrarImpl;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
@@ -30,6 +31,7 @@ import org.jetbrains.annotations.NotNull;
 public class WordCompletionTest extends CompletionTestCase {
   private static final String BASE_PATH = "/codeInsight/completion/word/";
 
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return JavaTestUtil.getJavaTestDataPath();
@@ -89,8 +91,8 @@ public class WordCompletionTest extends CompletionTestCase {
     PsiReferenceRegistrarImpl registrar =
       (PsiReferenceRegistrarImpl)ReferenceProvidersRegistry.getInstance().getRegistrar(StdLanguages.JAVA);
     try {
-      registrar.registerReferenceProvider(PsiLiteralExpression.class, softProvider);
-      registrar.registerReferenceProvider(PsiLiteralExpression.class, hardProvider);
+      registrar.registerReferenceProvider(PlatformPatterns.psiElement(PsiLiteralExpression.class), softProvider);
+      registrar.registerReferenceProvider(PlatformPatterns.psiElement(PsiLiteralExpression.class), hardProvider);
 
       configureByFile(BASE_PATH + "3.java");
       checkResultByFile(BASE_PATH + "3_after.java");
@@ -128,6 +130,7 @@ public class WordCompletionTest extends CompletionTestCase {
 
   public void testCompleteStringLiteralCopy() throws Throwable {
     configureByFile(BASE_PATH + getTestName(false) + ".java");
+    selectItem(myItems[1]);
     checkResultByFile(BASE_PATH + getTestName(false) + "_after.java");
   }
 

@@ -18,10 +18,11 @@ package com.intellij.tasks.impl;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.tasks.TaskRepository;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.util.xmlb.annotations.XCollection;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -62,7 +63,7 @@ public class TaskProjectConfiguration implements PersistentStateComponent<TaskPr
   }
 
   @Property(surroundWithTag = false)
-  @AbstractCollection(surroundWithTag = false, elementTag = "server")
+  @XCollection(elementName = "server")
   public List<SharedServer> servers = new ArrayList<>();
 
   private final TaskManagerImpl myManager;
@@ -76,6 +77,7 @@ public class TaskProjectConfiguration implements PersistentStateComponent<TaskPr
     myManager = manager;
   }
 
+  @Override
   public TaskProjectConfiguration getState() {
     LinkedHashSet<SharedServer> set = new LinkedHashSet<>(this.servers);
     for (TaskRepository repository : myManager.getAllRepositories()) {
@@ -91,7 +93,8 @@ public class TaskProjectConfiguration implements PersistentStateComponent<TaskPr
     return this;
   }
 
-  public void loadState(TaskProjectConfiguration state) {
+  @Override
+  public void loadState(@NotNull TaskProjectConfiguration state) {
     servers.clear();
     for (final SharedServer server : state.servers) {
       if (server.url == null || server.type == null) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.psiView;
 
 import com.intellij.ide.util.treeView.NodeRenderer;
@@ -23,7 +9,6 @@ import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.application.ApplicationManager;
@@ -65,9 +50,10 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
+import com.intellij.ui.tabs.JBEditorTabsBase;
+import com.intellij.ui.tabs.JBTabs;
+import com.intellij.ui.tabs.JBTabsFactory;
 import com.intellij.ui.tabs.TabInfo;
-import com.intellij.ui.tabs.impl.JBEditorTabs;
-import com.intellij.ui.tabs.impl.JBTabsImpl;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
@@ -89,8 +75,8 @@ import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.regex.Pattern;
 
 import static com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance;
@@ -118,13 +104,13 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   private JSplitPane myTreeSplit;
   private Tree myPsiTree;
   private ViewerTreeBuilder myPsiTreeBuilder;
-  private JList myRefs;
+  private final JList myRefs;
 
   private TitledSeparator myTextSeparator;
   private TitledSeparator myPsiTreeSeparator;
 
   @NotNull
-  private StubViewerPsiBasedTree myStubTree;
+  private final StubViewerPsiBasedTree myStubTree;
 
   @NotNull
   private final BlockViewerPsiBasedTree myBlockTree;
@@ -139,10 +125,10 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   private int myNewDocumentHashCode = 11;
 
 
-  private boolean myExternalDocument;
+  private final boolean myExternalDocument;
 
   @NotNull
-  private final JBTabsImpl myTabs;
+  private final JBTabs myTabs;
 
   private void createUIComponents() {
     myPsiTree = new Tree(new DefaultTreeModel(new DefaultMutableTreeNode()));
@@ -152,7 +138,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   private static class ExtensionComparator implements Comparator<String> {
     private final String myOnTop;
 
-    public ExtensionComparator(String onTop) {
+    ExtensionComparator(String onTop) {
       myOnTop = onTop;
     }
 
@@ -233,28 +219,10 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   }
 
   @NotNull
-  private static JBEditorTabs createTabPanel(@NotNull Project project) {
-    return new JBEditorTabs(project, ActionManager.getInstance(), IdeFocusManager.getInstance(project), project) {
-      @Override
-      public boolean isAlphabeticalMode() {
-        return false;
-      }
-
-      @Override
-      public boolean supportsCompression() {
-        return false;
-      }
-
-      @Override
-      protected Color getEmptySpaceColor() {
-        return UIUtil.getBgFillColor(getParent());
-      }
-
-      @Override
-      protected void paintSelectionAndBorder(Graphics2D g2d) {
-        super.paintSelectionAndBorder(g2d);
-      }
-    };
+  private JBTabs createTabPanel(@NotNull Project project) {
+    JBEditorTabsBase tabs = JBTabsFactory.createEditorTabs(project, this);
+    tabs.getPresentation().setAlphabeticalMode(false).setSupportsCompression(false);
+    return tabs;
   }
 
 
@@ -744,7 +712,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
 
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
       String fqn = null;
       if (myPsiTree.hasFocus()) {
@@ -778,7 +746,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   private class MyPsiTreeSelectionListener implements TreeSelectionListener {
     private final TextAttributes myAttributes;
 
-    public MyPsiTreeSelectionListener() {
+    MyPsiTreeSelectionListener() {
       myAttributes = new TextAttributes();
       myAttributes.setEffectColor(BOX_COLOR);
       myAttributes.setEffectType(EffectType.ROUNDED_BOX);
@@ -873,7 +841,6 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
   @Override
   public void dispose() {
     Disposer.dispose(myPsiTreeBuilder);
-    Disposer.dispose(myTabs);
 
     if (!myEditor.isDisposed()) {
       EditorFactory.getInstance().releaseEditor(myEditor);
@@ -1056,7 +1023,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
 
   private class EditorListener implements SelectionListener, DocumentListener, CaretListener {
     @Override
-    public void caretPositionChanged(CaretEvent e) {
+    public void caretPositionChanged(@NotNull CaretEvent e) {
       if (!available() || myEditor.getSelectionModel().hasSelection()) return;
       final ViewerTreeStructure treeStructure = getTreeStructure();
       final PsiElement rootPsiElement = treeStructure.getRootPsiElement();
@@ -1071,7 +1038,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
     }
 
     @Override
-    public void selectionChanged(SelectionEvent e) {
+    public void selectionChanged(@NotNull SelectionEvent e) {
       if (!available() || !myEditor.getSelectionModel().hasSelection()) return;
       ViewerTreeStructure treeStructure = getTreeStructure();
       final PsiElement rootElement = treeStructure.getRootPsiElement();
@@ -1111,7 +1078,7 @@ public class PsiViewerDialog extends DialogWrapper implements DataProvider, Disp
     }
 
     @Override
-    public void documentChanged(DocumentEvent event) {
+    public void documentChanged(@NotNull DocumentEvent event) {
       myNewDocumentHashCode = event.getDocument().getText().hashCode();
     }
   }

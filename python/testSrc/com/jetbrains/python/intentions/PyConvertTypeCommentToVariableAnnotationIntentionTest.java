@@ -24,9 +24,7 @@ public class PyConvertTypeCommentToVariableAnnotationIntentionTest extends PyInt
   }
 
   private void doNegativeTest() {
-    runWithLanguageLevel(LanguageLevel.PYTHON36, () -> {
-      doNegativeTest(PyBundle.message("INTN.convert.type.comment.to.variable.annotation.text"));
-    });
+    runWithLanguageLevel(LanguageLevel.PYTHON36, () -> doNegativeTest(PyBundle.message("INTN.convert.type.comment.to.variable.annotation.text")));
   }
 
   public void testSimpleAssignment() {
@@ -34,9 +32,7 @@ public class PyConvertTypeCommentToVariableAnnotationIntentionTest extends PyInt
   }
 
   public void testBadLanguageLevel() {
-    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> {
-      doNegativeTest(PyBundle.message("INTN.convert.type.comment.to.variable.annotation.text"));
-    });
+    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> doNegativeTest(PyBundle.message("INTN.convert.type.comment.to.variable.annotation.text")));
   }
 
   public void testChainedAssignment() {
@@ -80,6 +76,21 @@ public class PyConvertTypeCommentToVariableAnnotationIntentionTest extends PyInt
   }
 
   public void testWithStatementWithMultipleWithItems() {
+    doNegativeTest();
+  }
+
+  // EA-116787
+  public void testIllegalTypeHint() {
+    doPositiveTest();
+  }
+
+  // PY-21195 EA-116787
+  public void testTypeHintFollowedByComment() {
+    doPositiveTest();
+  }
+
+  // EA-117868
+  public void testIllegalTypeHintInAssignmentWithUnpacking() {
     doNegativeTest();
   }
 }

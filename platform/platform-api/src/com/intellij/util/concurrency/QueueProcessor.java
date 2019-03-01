@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.concurrency;
 
 import com.intellij.openapi.application.Application;
@@ -24,14 +10,12 @@ import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.util.Consumer;
 import com.intellij.util.PairConsumer;
-import org.jetbrains.annotations.Debugger;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
-
-import static com.intellij.util.containers.ContainerUtil.newIdentityTroveMap;
 
 /**
  * <p>QueueProcessor processes elements which are being added to a queue via {@link #add(Object)} and {@link #addFirst(Object)} methods.</p>
@@ -39,7 +23,7 @@ import static com.intellij.util.containers.ContainerUtil.newIdentityTroveMap;
  * The processor itself is passed in the constructor and is called from that thread.
  * By default processing starts when the first element is added to the queue, though there is an 'autostart' option which holds
  * the processor until {@link #start()} is called.</p>
- *
+ * This class is thread-safe.
  * @param <T> type of queue elements.
  */
 public class QueueProcessor<T> {
@@ -49,7 +33,7 @@ public class QueueProcessor<T> {
     POOLED
   }
 
-  private final PairConsumer<T, Runnable> myProcessor;
+  private final PairConsumer<? super T, ? super Runnable> myProcessor;
   private final Deque<T> myQueue = new ArrayDeque<>();
 
   private boolean isProcessing;
@@ -57,23 +41,23 @@ public class QueueProcessor<T> {
 
   private final ThreadToUse myThreadToUse;
   private final Condition<?> myDeathCondition;
-  private final Map<Object, ModalityState> myModalityState = newIdentityTroveMap();
+  private final Map<Object, ModalityState> myModalityState = ContainerUtil.newIdentityTroveMap();
 
   /**
    * Constructs a QueueProcessor, which will autostart as soon as the first element is added to it.
    */
-  public QueueProcessor(@NotNull Consumer<T> processor) {
+  public QueueProcessor(@NotNull Consumer<? super T> processor) {
     this(processor, Conditions.alwaysFalse());
   }
 
   /**
    * Constructs a QueueProcessor, which will autostart as soon as the first element is added to it.
    */
-  public QueueProcessor(@NotNull Consumer<T> processor, @NotNull Condition<?> deathCondition) {
+  public QueueProcessor(@NotNull Consumer<? super T> processor, @NotNull Condition<?> deathCondition) {
     this(processor, deathCondition, true);
   }
 
-  public QueueProcessor(@NotNull Consumer<T> processor, @NotNull Condition<?> deathCondition, boolean autostart) {
+  public QueueProcessor(@NotNull Consumer<? super T> processor, @NotNull Condition<?> deathCondition, boolean autostart) {
     this(wrappingProcessor(processor), autostart, ThreadToUse.POOLED, deathCondition);
   }
 
@@ -88,10 +72,12 @@ public class QueueProcessor<T> {
   }
 
   @NotNull
-  private static <T> PairConsumer<T, Runnable> wrappingProcessor(@NotNull final Consumer<T> processor) {
-    return (item, runnable) -> {
-      runSafely(() -> processor.consume(item));
-      runnable.run();
+  private static <T> PairConsumer<T, Runnable> wrappingProcessor(@NotNull final Consumer<? super T> processor) {
+    return (item, continuation) -> {
+      // try-with-resources is the most simple way to ensure no suppressed exception is lost
+      try (SilentAutoClosable ignored = continuation::run) {
+        runSafely(() -> processor.consume(item));
+      }
     };
   }
 
@@ -105,7 +91,7 @@ public class QueueProcessor<T> {
    *                  After QueueProcessor has started once, autostart setting doesn't matter anymore: all other elements will be processed immediately.
    */
 
-  public QueueProcessor(@NotNull PairConsumer<T, Runnable> processor,
+  public QueueProcessor(@NotNull PairConsumer<? super T, ? super Runnable> processor,
                         boolean autostart,
                         @NotNull ThreadToUse threadToUse,
                         @NotNull Condition<?> deathCondition) {
@@ -130,7 +116,7 @@ public class QueueProcessor<T> {
       }
     }
   }
-  
+
   private void finishProcessing(boolean continueProcessing) {
     synchronized (myQueue) {
       isProcessing = false;
@@ -223,7 +209,7 @@ public class QueueProcessor<T> {
         finishProcessing(false);
         return;
       }
-      runSafely(() -> myProcessor.consume(item, () -> finishProcessing(true)));
+      runSafely(() -> myProcessor.consume(item, (Runnable)() -> finishProcessing(true)));
     };
     final Application application = ApplicationManager.getApplication();
     if (myThreadToUse == ThreadToUse.AWT) {
@@ -241,7 +227,7 @@ public class QueueProcessor<T> {
     return true;
   }
 
-  public static void runSafely(@Debugger.Insert(group = "com.intellij.util.Alarm._addRequest") @NotNull Runnable run) {
+  public static void runSafely(@NotNull Runnable run) {
     try {
       run.run();
     }
@@ -280,6 +266,12 @@ public class QueueProcessor<T> {
     synchronized (myQueue) {
       return !myQueue.isEmpty();
     }
+  }
+
+  @FunctionalInterface
+  protected interface SilentAutoClosable extends AutoCloseable {
+    @Override
+    void close();
   }
 
   public static final class RunnableConsumer implements Consumer<Runnable> {

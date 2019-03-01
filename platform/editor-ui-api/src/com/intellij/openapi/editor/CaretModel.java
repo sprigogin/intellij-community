@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.event.CaretListener;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.Disposer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -135,6 +123,17 @@ public interface CaretModel {
   void addCaretListener(@NotNull CaretListener listener);
 
   /**
+   * Adds a listener for receiving notifications about caret movement and caret addition/removal.
+   * The listener is removed when the given parent disposable is disposed.
+   *
+   * @param listener the listener instance.
+   */
+  default void addCaretListener(@NotNull CaretListener listener, @NotNull Disposable parentDisposable) {
+    addCaretListener(listener);
+    Disposer.register(parentDisposable, () -> removeCaretListener(listener));
+  }
+
+  /**
    * Removes a listener for receiving notifications about caret movement and caret addition/removal
    *
    * @param listener the listener instance.
@@ -186,7 +185,7 @@ public interface CaretModel {
   int getCaretCount();
 
   /**
-   * Returns all carets currently existing in the document, ordered by their position in the document.
+   * Returns all carets currently existing in the document, ordered by their visual position in editor.
    */
   @NotNull
   List<Caret> getAllCarets();
@@ -281,6 +280,12 @@ public interface CaretModel {
    * if it's {@code true}.
    */
   void runForEachCaret(@NotNull CaretAction action, boolean reverseOrder);
+
+  /**
+   * Adds a listener which will be notified before and after all-caret operations are performed by {@link #runForEachCaret(CaretAction)} and
+   * {@link #runForEachCaret(CaretAction, boolean)}.
+   */
+  void addCaretActionListener(@NotNull CaretActionListener listener, @NotNull Disposable disposable);
 
   /**
    * Executes the given task, performing caret merging afterwards. Caret merging will not happen until the operation is finished.

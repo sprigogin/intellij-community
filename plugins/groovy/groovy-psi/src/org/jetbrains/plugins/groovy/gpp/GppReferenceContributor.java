@@ -19,7 +19,6 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.patterns.PlatformPatterns;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ProcessingContext;
@@ -62,7 +61,7 @@ public class GppReferenceContributor extends PsiReferenceContributor {
     }
 
     @Override
-    public boolean isReferenceTo(PsiElement element) {
+    public boolean isReferenceTo(@NotNull PsiElement element) {
       return element instanceof PsiMethod && super.isReferenceTo(element);
     }
 
@@ -93,7 +92,7 @@ public class GppReferenceContributor extends PsiReferenceContributor {
             }
           }
 
-          return applicable.toArray(new ResolveResult[applicable.size()]);
+          return applicable.toArray(ResolveResult.EMPTY_ARRAY);
         }
       }
 

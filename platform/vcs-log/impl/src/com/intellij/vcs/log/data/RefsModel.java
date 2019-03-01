@@ -43,7 +43,7 @@ public class RefsModel implements VcsLogRefs {
           myBestRefForHead.put(head, bestRef.get());
         }
         else {
-          LOG.warn("No references at head " + commitId);
+          LOG.debug("No references at head " + commitId);
         }
       }
     }
@@ -77,6 +77,7 @@ public class RefsModel implements VcsLogRefs {
     return myRefs.values().stream().flatMap(CompressedRefs::streamBranches).collect(Collectors.toList());
   }
 
+  @Override
   @NotNull
   public Stream<VcsRef> stream() {
     assert !ApplicationManager.getApplication().isDispatchThread();

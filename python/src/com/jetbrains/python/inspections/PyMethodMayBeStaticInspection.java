@@ -22,7 +22,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
-import com.jetbrains.python.codeInsight.fstrings.PyFStringAwareRecursiveVisitor;
 import com.jetbrains.python.inspections.quickfix.PyMakeFunctionFromMethodQuickFix;
 import com.jetbrains.python.inspections.quickfix.PyMakeMethodStaticQuickFix;
 import com.jetbrains.python.psi.*;
@@ -57,7 +56,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
 
 
   private static class Visitor extends PyInspectionVisitor {
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -93,7 +92,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
       }
 
       final boolean[] mayBeStatic = {true};
-      PyRecursiveElementVisitor visitor = new PyFStringAwareRecursiveVisitor() {
+      PyRecursiveElementVisitor visitor = new PyRecursiveElementVisitor() {
         @Override
         public void visitPyRaiseStatement(PyRaiseStatement node) {
           super.visitPyRaiseStatement(node);
@@ -124,7 +123,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
         @Override
         public void visitPyCallExpression(PyCallExpression node) {
           super.visitPyCallExpression(node);
-          if (LanguageLevel.forElement(node).isAtLeast(LanguageLevel.PYTHON30) && node.isCalleeText(PyNames.SUPER)) {
+          if (!LanguageLevel.forElement(node).isPython2() && node.isCalleeText(PyNames.SUPER)) {
             mayBeStatic[0] = false;
           }
         }

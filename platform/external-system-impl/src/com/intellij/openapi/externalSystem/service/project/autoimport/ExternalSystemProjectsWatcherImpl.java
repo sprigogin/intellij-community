@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.autoimport;
 
 import com.intellij.ProjectTopics;
 import com.intellij.ide.file.BatchFileChangeListener;
 import com.intellij.notification.*;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.*;
@@ -51,13 +39,13 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
-import com.intellij.psi.*;
-import com.intellij.psi.impl.source.tree.LeafElement;
+import com.intellij.psi.PsiDocumentManager;
 import com.intellij.util.PathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
@@ -66,7 +54,7 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
-import gnu.trove.THashSet;
+import gnu.trove.THashMap;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -74,28 +62,27 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.zip.CRC32;
 
 import static com.intellij.util.ui.update.MergingUpdateQueue.ANY_COMPONENT;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/30/2017
  */
 public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotificationListenerAdapter
   implements ExternalSystemProjectsWatcher {
 
+  private static final Logger LOG = Logger.getInstance(ExternalSystemProjectsWatcherImpl.class);
+
   private static final ExtensionPointName<Contributor> EP_NAME =
     ExtensionPointName.create("com.intellij.externalProjectWatcherContributor");
 
-  private static final Key<Long> CRC_WITHOUT_SPACES_CURRENT =
-    Key.create("ExternalSystemProjectsWatcher.CRC_WITHOUT_SPACES_CURRENT");
+  private static final Key<Long> CRC_WITHOUT_SPACES_CURRENT = Key.create("ExternalSystemProjectsWatcher.CRC_WITHOUT_SPACES_CURRENT");
   private static final Key<Long> CRC_WITHOUT_SPACES_BEFORE_LAST_IMPORT =
     Key.create("ExternalSystemProjectsWatcher.CRC_WITHOUT_SPACES_BEFORE_LAST_IMPORT");
   private static final int DOCUMENT_SAVE_DELAY = 1000;
+  private static final int REFRESH_MERGING_TIME_SPAN = 2000;
 
   private final Project myProject;
-  private final Set<Document> myChangedDocuments = new THashSet<>();
   private final MergingUpdateQueue myChangedDocumentsQueue;
   private final List<ExternalSystemAutoImportAware> myImportAwareManagers;
   private final MergingUpdateQueue myUpdatesQueue;
@@ -111,7 +98,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
                                                      DOCUMENT_SAVE_DELAY, false, ANY_COMPONENT, myProject);
 
     myRefreshRequestsQueue = new MergingUpdateQueue("ExternalSystemProjectsWatcher: Refresh requests queue",
-                                                    0, false, ANY_COMPONENT, myProject, null, false);
+                                                    REFRESH_MERGING_TIME_SPAN, false, ANY_COMPONENT, myProject, null, false);
 
     myImportAwareManagers = ContainerUtil.newArrayList();
     for (ExternalSystemManager<?, ?, ?, ?, ?> manager : ExternalSystemApiUtil.getAllManagers()) {
@@ -131,12 +118,12 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     ApplicationManager.getApplication().getMessageBus().connect(myProject)
       .subscribe(BatchFileChangeListener.TOPIC, new BatchFileChangeListener() {
         @Override
-        public void batchChangeStarted(Project project) {
+        public void batchChangeStarted(@NotNull Project project, @Nullable String activityName) {
           myRefreshRequestsQueue.suspend();
         }
 
         @Override
-        public void batchChangeCompleted(Project project) {
+        public void batchChangeCompleted(@NotNull Project project) {
           myRefreshRequestsQueue.resume();
         }
       });
@@ -161,6 +148,9 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
   @Override
   public void markDirty(String projectPath) {
     scheduleUpdate(projectPath);
+    for (Contributor contributor : EP_NAME.getExtensions()) {
+      contributor.markDirty(projectPath);
+    }
   }
 
   public synchronized void start() {
@@ -176,8 +166,10 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     myRefreshRequestsQueue.activate();
 
     DocumentListener myDocumentListener = new DocumentListener() {
+      private final Map<Document, Pair<String, VirtualFile>> myChangedDocuments = new THashMap<>();
+
       @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChanged(@NotNull DocumentEvent event) {
         Document doc = event.getDocument();
         VirtualFile file = FileDocumentManager.getInstance().getFile(doc);
         if (file == null) return;
@@ -185,27 +177,36 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
         if (externalProjectPath == null) return;
 
         synchronized (myChangedDocuments) {
-          myChangedDocuments.add(doc);
+          myChangedDocuments.put(doc, Pair.create(externalProjectPath, file));
         }
         myChangedDocumentsQueue.queue(new Update(ExternalSystemProjectsWatcherImpl.this) {
           @Override
           public void run() {
-            final Document[] copy;
+            final Map<Document, Pair<String, VirtualFile>> copy;
 
             synchronized (myChangedDocuments) {
-              copy = myChangedDocuments.toArray(new Document[myChangedDocuments.size()]);
+              copy = new THashMap<>(myChangedDocuments);
               myChangedDocuments.clear();
             }
 
-            ExternalSystemUtil.invokeLater(myProject, () -> new WriteAction() {
-              @Override
-              protected void run(@NotNull Result result) {
-                for (Document each : copy) {
-                  PsiDocumentManager.getInstance(myProject).commitDocument(each);
-                  ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveDocument(each, false);
+            ExternalSystemUtil.invokeLater(myProject, () -> WriteAction.run(
+              () -> copy.forEach((document, pair) -> {
+                if (!pair.second.isValid()) return;
+
+                PsiDocumentManager.getInstance(myProject).commitDocument(document);
+                FileDocumentManagerImpl fileDocumentManager = (FileDocumentManagerImpl)FileDocumentManager.getInstance();
+                fileDocumentManager.saveDocumentAsIs(document);
+                Long beforeImport = pair.second.getUserData(CRC_WITHOUT_SPACES_BEFORE_LAST_IMPORT);
+                Long current = pair.second.getUserData(CRC_WITHOUT_SPACES_CURRENT);
+                if (current != null && current.equals(beforeImport)) {
+                  Long newCrc = calculateCrc(pair.second);
+                  pair.second.putUserData(CRC_WITHOUT_SPACES_CURRENT, newCrc);
+                  if (!current.equals(newCrc)) {
+                    scheduleUpdate(pair.first, false);
+                  }
                 }
-              }
-            }.execute());
+              })
+            ));
           }
         });
       }
@@ -252,12 +253,12 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     }
   }
 
-  private void scheduleUpdate(String projectPath) {
+  private void scheduleUpdate(@Nullable String projectPath) {
     scheduleUpdate(projectPath, true);
   }
 
-  private void scheduleUpdate(String projectPath, boolean reportRefreshError) {
-    if (ExternalSystemUtil.isNoBackgroundMode()) {
+  private void scheduleUpdate(@Nullable String projectPath, boolean reportRefreshError) {
+    if (projectPath == null || ExternalSystemUtil.isNoBackgroundMode()) {
       return;
     }
     Pair<ExternalSystemManager, ExternalProjectSettings> linkedProject = findLinkedProjectSettings(projectPath);
@@ -287,7 +288,8 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
       }
       else if (taskState != ExternalSystemTaskState.NOT_STARTED) {
         if (manager instanceof ExternalSystemAutoImportAware) {
-          Long lastTimestamp = manager.getLocalSettingsProvider().fun(myProject).getExternalConfigModificationStamps().get(projectPath);
+          Long lastTimestamp =
+            (Long)manager.getLocalSettingsProvider().fun(myProject).getExternalConfigModificationStamps().get(projectPath);
           if (lastTimestamp != null) {
             List<File> affectedFiles = ((ExternalSystemAutoImportAware)manager).getAffectedExternalProjectFiles(projectPath, myProject);
             long currentTimeStamp = affectedFiles.stream().mapToLong(File::lastModified).sum();
@@ -310,6 +312,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
       }
     }
     else {
+      LOG.debug("Scheduling new external project update notification", new Throwable("Schedule update call trace"));
       myUpdatesQueue.queue(new Update(Pair.create(systemId, projectPath)) {
         @Override
         public void run() {
@@ -377,6 +380,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
               else {
                 UIUtil.invokeLaterIfNeeded(() -> {
                   Long newCrc = calculateCrc(virtualFile);
+                  virtualFile.putUserData(CRC_WITHOUT_SPACES_CURRENT, newCrc);
                   virtualFile.putUserData(CRC_WITHOUT_SPACES_BEFORE_LAST_IMPORT, newCrc);
                   modificationStamps.put(path, newCrc);
                 });
@@ -443,30 +447,23 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
             ServiceManager.getService(ProjectDataManager.class).importData(externalProject, project, true);
           }
         }
-
-        @Override
-        public void onFailure(@NotNull String errorMessage, @Nullable String errorDetails) {
-          // Do nothing.
-        }
       }, false, ProgressExecutionMode.IN_BACKGROUND_ASYNC, reportRefreshError);
   }
 
   private static void makeUserAware(final MergingUpdateQueue mergingUpdateQueue, final Project project) {
-    AccessToken accessToken = ReadAction.start();
-
-    try {
+    ApplicationManager.getApplication().runReadAction(() -> {
       EditorEventMulticaster multicaster = EditorFactory.getInstance().getEventMulticaster();
 
       multicaster.addCaretListener(new CaretListener() {
         @Override
-        public void caretPositionChanged(CaretEvent e) {
+        public void caretPositionChanged(@NotNull CaretEvent e) {
           mergingUpdateQueue.restartTimer();
         }
       }, mergingUpdateQueue);
 
       multicaster.addDocumentListener(new DocumentListener() {
         @Override
-        public void documentChanged(DocumentEvent event) {
+        public void documentChanged(@NotNull DocumentEvent event) {
           mergingUpdateQueue.restartTimer();
         }
       }, mergingUpdateQueue);
@@ -475,14 +472,14 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
         int beforeCalled;
 
         @Override
-        public void beforeRootsChange(ModuleRootEvent event) {
+        public void beforeRootsChange(@NotNull ModuleRootEvent event) {
           if (beforeCalled++ == 0) {
             mergingUpdateQueue.suspend();
           }
         }
 
         @Override
-        public void rootsChanged(ModuleRootEvent event) {
+        public void rootsChanged(@NotNull ModuleRootEvent event) {
           if (beforeCalled == 0) {
             return; // This may occur if listener has been added between beforeRootsChange() and rootsChanged() calls.
           }
@@ -493,10 +490,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
           }
         }
       });
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   private static class MyNotification extends Notification {
@@ -505,7 +499,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     private final Map<ProjectSystemId, MyNotification> myNotificationMap;
     private final Set<String> projectPaths;
 
-    public MyNotification(Project project,
+    MyNotification(Project project,
                           Map<ProjectSystemId, MyNotification> notificationMap,
                           ProjectSystemId systemId,
                           String projectPath) {
@@ -556,11 +550,11 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
 
   private class MyFileChangeListener extends FileChangeListenerBase {
     private final ExternalSystemProjectsWatcherImpl myWatcher;
-    private MultiMap<String/* file path */, String /* project path */> myKnownFiles = MultiMap.createSet();
+    private final MultiMap<String/* file path */, String /* project path */> myKnownFiles = MultiMap.createSet();
     private List<VirtualFile> filesToUpdate;
     private List<VirtualFile> filesToRemove;
 
-    public MyFileChangeListener(ExternalSystemProjectsWatcherImpl watcher) {
+    MyFileChangeListener(ExternalSystemProjectsWatcherImpl watcher) {
       myWatcher = watcher;
     }
 
@@ -569,13 +563,18 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
       if (!myKnownFiles.get(path).isEmpty()) return true;
 
       for (VirtualFilePointer pointer : myFilesPointers.keySet()) {
-        VirtualFile f = pointer.getFile();
-        if (f != null && FileUtil.pathsEqual(path, f.getPath())) {
+        String filePath = VfsUtilCore.urlToPath(pointer.getUrl());
+        if (StringUtil.isNotEmpty(filePath) && FileUtil.namesEqual(path, filePath)) {
           for (String projectPath : myFilesPointers.get(pointer)) {
             myKnownFiles.putValue(path, projectPath);
             myKnownAffectedFiles.putValue(projectPath, path);
           }
           return true;
+        }
+        else if (LOG.isDebugEnabled()) {
+          if (StringUtil.isNotEmpty(filePath) && FileUtil.namesEqual(FileUtil.toCanonicalPath(path), FileUtil.toCanonicalPath(filePath))) {
+            LOG.debug("Changes were ignored: " + path + ". Related FW: " + filePath);
+          }
         }
       }
       String affectedProjectPath = getRelatedExternalProjectPath(path);
@@ -640,7 +639,12 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     }
 
     private boolean fileWasChanged(VirtualFile file, VFileEvent event) {
-      if (!file.isValid() || !(event instanceof VFileContentChangeEvent)) return true;
+      if (!file.isValid()) {
+        return true;
+      }
+      if (!(event instanceof VFileContentChangeEvent)) {
+        return false;
+      }
 
       Long newCrc = calculateCrc(file);
       file.putUserData(CRC_WITHOUT_SPACES_CURRENT, newCrc);
@@ -725,31 +729,8 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
   }
 
   @NotNull
-  private Long calculateCrc(VirtualFile file) {
-    Long newCrc;
-    PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);
-    if (psiFile != null) {
-      final CRC32 crc32 = new CRC32();
-      ApplicationManager.getApplication().runReadAction(() -> psiFile.acceptChildren(new PsiRecursiveElementVisitor() {
-        @Override
-        public void visitElement(PsiElement element) {
-          if (element instanceof LeafElement && !(element instanceof PsiWhiteSpace) && !(element instanceof PsiComment)) {
-            String text = element.getText();
-            if (!text.trim().isEmpty()) {
-              for (int i = 0, end = text.length(); i < end; i++) {
-                crc32.update(text.charAt(i));
-              }
-            }
-          }
-          super.visitElement(element);
-        }
-      }));
-      newCrc = crc32.getValue();
-    }
-    else {
-      newCrc = file.getModificationStamp();
-    }
-    return newCrc;
+  private Long calculateCrc(@NotNull VirtualFile file) {
+    return new ConfigurationFileCrcFactory(myProject, file).create();
   }
 
   @ApiStatus.Experimental
@@ -758,5 +739,7 @@ public class ExternalSystemProjectsWatcherImpl extends ExternalSystemTaskNotific
     void markDirtyAllExternalProjects(@NotNull Project project);
 
     void markDirty(@NotNull Module module);
+
+    default void markDirty(@NotNull String projectPath) {}
   }
 }

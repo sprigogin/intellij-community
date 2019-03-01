@@ -344,7 +344,7 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
-  // PY-22222
+  // PY-22222, PY-29233
   public void testPassClassWithDunderSlotsToMethodThatUsesSlottedAttribute() {
     doTest();
   }
@@ -449,6 +449,288 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
 
   // PY-21408
   public void testClassMetaAttrsAgainstStructural() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  }
+
+  public void testCallableInstanceAgainstCallable() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26163
+  public void testTypingNTAgainstStructural() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26163
+  public void testDefinitionAgainstStructural() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-28017
+  public void testModuleWithGetAttr() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-26628
+  public void testAgainstTypingProtocol() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstTypingProtocolWithImplementedMethod() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstTypingProtocolWithImplementedVariable() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstMergedTypingProtocols() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstGenericTypingProtocol() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstRecursiveTypingProtocol() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstTypingProtocolWrongTypes() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26628
+  public void testTypingProtocolAgainstProtocol() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26628
+  public void testAgainstTypingProtocolDefinition() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-26628
+  public void testTypingProtocolsInheritorAgainstHashable() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-28720
+  public void testOverriddenBuiltinMethodAgainstTypingProtocol() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () ->
+        doTestByText("import typing\n" +
+                     "class Proto(typing.Protocol):\n" +
+                     "    def function(self) -> None:\n" +
+                     "        pass\n" +
+                     "class Cls:\n" +
+                     "    def __eq__(self, other) -> 'Cls':\n" +
+                     "        pass\n" +
+                     "    def function(self) -> None:\n" +
+                     "        pass\n" +
+                     "def method(p: Proto):\n" +
+                     "    pass\n" +
+                     "method(Cls())")
+    );
+  }
+
+  // PY-28720
+  public void testAgainstInvalidProtocol() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON34,
+      () ->
+        doTestByText(
+          "from typing import Any, Protocol\n" +
+          "class B:\n" +
+          "    def foo(self):\n" +
+          "        ...\n" +
+          "class C(B, Protocol):\n" +
+          "    def bar(self):\n" +
+          "        ...\n" +
+          "class Bar:\n" +
+          "    def bar(self):\n" +
+          "        ...\n" +
+          "def f(x: C) -> Any:\n" +
+          "    ...\n" +
+          "f(Bar())"
+        )
+    );
+  }
+
+  // PY-23161
+  public void testGenericWithTypeVarBounds() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-27788
+  public void testOverloadedFunctionAssignedToTargetInStub() {
+    doMultiFileTest();
+  }
+
+  // PY-27949
+  public void testAssigningToDictEntry() {
+    doTest();
+  }
+
+  // PY-27231
+  public void testStructuralAndNone() {
+    doTestByText("def func11(value):\n" +
+                 "    if value is not None and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func12(value):\n" +
+                 "    if None is not value and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func21(value):\n" +
+                 "    if value is None and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func22(value):\n" +
+                 "    if None is value and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "func11(None)\n" +
+                 "func12(None)\n" +
+                 "func21(None)\n" +
+                 "func22(None)\n" +
+                 "\n" +
+                 "\n" +
+                 "def func31(value):\n" +
+                 "    if value and None and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func32(value):\n" +
+                 "    if value is value and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func33(value):\n" +
+                 "    if None is None and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "def func34(value):\n" +
+                 "    a = 2\n" +
+                 "    if a is a and value != 1:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "\n" +
+                 "func31(<warning descr=\"Expected type '{__ne__}', got 'None' instead\">None</warning>)\n" +
+                 "func32(<warning descr=\"Expected type '{__ne__}', got 'None' instead\">None</warning>)\n" +
+                 "func33(<warning descr=\"Expected type '{__ne__}', got 'None' instead\">None</warning>)\n" +
+                 "func34(<warning descr=\"Expected type '{__ne__}', got 'None' instead\">None</warning>)");
+  }
+
+  // PY-29704
+  public void testPassingAbstractMethodResult() {
+    doTestByText("import abc\n" +
+                 "\n" +
+                 "class Foo:\n" +
+                 "    __metaclass__ = abc.ABCMeta\n" +
+                 "\n" +
+                 "    @abc.abstractmethod\n" +
+                 "    def get_int(self):\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "    def foo(self, i):\n" +
+                 "        # type: (int) -> None\n" +
+                 "        print(i)\n" +
+                 "\n" +
+                 "    def bar(self):\n" +
+                 "        self.foo(self.get_int())");
+  }
+
+  // PY-30629
+  public void testIteratingOverAbstractMethodResult() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTestByText("from abc import ABCMeta, abstractmethod\n" +
+                         "\n" +
+                         "class A(metaclass=ABCMeta):\n" +
+                         "\n" +
+                         "    @abstractmethod\n" +
+                         "    def foo(self):\n" +
+                         "        pass\n" +
+                         "\n" +
+                         "def something(derived: A):\n" +
+                         "    for _, _ in derived.foo():\n" +
+                         "        pass\n")
+    );
+  }
+
+  // PY-30357
+  public void testClassWithNestedAgainstStructural() {
+    doTestByText("def f(cls):\n" +
+                 "    print(cls.Meta)\n" +
+                 "\n" +
+                 "class A:\n" +
+                 "    class Meta:\n" +
+                 "        pass\n" +
+                 "\n" +
+                 "f(A)");
+  }
+
+  // PY-32205
+  public void testRightShift() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTestByText("class Bin:\n" +
+                         "    def __rshift__(self, other: int):\n" +
+                         "        pass\n" +
+                         "\n" +
+                         "Bin() >> 1")
+    );
+  }
+
+  // PY-32313
+  public void testMatchingAgainstMultipleBoundTypeVar() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTestByText("from typing import Type, TypeVar\n" +
+                         "\n" +
+                         "class A:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "class B(A):\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "class C:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "T = TypeVar('T', A, B)\n" +
+                         "\n" +
+                         "def f(cls: Type[T], arg: int) -> T:\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "f(A, 1)\n" +
+                         "f(B, 2)\n" +
+                         "f(<warning descr=\"Expected type 'Type[T]', got 'Type[C]' instead\">C</warning>, 3)")
+    );
+  }
+
+  // PY-32375
+  public void testMatchingReturnAgainstBoundedTypeVar() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTestByText("from typing import TypeVar\n" +
+                         "\n" +
+                         "F = TypeVar('F', bound=int)\n" +
+                         "\n" +
+                         "def deco(func: F) -> F:\n" +
+                         "    return <warning descr=\"Expected type 'F', got 'str' instead\">\"\"</warning>")
+    );
   }
 }

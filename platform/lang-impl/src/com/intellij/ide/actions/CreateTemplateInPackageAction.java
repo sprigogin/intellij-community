@@ -40,7 +40,7 @@ import java.util.function.Function;
  * @author peter
  */
 public abstract class CreateTemplateInPackageAction<T extends PsiElement> extends CreateFromTemplateAction<T> {
-  private Set<? extends JpsModuleSourceRootType<?>> mySourceRootTypes;
+  private final Set<? extends JpsModuleSourceRootType<?>> mySourceRootTypes;
 
   protected CreateTemplateInPackageAction(String text, String description, Icon icon,
                                           final Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
@@ -63,7 +63,7 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
   }
 
   public static boolean isAvailable(DataContext dataContext, Set<? extends JpsModuleSourceRootType<?>> sourceRootTypes,
-                                    Function<PsiDirectory, Boolean> checkPackageExists) {
+                                    Function<? super PsiDirectory, Boolean> checkPackageExists) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     final IdeView view = LangDataKeys.IDE_VIEW.getData(dataContext);
     if (project == null || view == null || view.getDirectories().length == 0) {

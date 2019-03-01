@@ -10,6 +10,7 @@ import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.xdebugger.XDebuggerTestUtil;
 import com.intellij.xdebugger.breakpoints.SuspendPolicy;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
+import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.TestEnv;
 import com.jetbrains.env.PyEnvTestCase;
 import com.jetbrains.env.PyProcessWithConsoleTestTask;
@@ -20,6 +21,7 @@ import com.jetbrains.env.ut.PyUnitTestProcessRunner;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.console.pydev.PydevCompletionVariant;
 import com.jetbrains.python.debugger.PyDebugValue;
+import com.jetbrains.python.debugger.PyDebuggerOptionsProvider;
 import com.jetbrains.python.debugger.PyExceptionBreakpointProperties;
 import com.jetbrains.python.debugger.PyExceptionBreakpointType;
 import com.jetbrains.python.debugger.settings.PyDebuggerSettings;
@@ -28,6 +30,7 @@ import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.Assume;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -39,10 +42,10 @@ import static org.junit.Assert.*;
 /**
  * @author traff
  */
-
+@Staging //Thread leak breaks all other tests
 public class PythonDebuggerTest extends PyEnvTestCase {
-  private class BreakpointStopAndEvalTask extends PyDebuggerTask {
-    public BreakpointStopAndEvalTask(String scriptName) {
+  private static class BreakpointStopAndEvalTask extends PyDebuggerTask {
+    BreakpointStopAndEvalTask(String scriptName) {
       super("/debug", scriptName);
     }
 
@@ -80,11 +83,10 @@ public class PythonDebuggerTest extends PyEnvTestCase {
   @Test
   @Staging
   public void testPydevTests_Debugger() {
-    unittests("tests_pydevd_python/test_debugger.py", null, true);
+    unittests("tests_pydevd_python/test_debugger.py", ImmutableSet.of("-iron"), true);
   }
 
   @Test
-  @Staging
   public void testPydevMonkey() {
     unittests("tests_pydevd_python/test_pydev_monkey.py", null);
   }
@@ -123,7 +125,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyUnitTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         if (isSkipAllowed) {
           runner.assertNoFailures();
         }
@@ -144,6 +146,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
   }
 
   @Test
+  @Staging // thread leak
   public void testConditionalBreakpoint() {
     runPythonTest(new PyDebuggerTask("/debug", "test1.py") {
       @Override
@@ -350,7 +353,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @Override
       public void testing() throws Exception {
         waitForPause();
-        toggleBreakpoint(getFilePath(getScriptName()), 18);
+        removeBreakpoint(getFilePath(getScriptName()), 18);
         smartStepInto("foo");
         waitForPause();
         eval("a.z").hasValue("1");
@@ -577,7 +580,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @NotNull
       @Override
       public Set<String> getTags() {
-        return ImmutableSet.of("-jython");
+        return ImmutableSet.of("-jython", "-iron");
       }
     });
   }
@@ -603,7 +606,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @NotNull
       @Override
       public Set<String> getTags() {
-        return ImmutableSet.of("-jython");
+        return ImmutableSet.of("-jython", "-iron");
       }
     });
   }
@@ -646,7 +649,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
         toggleBreakpointInEgg(egg, "adder/adder.py", 2);
         PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(getRunConfiguration().getSdkHome());
         if (flavor != null) {
-          flavor.initPythonPath(Lists.newArrayList(egg), getRunConfiguration().getEnvs());
+          flavor.initPythonPath(Lists.newArrayList(egg), true, getRunConfiguration().getEnvs());
         }
         else {
           getRunConfiguration().getEnvs().put("PYTHONPATH", egg);
@@ -671,9 +674,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
 
   @Test
   public void testWinEggDebug() {
-    if (UsefulTestCase.IS_UNDER_TEAMCITY && !SystemInfo.isWindows) {
-      return; // Only needs to run on windows
-    }
+    Assume.assumeFalse("Only needs to run on windows", UsefulTestCase.IS_UNDER_TEAMCITY && !SystemInfo.isWindows);
     runPythonTest(new PyDebuggerTask("/debug", "test_winegg.py") {
       @Override
       public void before() {
@@ -683,7 +684,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
 
         PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(getRunConfiguration().getSdkHome());
         if (flavor != null) {
-          flavor.initPythonPath(Lists.newArrayList(egg), getRunConfiguration().getEnvs());
+          flavor.initPythonPath(Lists.newArrayList(egg), true, getRunConfiguration().getEnvs());
         }
         else {
           getRunConfiguration().getEnvs().put("PYTHONPATH", egg);
@@ -822,9 +823,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
 
   @Test
   public void testPyQtQThreadInheritor() {
-    if (UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows) {
-      return; //Don't run under Windows
-    }
+    Assume.assumeFalse("Don't run under Windows",UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
 
     runPythonTest(new PyDebuggerTask("/debug", "test_pyqt1.py") {
       @Override
@@ -835,6 +834,12 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @Override
       public void before() {
         toggleBreakpoint(getScriptName(), 8);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyqt5");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
       }
 
       @Override
@@ -856,16 +861,14 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @NotNull
       @Override
       public Set<String> getTags() {
-        return Sets.newHashSet("pyqt5");
+        return Sets.newHashSet("qt");
       }
     });
   }
 
   @Test
   public void testPyQtMoveToThread() {
-    if (UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows) {
-      return; //Don't run under Windows
-    }
+    Assume.assumeFalse("Don't run under Windows", UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
 
     runPythonTest(new PyDebuggerTask("/debug", "test_pyqt2.py") {
       @Override
@@ -876,6 +879,12 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @Override
       public void before() {
         toggleBreakpoint(getScriptName(), 10);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyqt5");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
       }
 
       @Override
@@ -897,7 +906,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @NotNull
       @Override
       public Set<String> getTags() {
-        return Sets.newHashSet("pyqt5");
+        return Sets.newHashSet("qt");
       }
     });
   }
@@ -905,9 +914,7 @@ public class PythonDebuggerTest extends PyEnvTestCase {
 
   @Test
   public void testPyQtQRunnableInheritor() {
-    if (UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows) {
-      return; //Don't run under Windows
-    }
+    Assume.assumeFalse("Don't run under Windows", UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
 
     runPythonTest(new PyDebuggerTask("/debug", "test_pyqt3.py") {
       @Override
@@ -918,6 +925,12 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @Override
       public void before() {
         toggleBreakpoint(getScriptName(), 9);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyqt5");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
       }
 
       @Override
@@ -939,11 +952,146 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @NotNull
       @Override
       public Set<String> getTags() {
-        return Sets.newHashSet("pyqt5");
+        return Sets.newHashSet("qt");
       }
     });
   }
 
+  @Test
+  public void testPySide2QThreadInheritor() {
+    Assume.assumeFalse("Don't run under Windows", UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
+
+    runPythonTest(new PyDebuggerTask("/debug", "test_pyside2_1.py") {
+      @Override
+      protected void init() {
+        setMultiprocessDebug(true);
+      }
+
+      @Override
+      public void before() {
+        toggleBreakpoint(getScriptName(), 8);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyside2");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
+      }
+
+      @Override
+      public void testing() throws Exception {
+
+        waitForPause();
+
+        eval("i").hasValue("0");
+
+        resume();
+
+        waitForPause();
+
+        eval("i").hasValue("1");
+
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return Sets.newHashSet("qt");
+      }
+    });
+
+  }
+
+  @Test
+  public void testPySide2MoveToThread() {
+    Assume.assumeFalse("Don't run under Windows", UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
+
+    runPythonTest(new PyDebuggerTask("/debug", "test_pyside2_2.py") {
+      @Override
+      protected void init() {
+        setMultiprocessDebug(true);
+      }
+
+      @Override
+      public void before() {
+        toggleBreakpoint(getScriptName(), 10);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyside2");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
+      }
+
+      @Override
+      public void testing() throws Exception {
+
+        waitForPause();
+
+        eval("i").hasValue("0");
+
+        resume();
+
+        waitForPause();
+
+        eval("i").hasValue("1");
+
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return Sets.newHashSet("qt");
+      }
+    });
+  }
+
+  @Test
+  public void testPySide2QRunnableInheritor() {
+    Assume.assumeFalse("Don't run under Windows", UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows);
+
+    runPythonTest(new PyDebuggerTask("/debug", "test_pyside2_3.py") {
+      @Override
+      protected void init() {
+        setMultiprocessDebug(true);
+      }
+
+      @Override
+      public void before() {
+        toggleBreakpoint(getScriptName(), 9);
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("pyside2");
+      }
+
+      @Override
+      public void doFinally() {
+        PyDebuggerOptionsProvider.getInstance(myFixture.getProject()).setPyQtBackend("auto");
+      }
+
+      @Override
+      public void testing() throws Exception {
+
+        waitForPause();
+
+        eval("i").hasValue("0");
+
+        resume();
+
+        waitForPause();
+
+        eval("i").hasValue("1");
+
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return Sets.newHashSet("qt");
+      }
+    });
+  }
 
   @Test
   public void testStepOverYieldFrom() {
@@ -1155,11 +1303,16 @@ public class PythonDebuggerTest extends PyEnvTestCase {
         toggleBreakpoint(getFilePath(getScriptName()), 3);
       }
 
+      private String getRefWithWordInName(List<String> referrersNames, String word) {
+        return referrersNames.stream().filter(x -> x.contains(word)).findFirst().get();
+      }
+
       @Override
       public void testing() throws Exception {
         waitForPause();
-        int numberOfReferringObjects = getNumberOfReferringObjects("l");
-        assertEquals(3, numberOfReferringObjects);
+        List<String> referrersNames = getNumberOfReferringObjects("l");
+        assertNotNull(getRefWithWordInName(referrersNames, "module"));
+        assertNotNull(getRefWithWordInName(referrersNames, "dict"));
       }
 
       @NotNull
@@ -1260,14 +1413,14 @@ public class PythonDebuggerTest extends PyEnvTestCase {
         waitForPause();
         eval("i").hasValue("0");
         // remove break on line 2
-        toggleBreakpoint(getScriptName(), 2);
+        removeBreakpoint(getScriptName(), 2);
         resume();
         // add break on line 2
         toggleBreakpoint(getScriptName(), 2);
         // check if break on line 2 works
         waitForPause();
         // remove break on line 2 again
-        toggleBreakpoint(getScriptName(), 2);
+        removeBreakpoint(getScriptName(), 2);
         // add break on line 3
         toggleBreakpoint(getScriptName(), 3);
         resume();
@@ -1295,21 +1448,30 @@ public class PythonDebuggerTest extends PyEnvTestCase {
         Pair<Boolean, String> pair = setNextStatement(7);
         waitForPause();
         assertTrue(pair.first);
-        eval("x").hasValue("1");
+        eval("x").hasValue("0");
         // try to jump into a loop
         pair = setNextStatement(9);
         // do not wait for pause here, because we don't refresh suspension for incorrect jumps
         assertFalse(pair.first);
         assertTrue(pair.second.startsWith("Error:"));
+        stepOver();
+        waitForPause();
+        eval("x").hasValue("2");
         resume();
         waitForPause();
-        eval("a").hasValue("3");
+        eval("a").hasValue("2");
         // jump inside a function
         pair = setNextStatement(2);
         waitForPause();
         assertTrue(pair.first);
-        eval("a").hasValue("6");
+        eval("a").hasValue("2");
         resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron");
       }
     });
   }
@@ -1440,6 +1602,276 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       public void doFinally() {
         myRunConfiguration.setShowCommandLineAfterwards(false);
         myRunConfiguration.setModuleMode(false);
+      }
+    });
+  }
+
+  @Staging
+  @Test
+  public void testBuiltinBreakpoint() {
+    runPythonTest(new PyDebuggerTask("/debug", "test_builtin_break.py") {
+      @Override
+      public void before() {
+      }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        eval("a").hasValue("1");
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("python3.7");
+      }
+    });
+  }
+
+  @Test
+  public void testTypeHandler() {
+    runPythonTest(new PyDebuggerTask("/debug", "test_type_handler.py") {
+      @Override
+      public void before() {
+        toggleBreakpoint(getFilePath(getScriptName()), 5);
+      }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        eval("s1").hasValue("'\\\\'");
+        eval("s2").hasValue("'\\''");
+        eval("s3").hasValue("'\"'");
+        eval("s4").hasValue("'\n'");
+        eval("s5").hasValue("'\\'foo\\'bar\nbaz\\\\'");
+      }
+    });
+  }
+
+  @Test
+  public void testLargeCollectionsLoading() {
+    runPythonTest(new PyDebuggerTask("/debug", "test_large_collections.py") {
+      @Override
+      public void before() { toggleBreakpoint(getFilePath(getScriptName()), 15); }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        List<PyDebugValue> frameVariables = loadFrame();
+
+        // The effective maximum number of the debugger returns is MAX_ITEMS_TO_HANDLE
+        // plus the __len__ attribute.
+        final int effectiveMaxItemsNumber = MAX_ITEMS_TO_HANDLE + 1;
+
+        // Large list.
+        PyDebugValue L = findDebugValueByName(frameVariables, "L");
+
+        XValueChildrenList children = loadVariable(L);
+        int collectionLength = 1000;
+
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        L.setOffset(600);
+        children = loadVariable(L);
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 600; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        L.setOffset(900);
+        children = loadVariable(L);
+        assertEquals(101, children.size());
+        for (int i = 900; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        // Large dict.
+        PyDebugValue D = findDebugValueByName(frameVariables, "D");
+
+        children = loadVariable(D);
+        collectionLength = 1000;
+
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, i));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        D.setOffset(600);
+        children = loadVariable(D);
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 600; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, i));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        D.setOffset(900);
+        children = loadVariable(D);
+        assertEquals(101, children.size());
+        for (int i = 900; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, i));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        // Large set.
+        PyDebugValue S = findDebugValueByName(frameVariables, "S");
+
+        children = loadVariable(S);
+        collectionLength = 1000;
+
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        S.setOffset(600);
+        children = loadVariable(S);
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 600; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        S.setOffset(900);
+        children = loadVariable(S);
+        assertEquals(101, children.size());
+        for (int i = 900; i < collectionLength; i++) {
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        // Large deque.
+        PyDebugValue dq = findDebugValueByName(frameVariables, "dq");
+
+        children = loadVariable(dq);
+        collectionLength = 1000;
+
+        assertEquals(effectiveMaxItemsNumber + 1, children.size()); // one extra child for maxlen
+        for (int i = 1; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        dq.setOffset(600);
+        children = loadVariable(dq);
+        assertEquals(effectiveMaxItemsNumber, children.size());
+        for (int i = 600; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+
+        dq.setOffset(900);
+        children = loadVariable(dq);
+        assertEquals(101, children.size());
+        for (int i = 900; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+          assertTrue(hasChildWithValue(children, i));
+        }
+      }
+    });
+  }
+
+  @Test
+  public void testLargeNumpyArraysLoading() {
+    runPythonTest(new PyDebuggerTask("/debug", "test_large_numpy_arrays.py") {
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("pandas");
+      }
+
+      @Override
+      public void before() { toggleBreakpoint(getFilePath(getScriptName()), 9); }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        List<PyDebugValue> frameVariables = loadFrame();
+
+        int collectionLength = 1000;
+
+        // NumPy array
+
+        PyDebugValue nd = findDebugValueByName(frameVariables, "nd");
+        XValueChildrenList children = loadVariable(nd);
+
+        assertEquals("min", children.getName(0));
+        assertEquals("max", children.getName(1));
+        assertEquals("shape", children.getName(2));
+        assertEquals("dtype", children.getName(3));
+        assertEquals("size", children.getName(4));
+        assertEquals("array", children.getName(5));
+
+        PyDebugValue array = (PyDebugValue) children.getValue(5);
+
+        children = loadVariable(array);
+        assertEquals(MAX_ITEMS_TO_HANDLE + 1, children.size());
+
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
+
+        array.setOffset(950);
+        children = loadVariable(array);
+
+        assertEquals(51, children.size());
+
+        for (int i = 950; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
+
+        // Pandas series
+
+        PyDebugValue s = findDebugValueByName(frameVariables, "s");
+        children = loadVariable(s);
+        PyDebugValue values = (PyDebugValue) children.getValue(children.size() - 1);
+        children = loadVariable(values);
+        array = (PyDebugValue) children.getValue(children.size() - 1);
+        children = loadVariable(array);
+
+        assertEquals(MAX_ITEMS_TO_HANDLE + 1, children.size());
+
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
+
+        array.setOffset(950);
+        children = loadVariable(array);
+
+        assertEquals(51, children.size());
+
+        for (int i = 950; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
+
+        // Pandas data frame
+
+        PyDebugValue df = findDebugValueByName(frameVariables, "df");
+        children = loadVariable(df);
+        values = (PyDebugValue) children.getValue(children.size() - 1);
+        children = loadVariable(values);
+        array = (PyDebugValue) children.getValue(children.size() - 1);
+        children = loadVariable(array);
+
+        assertEquals(MAX_ITEMS_TO_HANDLE + 1, children.size());
+
+        for (int i = 0; i < MAX_ITEMS_TO_HANDLE; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
+
+        array.setOffset(950);
+        children = loadVariable(array);
+
+        assertEquals(51, children.size());
+
+        for (int i = 950; i < collectionLength; i++) {
+          assertTrue(hasChildWithName(children, formatStr(i, collectionLength)));
+        }
       }
     });
   }

@@ -1,11 +1,12 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+ * Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.ExternalLanguageAnnotators;
 import com.intellij.lang.Language;
 import com.intellij.lang.annotation.Annotation;
@@ -13,13 +14,15 @@ import com.intellij.lang.annotation.AnnotationSession;
 import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.ex.ApplicationManagerEx;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -57,7 +60,11 @@ public class ExternalToolPass extends ProgressableTextEditorHighlightingPass {
     }
   }
 
-  ExternalToolPass(@NotNull ExternalToolPassFactory factory, @NotNull PsiFile file, @NotNull Editor editor, int startOffset, int endOffset) {
+  ExternalToolPass(@NotNull ExternalToolPassFactory factory,
+                   @NotNull PsiFile file,
+                   @NotNull Editor editor,
+                   int startOffset,
+                   int endOffset) {
     this(factory, file, editor.getDocument(), editor, startOffset, endOffset, new DefaultHighlightInfoProcessor(), false);
   }
 
@@ -105,12 +112,15 @@ public class ExternalToolPass extends ProgressableTextEditorHighlightingPass {
           HighlightDisplayKey key = HighlightDisplayKey.find(shortName);
           LOG.assertTrue(key != null || ApplicationManager.getApplication().isUnitTestMode(),
                          "Paired tool '" + shortName + "' not found for external annotator: " + annotator);
-          if (key == null || !profile.isToolEnabled(key, myFile)) continue; //test should register corresponding paired tool for annotator to run
+          if (key == null || !profile.isToolEnabled(key, myFile)) {
+            continue; //test should register corresponding paired tool for annotator to run
+          }
         }
 
         Object collectedInfo = null;
         try {
-          collectedInfo = editor != null ? annotator.collectInformation(psiRoot, editor, errorFound) : annotator.collectInformation(psiRoot);
+          collectedInfo =
+            editor != null ? annotator.collectInformation(psiRoot, editor, errorFound) : annotator.collectInformation(psiRoot);
         }
         catch (Throwable t) {
           process(t, annotator, psiRoot);
@@ -152,12 +162,15 @@ public class ExternalToolPass extends ProgressableTextEditorHighlightingPass {
       @Override
       public void run() {
         if (!documentChanged(modificationStampBefore) && !myProject.isDisposed()) {
-          doAnnotate();
-          ApplicationManagerEx.getApplicationEx().tryRunReadAction(() -> {
-            if (!documentChanged(modificationStampBefore) && !myProject.isDisposed()) {
-              doApply();
-              doFinish(getHighlights(), modificationStampBefore);
-            }
+          BackgroundTaskUtil.runUnderDisposeAwareIndicator(myProject, () -> {
+            doAnnotate();
+            ReadAction.run(() -> {
+              ProgressManager.checkCanceled();
+              if (!documentChanged(modificationStampBefore)) {
+                doApply();
+                doFinish(getHighlights(), modificationStampBefore);
+              }
+            });
           });
         }
       }
@@ -212,7 +225,8 @@ public class ExternalToolPass extends ProgressableTextEditorHighlightingPass {
     assert editor != null;
     ApplicationManager.getApplication().invokeLater(() -> {
       if (!documentChanged(modificationStampBefore) && !myProject.isDisposed()) {
-        int start = myRestrictRange.getStartOffset(), end = myRestrictRange.getEndOffset();
+        int start = myRestrictRange.getStartOffset();
+        int end = myRestrictRange.getEndOffset();
         UpdateHighlightersUtil.setHighlightersToEditor(myProject, myDocument, start, end, highlights, getColorsScheme(), getId());
         DaemonCodeAnalyzerEx.getInstanceEx(myProject).getFileStatusMap().markFileUpToDate(myDocument, getId());
       }
@@ -221,8 +235,12 @@ public class ExternalToolPass extends ProgressableTextEditorHighlightingPass {
 
   private static void process(Throwable t, ExternalAnnotator annotator, PsiFile root) {
     if (t instanceof ProcessCanceledException) throw (ProcessCanceledException)t;
+
     VirtualFile file = root.getVirtualFile();
     String path = file != null ? file.getPath() : root.getName();
-    LOG.error("annotator: " + annotator + " (" + annotator.getClass() + ")", t, new Attachment("root_path.txt", path));
+
+    final PluginException pluginException =
+      PluginException.createByClass("annotator: " + annotator + " (" + annotator.getClass() + ")", t, annotator.getClass());
+    LOG.error("ExternalToolPass: ", pluginException, new Attachment("root_path.txt", path));
   }
 }

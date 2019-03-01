@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project;
 
 import com.intellij.ide.caches.FileContent;
 import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationAdapter;
+import com.intellij.openapi.application.ApplicationListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
@@ -46,9 +32,12 @@ public class CacheUpdateRunner {
   private static final int PROC_COUNT = Runtime.getRuntime().availableProcessors();
   public static final int DEFAULT_MAX_INDEXER_THREADS = 4;
 
-  public static void processFiles(ProgressIndicator indicator, Collection<VirtualFile> files, Project project, Consumer<FileContent> processor) {
+  public static void processFiles(@NotNull ProgressIndicator indicator,
+                                  @NotNull Collection<VirtualFile> files,
+                                  @NotNull Project project,
+                                  @NotNull Consumer<? super FileContent> processor) {
     indicator.checkCanceled();
-    final FileContentQueue queue = new FileContentQueue(files, indicator);
+    final FileContentQueue queue = new FileContentQueue(project, files, indicator);
     final double total = files.size();
     queue.startLoading();
 
@@ -57,7 +46,7 @@ public class CacheUpdateRunner {
       final AtomicInteger myNumberOfFilesProcessed = new AtomicInteger();
 
       @Override
-      public void processingStarted(VirtualFile virtualFile) {
+      public void processingStarted(@NotNull VirtualFile virtualFile) {
         indicator.checkCanceled();
         boolean added;
         synchronized (myFilesBeingProcessed) {
@@ -72,7 +61,7 @@ public class CacheUpdateRunner {
       }
 
       @Override
-      public void processingSuccessfullyFinished(VirtualFile virtualFile) {
+      public void processingSuccessfullyFinished(@NotNull VirtualFile virtualFile) {
         synchronized (myFilesBeingProcessed) {
           boolean removed = myFilesBeingProcessed.remove(virtualFile);
           assert removed;
@@ -94,22 +83,22 @@ public class CacheUpdateRunner {
   }
 
   interface ProgressUpdater {
-    void processingStarted(VirtualFile file);
-    void processingSuccessfullyFinished(VirtualFile file);
+    void processingStarted(@NotNull VirtualFile file);
+    void processingSuccessfullyFinished(@NotNull VirtualFile file);
   }
 
   private static boolean processSomeFilesWhileUserIsInactive(@NotNull FileContentQueue queue,
                                                              @NotNull ProgressUpdater progressUpdater,
                                                              @NotNull ProgressIndicator suspendableIndicator,
                                                              @NotNull Project project,
-                                                             @NotNull Consumer<FileContent> fileProcessor) {
+                                                             @NotNull Consumer<? super FileContent> fileProcessor) {
     final ProgressIndicatorBase innerIndicator = new ProgressIndicatorBase() {
       @Override
       protected boolean isCancelable() {
         return true; // the inner indicator must be always cancelable
       }
     };
-    final ApplicationAdapter canceller = new ApplicationAdapter() {
+    final ApplicationListener canceller = new ApplicationListener() {
       @Override
       public void beforeWriteActionStart(@NotNull Object action) {
         innerIndicator.cancel();
@@ -184,7 +173,7 @@ public class CacheUpdateRunner {
     private final AtomicBoolean myFinished;
     private final ProgressUpdater myProgressUpdater;
     @NotNull private final Project myProject;
-    @NotNull private final Consumer<FileContent> myProcessor;
+    @NotNull private final Consumer<? super FileContent> myProcessor;
 
     MyRunnable(@NotNull ProgressIndicatorBase innerIndicator,
                @NotNull ProgressIndicator suspendableIndicator,
@@ -192,7 +181,7 @@ public class CacheUpdateRunner {
                @NotNull AtomicBoolean finished,
                @NotNull ProgressUpdater progressUpdater,
                @NotNull Project project,
-               @NotNull Consumer<FileContent> fileProcessor) {
+               @NotNull Consumer<? super FileContent> fileProcessor) {
       myInnerIndicator = innerIndicator;
       mySuspendableIndicator = suspendableIndicator;
       myQueue = queue;
@@ -262,12 +251,13 @@ public class CacheUpdateRunner {
     }
 
     @SuppressWarnings({"UseOfSystemOutOrSystemErr", "CallToPrintStackTrace"})
-    private static void handleIndexingException(VirtualFile file, Throwable e) {
+    private static void handleIndexingException(@NotNull VirtualFile file, @NotNull Throwable e) {
       String message = "Error while indexing " + file.getPresentableUrl() + "\n" + "To reindex this file IDEA has to be restarted";
       if (ApplicationManager.getApplication().isUnitTestMode()) {
         System.err.println(message);
         e.printStackTrace();
-      } else {
+      }
+      else {
         LOG.error(message, e);
       }
       file.putUserData(FAILED_TO_INDEX, Boolean.TRUE);

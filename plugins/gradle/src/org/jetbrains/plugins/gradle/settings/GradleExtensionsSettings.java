@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.settings;
 
 import com.intellij.openapi.components.*;
@@ -34,7 +32,6 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/16/2016
  */
 @State(name = "GradleExtensions", storages = {@Storage(value = StoragePathMacros.WORKSPACE_FILE, deprecated = true)})
 public class GradleExtensionsSettings implements PersistentStateComponent<GradleExtensionsSettings.Settings> {
@@ -60,7 +57,7 @@ public class GradleExtensionsSettings implements PersistentStateComponent<Gradle
   }
 
   @Override
-  public void loadState(Settings state) {
+  public void loadState(@NotNull Settings state) {
   }
 
   @NotNull

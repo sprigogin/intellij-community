@@ -95,7 +95,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
 
   private boolean myDisposed;
 
-  public ApplyPatchViewer(@NotNull DiffContext context, @NotNull ApplyPatchRequest request) {
+  ApplyPatchViewer(@NotNull DiffContext context, @NotNull ApplyPatchRequest request) {
     myProject = context.getProject();
     myContext = context;
     myPatchRequest = request;
@@ -140,6 +140,8 @@ class ApplyPatchViewer implements DataProvider, Disposable {
     myStatusPanel = new MyStatusPanel();
     myFoldingModel = new MyFoldingModel(myResultEditor, this);
 
+
+    DiffUtil.installLineConvertor(myResultEditor, myFoldingModel);
 
     new MyFocusOppositePaneAction().install(myPanel);
     new TextDiffViewerUtil.EditorActionsPopup(createEditorPopupActions()).install(editors);
@@ -259,7 +261,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (CommonDataKeys.PROJECT.is(dataId)) {
       return myProject;
     }
@@ -414,7 +416,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
   }
 
   class MyModel extends MergeModelBase<ApplyPatchChange.State> {
-    public MyModel(@Nullable Project project, @NotNull Document document) {
+    MyModel(@Nullable Project project, @NotNull Document document) {
       super(project, document);
     }
 
@@ -481,7 +483,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
     }
 
     @Override
-    protected void apply(@NotNull List<ApplyPatchChange> changes) {
+    protected void apply(@NotNull List<? extends ApplyPatchChange> changes) {
       for (int i = changes.size() - 1; i >= 0; i--) {
         replaceChange(changes.get(i));
       }
@@ -503,7 +505,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
     }
 
     @Override
-    protected void apply(@NotNull List<ApplyPatchChange> changes) {
+    protected void apply(@NotNull List<? extends ApplyPatchChange> changes) {
       for (ApplyPatchChange change : changes) {
         markChangeResolved(change);
       }
@@ -513,7 +515,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
   private abstract class ApplySelectedChangesActionBase extends DumbAwareAction {
     private final boolean myShortcut;
 
-    public ApplySelectedChangesActionBase(boolean shortcut) {
+    ApplySelectedChangesActionBase(boolean shortcut) {
       myShortcut = shortcut;
     }
 
@@ -549,62 +551,43 @@ class ApplyPatchViewer implements DataProvider, Disposable {
 
       String title = e.getPresentation().getText() + " in patch resolve";
 
-      executeCommand(title, () -> {
-        apply(selectedChanges);
-      });
+      executeCommand(title, () -> apply(selectedChanges));
     }
 
     private boolean isSomeChangeSelected(@NotNull Side side) {
       EditorEx editor = side.select(myResultEditor, myPatchEditor);
-      List<Caret> carets = editor.getCaretModel().getAllCarets();
-      if (carets.size() != 1) return true;
-      Caret caret = carets.get(0);
-      if (caret.hasSelection()) return true;
-
-      int line = editor.getDocument().getLineNumber(editor.getExpectedCaretOffset());
-
-      List<ApplyPatchChange> changes = myModelChanges;
-      for (ApplyPatchChange change : changes) {
-        if (!isEnabled(change)) continue;
-        LineRange range = side.select(change.getResultRange(), change.getPatchRange());
-        if (range == null) continue;
-
-        if (DiffUtil.isSelectedByLine(line, range.start, range.end)) return true;
-      }
-      return false;
+      return DiffUtil.isSomeRangeSelected(editor, lines -> ContainerUtil.exists(myModelChanges, change -> isChangeSelected(change, lines, side)));
     }
 
     @NotNull
     @CalledInAwt
     private List<ApplyPatchChange> getSelectedChanges(@NotNull Side side) {
-      final BitSet lines = DiffUtil.getSelectedLines(side.select(myResultEditor, myPatchEditor));
+      EditorEx editor = side.select(myResultEditor, myPatchEditor);
+      BitSet lines = DiffUtil.getSelectedLines(editor);
+      return ContainerUtil.filter(myModelChanges, change -> isChangeSelected(change, lines, side));
+    }
 
-      List<ApplyPatchChange> affectedChanges = new ArrayList<>();
-      for (ApplyPatchChange change : myModelChanges) {
-        if (!isEnabled(change)) continue;
-        LineRange range = side.select(change.getResultRange(), change.getPatchRange());
-        if (range == null) continue;
+    private boolean isChangeSelected(@NotNull ApplyPatchChange change, @NotNull BitSet lines, @NotNull Side side) {
+      if (!isEnabled(change)) return false;
+      LineRange range = side.select(change.getResultRange(), change.getPatchRange());
+      if (range == null) return false;
 
-        if (DiffUtil.isSelectedByLine(lines, range.start, range.end)) {
-          affectedChanges.add(change);
-        }
-      }
-      return affectedChanges;
+      return DiffUtil.isSelectedByLine(lines, range.start, range.end);
     }
 
     protected abstract boolean isEnabled(@NotNull ApplyPatchChange change);
 
     @CalledWithWriteLock
-    protected abstract void apply(@NotNull List<ApplyPatchChange> changes);
+    protected abstract void apply(@NotNull List<? extends ApplyPatchChange> changes);
   }
 
   private class ApplyNonConflictsAction extends DumbAwareAction {
-    public ApplyNonConflictsAction() {
+    ApplyNonConflictsAction() {
       ActionUtil.copyFrom(this, "Diff.ApplyNonConflicts");
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       boolean enabled = ContainerUtil.exists(myModelChanges, c -> {
         if (c.isResolved()) return false;
         if (c.getStatus() == AppliedTextPatch.HunkStatus.NOT_APPLIED) return false;
@@ -614,7 +597,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       List<ApplyPatchChange> changes = myModelChanges;
       if (changes.isEmpty()) return;
 
@@ -641,7 +624,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
   //
 
   private class MyFocusOppositePaneAction extends FocusOppositePaneAction {
-    public MyFocusOppositePaneAction() {
+    MyFocusOppositePaneAction() {
       super(false);
     }
 
@@ -653,7 +636,7 @@ class ApplyPatchViewer implements DataProvider, Disposable {
   }
 
   private class MyToggleExpandByDefaultAction extends TextDiffViewerUtil.ToggleExpandByDefaultAction {
-    public MyToggleExpandByDefaultAction() {
+    MyToggleExpandByDefaultAction() {
       super(getTextSettings());
     }
 
@@ -664,12 +647,12 @@ class ApplyPatchViewer implements DataProvider, Disposable {
   }
 
   private class ShowDiffWithLocalAction extends DumbAwareAction {
-    public ShowDiffWithLocalAction() {
+    ShowDiffWithLocalAction() {
       super("Compare with local content", null, AllIcons.Actions.Diff);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       DocumentContent resultContent = myPatchRequest.getResultContent();
       DocumentContent localContent = DiffContentFactory.getInstance().create(myProject, myPatchRequest.getLocalContent(), resultContent);
 
@@ -739,16 +722,15 @@ class ApplyPatchViewer implements DataProvider, Disposable {
         LineRange patchRange = change.getPatchRange();
         assert resultRange != null;
 
-        Color color = change.getDiffType().getColor(myPatchEditor);
-
         // do not abort - ranges are ordered in patch order, but they can be not ordered in terms of resultRange
-        handler.process(resultRange.start, resultRange.end, patchRange.start, patchRange.end, color, change.isResolved());
+        handler.processResolvable(resultRange.start, resultRange.end, patchRange.start, patchRange.end,
+                                  myPatchEditor, change.getDiffType(), change.isResolved());
       }
     }
   }
 
   private static class MyFoldingModel extends FoldingModelSupport {
-    public MyFoldingModel(@NotNull EditorEx editor, @NotNull Disposable disposable) {
+    MyFoldingModel(@NotNull EditorEx editor, @NotNull Disposable disposable) {
       super(new EditorEx[]{editor}, disposable);
     }
 

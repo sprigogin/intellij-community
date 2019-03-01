@@ -1,21 +1,8 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.siyeh.ig;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
@@ -28,7 +15,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiReplacementUtil {
-  private static final Logger LOG = Logger.getInstance(PsiReplacementUtil.class);
 
   /**
    * Consider to use {@link #replaceExpression(PsiExpression, String, CommentTracker)} to preserve comments
@@ -44,7 +30,7 @@ public class PsiReplacementUtil {
   }
 
   /**
-   * @param commentTracker ensure to {@link CommentTracker#markUnchanged(PsiElement)} expressions used as getText in newExpressionText
+   * @param tracker ensure to {@link CommentTracker#markUnchanged(PsiElement)} expressions used as getText in newExpressionText
    */
   public static void replaceExpression(@NotNull PsiExpression expression, @NotNull @NonNls String newExpressionText, CommentTracker tracker) {
     final Project project = expression.getProject();
@@ -74,7 +60,7 @@ public class PsiReplacementUtil {
   }
 
   /**
-   * Consider to use {@link #replaceStatement(PsiExpression, String, CommentTracker)} to preserve comments
+   * Consider to use {@link #replaceStatement(PsiStatement, String, CommentTracker)} to preserve comments
    */
   public static PsiElement replaceStatement(@NotNull PsiStatement statement, @NotNull @NonNls String newStatementText) {
     final Project project = statement.getProject();
@@ -129,7 +115,8 @@ public class PsiReplacementUtil {
     final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
     final PsiElementFactory factory = psiFacade.getElementFactory();
     final PsiReferenceExpression newExpression = (PsiReferenceExpression)factory.createExpressionFromText("xxx", expression);
-    final PsiReferenceExpression replacementExpression = (PsiReferenceExpression)expression.replace(newExpression);
+    CommentTracker tracker = new CommentTracker();
+    final PsiReferenceExpression replacementExpression = (PsiReferenceExpression)tracker.replaceAndRestoreComments(expression, newExpression);
     final PsiElement element = replacementExpression.bindToElement(target);
     final JavaCodeStyleManager styleManager = JavaCodeStyleManager.getInstance(project);
     styleManager.shortenClassReferences(element);
@@ -165,8 +152,8 @@ public class PsiReplacementUtil {
     final PsiExpression rhs = assignmentExpression.getRExpression();
     final String operator = sign.getText();
     final String newOperator = operator.substring(0, operator.length() - 1);
-    final String lhsText = tracker.markUnchanged(lhs).getText();
-    final String rhsText = (rhs == null) ? "" : tracker.markUnchanged(rhs).getText();
+    final String lhsText = tracker.text(lhs);
+    final String rhsText = (rhs == null) ? "" : tracker.text(rhs);
     final boolean parentheses = ParenthesesUtils.areParenthesesNeeded(sign, rhs);
     final String cast = getCastString(lhs, rhs);
     final StringBuilder newExpression = new StringBuilder(lhsText);

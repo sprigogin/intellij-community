@@ -32,7 +32,7 @@ class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return JAVA_8
+    return JAVA_12
   }
 
   @Override
@@ -64,6 +64,9 @@ class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
       "    When when() default When.ALWAYS;\n" +
       "}",
 
+      "package a;\n" +
+      " public @interface CheckReturnValue {}",
+
       "package com.google.errorprone.annotations;" +
       "import java.lang.annotation.ElementType;\n" +
       "import java.lang.annotation.Retention;\n" +
@@ -89,6 +92,19 @@ class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
            "  void run() {\n" +
            "    /*Result of 'Test.lookAtMe()' is ignored*/lookAtMe/**/(); // Bad!  This line should produce a warning.\n" +
            "    ignoreMe(); // OK.  This line should *not* produce a warning.\n" +
+           "  }\n" +
+           "}")
+  }
+
+  void testCustomCheckReturnValue() {
+    doTest("import a.CheckReturnValue;\n" +
+           "\n" +
+           "class Test {\n" +
+           "  @CheckReturnValue\n" +
+           "  int lookAtMe() { return 1; }\n" +
+           "\n" +
+           "  void run() {\n" +
+           "    /*Result of 'Test.lookAtMe()' is ignored*/lookAtMe/**/();\n" +
            "  }\n" +
            "}")
   }
@@ -215,6 +231,27 @@ class C {
 """
   }
 
+  void testPureMethodReturningThis() {
+    doTest """
+import org.jetbrains.annotations.Contract;
+
+class Test {
+  boolean closed;
+  
+  @Contract(pure=true, value="->this")
+  Test validate() {
+    if(closed) throw new IllegalStateException();
+    return this;
+  }
+  
+  void test() {
+    validate();
+    System.out.println("ok");
+  }
+}
+"""
+  }
+
   void testPureMethodInVoidFunctionalExpression() {
     doTest """
 import org.jetbrains.annotations.Contract;
@@ -290,6 +327,52 @@ import java.util.Optional;
 class Test {
   void test(Optional<String> opt) {
     opt.orElseThrow(RuntimeException::new);
+  }
+}"""
+  }
+
+  void testParamContract() {
+    doTest """class X{
+public static int atLeast(int min, int actual, String varName) {
+    if (actual < min) throw new IllegalArgumentException('\\'' + varName + " must be at least " + min + ": " + actual);
+    return actual;
+  }
+
+  public byte[] getMemory(int address, int length) {
+    atLeast(0, address, "address");
+    atLeast(1, length, "length");
+
+    return new byte[length];
+  }
+}"""
+  }
+  
+  void testInForExpressionList() {
+    //noinspection StatementWithEmptyBody
+    doTest """class X {
+  void test(String s) {
+    for(int i=0; i<10; i++, s./*Result of 'String.trim()' is ignored*/trim/**/()) {}
+  }
+}"""
+  }
+
+  void testInSwitchExpression() {
+    //noinspection SwitchStatementWithTooFewBranches
+    doTest """class X {
+  String test(String s) {
+    return switch(s) {
+      default -> s.trim();
+    };
+  }
+}"""
+  }
+  
+  void testOptionalGet() {
+    //noinspection ALL
+    doTest """class X {
+  void test(java.util.Optional<String> opt) {
+    opt.get();
+    if (opt.isPresent()) opt./*Result of 'Optional.get()' is ignored*/get/**/();
   }
 }"""
   }

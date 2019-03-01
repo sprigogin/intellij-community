@@ -1,31 +1,24 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
-import com.intellij.openapi.components.StateStorage
-import com.intellij.openapi.components.StateStorageOperation
-import com.intellij.openapi.components.Storage
-import com.intellij.openapi.components.TrackingPathMacroSubstitutor
+import com.intellij.openapi.components.*
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.util.messages.Topic
+import kotlinx.coroutines.runBlocking
 
 val STORAGE_TOPIC = Topic("STORAGE_LISTENER", StorageManagerListener::class.java, Topic.BroadcastDirection.TO_PARENT)
 
+interface StorageManagerListener {
+  // not called if change requestor is SaveSession
+  fun storageFileChanged(event: VFileEvent, storage: StateStorage, componentManager: ComponentManager)
+}
+
 interface StateStorageManager {
-  val macroSubstitutor: TrackingPathMacroSubstitutor?
+  val macroSubstitutor: PathMacroSubstitutor?
     get() = null
+
+  val componentManager: ComponentManager?
 
   fun getStateStorage(storageSpec: Storage): StateStorage
 
@@ -41,20 +34,36 @@ interface StateStorageManager {
    */
   fun rename(path: String, newName: String)
 
-  fun startExternalization(): ExternalizationSession?
-
   fun getOldStorage(component: Any, componentName: String, operation: StateStorageOperation): StateStorage?
 
   fun expandMacros(path: String): String
+}
 
-  interface ExternalizationSession {
-    fun setState(storageSpecs: List<Storage>, component: Any, componentName: String, state: Any)
+interface StorageCreator {
+  val key: String
 
-    fun setStateInOldStorage(component: Any, componentName: String, state: Any)
+  fun create(storageManager: StateStorageManager): StateStorage
+}
 
-    /**
-     * return empty list if nothing to save
-     */
-    fun createSaveSessions(): List<StateStorage.SaveSession>
+/**
+ * Low-level method to save component manager state store. Use it with care and only if you understand what are you doing.
+ * Intended for Java clients only. Do not use in Kotlin.
+ */
+@JvmOverloads
+fun saveComponentManager(componentManager: ComponentManager, forceSavingAllSettings: Boolean = false) {
+  runBlocking {
+    componentManager.stateStore.save(forceSavingAllSettings = forceSavingAllSettings)
   }
+}
+
+// no need to fire events for known requestors - all current subscribers are not interested in internal changes,
+// better to reduce message bus usage
+fun isFireStorageFileChangedEvent(event: VFileEvent): Boolean {
+  // ignore VFilePropertyChangeEvent because doesn't affect content
+  if (event is VFilePropertyChangeEvent) {
+    return false
+  }
+
+  val requestor = event.requestor
+  return requestor !is SaveSession && requestor !is StateStorage && requestor !is SaveSessionProducer
 }

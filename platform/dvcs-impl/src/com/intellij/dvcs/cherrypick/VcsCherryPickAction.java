@@ -29,7 +29,7 @@ import com.intellij.vcs.log.CommitId;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.VcsLog;
 import com.intellij.vcs.log.VcsLogDataKeys;
-import com.intellij.vcs.log.impl.VcsLogUtil;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import icons.DvcsImplIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -47,7 +47,7 @@ public class VcsCherryPickAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     FileDocumentManager.getInstance().saveAllDocuments();
 
     Project project = e.getRequiredData(CommonDataKeys.PROJECT);
@@ -75,7 +75,7 @@ public class VcsCherryPickAction extends DumbAwareAction {
       return;
     }
 
-    List<CommitId> commits = VcsLogUtil.collectFirstPack(log.getSelectedCommits(), VcsLogUtil.MAX_SELECTED_COMMITS);
+    List<CommitId> commits = ContainerUtil.getFirstItems(log.getSelectedCommits(), VcsLogUtil.MAX_SELECTED_COMMITS);
     if (commits.isEmpty() || cherryPickManager.isCherryPickAlreadyStartedFor(commits)) {
       e.getPresentation().setEnabled(false);
       return;

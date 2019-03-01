@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework;
 
 import com.intellij.execution.JavaTestConfigurationBase;
@@ -28,6 +13,7 @@ import com.intellij.execution.junit2.PsiMemberParameterizedLocation;
 import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
@@ -39,11 +25,18 @@ import java.util.List;
 public abstract class AbstractInClassConfigurationProducer<T extends JavaTestConfigurationBase> extends AbstractJavaTestConfigurationProducer<T> {
   private static final Logger LOG = Logger.getInstance(AbstractInClassConfigurationProducer.class);
 
+  /**
+   * @deprecated Override {@link #getConfigurationFactory()}.
+   */
+  @Deprecated
   protected AbstractInClassConfigurationProducer(ConfigurationType configurationType) {
     super(configurationType);
   }
 
+  protected AbstractInClassConfigurationProducer() {
+  }
 
+  @Override
   public void onFirstRun(@NotNull final ConfigurationFromContext configuration,
                          @NotNull final ConfigurationContext fromContext,
                          @NotNull Runnable performRunnable) {
@@ -93,6 +86,7 @@ public abstract class AbstractInClassConfigurationProducer<T extends JavaTestCon
     super.onFirstRun(configuration, fromContext, performRunnable);
   }
 
+  @Override
   protected boolean setupConfigurationFromContext(T configuration,
                                                   ConfigurationContext context,
                                                   Ref<PsiElement> sourceElement) {
@@ -112,7 +106,7 @@ public abstract class AbstractInClassConfigurationProducer<T extends JavaTestCon
       }
       else if (element instanceof PsiMember) {
         psiClass = contextLocation instanceof MethodLocation ? ((MethodLocation)contextLocation).getContainingClass()
-                                                             : contextLocation instanceof PsiMemberParameterizedLocation 
+                                                             : contextLocation instanceof PsiMemberParameterizedLocation
                                                                ? ((PsiMemberParameterizedLocation)contextLocation).getContainingClass()
                                                                : ((PsiMember)element).getContainingClass();
         if (isTestClass(psiClass)) {
@@ -146,7 +140,21 @@ public abstract class AbstractInClassConfigurationProducer<T extends JavaTestCon
     }
 
     configuration.restoreOriginalModule(originalModule);
-    LOG.assertTrue(configuration.getConfigurationModule().getModule() != null);
+    Module module = configuration.getConfigurationModule().getModule();
+    if (module == null && psiClass.getManager().isInProject(psiClass)) {
+      PsiFile containingFile = psiClass.getContainingFile();
+      if (LOG.isDebugEnabled()) {
+        LOG.info("No module found: " +
+                 "generated name:" + configuration.getName() +
+                 "; valid: " + psiClass.isValid() +
+                 "; physical: " + psiClass.isPhysical() +
+                 "; className: " + psiClass.getQualifiedName() +
+                 "; file: " + containingFile +
+                 "; module: " + ModuleUtilCore.findModuleForPsiElement(psiClass.getContainingFile()) +
+                 "; original module: " + originalModule);
+      }
+      return false;
+    }
     settings.setName(configuration.getName());
     sourceElement.set(psiElement);
     return true;

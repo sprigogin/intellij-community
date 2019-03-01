@@ -1,17 +1,15 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.compiler;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.XmlRecursiveElementVisitor;
 import com.intellij.psi.XmlRecursiveElementWalkingVisitor;
-import com.intellij.psi.xml.XmlAttribute;
-import com.intellij.psi.xml.XmlTag;
-import com.intellij.psi.xml.XmlText;
-import com.intellij.psi.xml.XmlToken;
+import com.intellij.psi.xml.*;
 import com.intellij.structuralsearch.impl.matcher.CompiledPattern;
 import com.intellij.structuralsearch.impl.matcher.filters.TagValueFilter;
 import com.intellij.structuralsearch.impl.matcher.handlers.TopLevelMatchingHandler;
 
+import static com.intellij.structuralsearch.impl.matcher.compiler.GlobalCompilingVisitor.OccurenceKind.CODE;
 import static com.intellij.structuralsearch.impl.matcher.compiler.GlobalCompilingVisitor.OccurenceKind.TEXT;
 
 /**
@@ -38,34 +36,35 @@ public class XmlCompilingVisitor extends XmlRecursiveElementVisitor {
 
     @Override
     public void visitXmlTag(XmlTag tag) {
-      if (!handleWord(tag.getName(), myCompilingVisitor.getContext())) return;
+      if (!handleWord(tag.getName(), CODE, myCompilingVisitor.getContext())) return;
       super.visitXmlTag(tag);
     }
 
     @Override
     public void visitXmlAttribute(XmlAttribute attribute) {
-      if (!handleWord(attribute.getName(), myCompilingVisitor.getContext())) return;
-      handleWord(attribute.getValue(), myCompilingVisitor.getContext());
+      if (!handleWord(attribute.getName(), CODE, myCompilingVisitor.getContext())) return;
+      handleWord(attribute.getValue(), CODE, myCompilingVisitor.getContext());
       super.visitXmlAttribute(attribute);
     }
 
     @Override
     public void visitXmlText(XmlText text) {
       final String string = text.getText();
-      if (!myCompilingVisitor.getContext().getPattern().isTypedVar(string)) {
-        myCompilingVisitor.processTokenizedName(string, false, TEXT);
-      }
+      handleWord(string, TEXT, myCompilingVisitor.getContext());
       super.visitXmlText(text);
     }
   }
 
-  @Override public void visitElement(PsiElement element) {
+  @Override
+  public void visitElement(PsiElement element) {
     myCompilingVisitor.handle(element);
     super.visitElement(element);
   }
 
   @Override
-  public void visitXmlToken(XmlToken token) {}
+  public void visitXmlToken(XmlToken token) {
+    if (token.getTokenType() == XmlTokenType.XML_NAME) super.visitXmlToken(token);
+  }
 
   @Override
   public void visitXmlText(XmlText text) {

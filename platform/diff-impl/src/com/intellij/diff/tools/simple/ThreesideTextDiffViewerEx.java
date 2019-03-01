@@ -45,7 +45,6 @@ import java.util.Iterator;
 import java.util.List;
 
 import static com.intellij.diff.util.DiffUtil.getLineCount;
-import static com.intellij.util.ArrayUtil.toObjectArray;
 
 public abstract class ThreesideTextDiffViewerEx extends ThreesideTextDiffViewer {
   @NotNull private final SyncScrollSupport.SyncScrollable mySyncScrollable1;
@@ -69,7 +68,11 @@ public abstract class ThreesideTextDiffViewerEx extends ThreesideTextDiffViewer 
     myPrevNextDifferenceIterable = new MyPrevNextDifferenceIterable();
     myPrevNextConflictIterable = new MyPrevNextConflictIterable();
     myStatusPanel = new MyStatusPanel();
-    myFoldingModel = new MyFoldingModel(toObjectArray(getEditors(), EditorEx.class), this);
+    myFoldingModel = new MyFoldingModel(getEditors().toArray(new EditorEx[0]), this);
+
+    for (ThreeSide side : ThreeSide.values()) {
+      DiffUtil.installLineConvertor(getEditor(side), getContent(side), myFoldingModel, side.getIndex());
+    }
 
     DiffUtil.registerAction(new PrevConflictAction(), myPanel);
     DiffUtil.registerAction(new NextConflictAction(), myPanel);
@@ -261,24 +264,24 @@ public abstract class ThreesideTextDiffViewerEx extends ThreesideTextDiffViewer 
   //
 
   private class PrevConflictAction extends DumbAwareAction {
-    public PrevConflictAction() {
+    PrevConflictAction() {
       ActionUtil.copyFrom(this, "Diff.PreviousConflict");
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       if (!myPrevNextConflictIterable.canGoPrev()) return;
       myPrevNextConflictIterable.goPrev();
     }
   }
 
   private class NextConflictAction extends DumbAwareAction {
-    public NextConflictAction() {
+    NextConflictAction() {
       ActionUtil.copyFrom(this, "Diff.NextConflict");
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       if (!myPrevNextConflictIterable.canGoNext()) return;
       myPrevNextConflictIterable.goNext();
     }
@@ -342,7 +345,7 @@ public abstract class ThreesideTextDiffViewerEx extends ThreesideTextDiffViewer 
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (DiffDataKeys.PREV_NEXT_DIFFERENCE_ITERABLE.is(dataId)) {
       return myPrevNextDifferenceIterable;
     }

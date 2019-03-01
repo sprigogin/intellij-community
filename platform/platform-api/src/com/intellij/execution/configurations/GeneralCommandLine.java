@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.execution.CommandLineUtil;
 import com.intellij.execution.ExecutionException;
+import com.intellij.execution.IllegalEnvVarException;
 import com.intellij.execution.Platform;
 import com.intellij.execution.process.ProcessNotCreatedException;
 import com.intellij.ide.IdeBundle;
@@ -117,6 +104,19 @@ public class GeneralCommandLine implements UserDataHolder {
     }
   }
 
+  protected GeneralCommandLine(@NotNull GeneralCommandLine original) {
+    myExePath = original.myExePath;
+    myWorkDirectory = original.myWorkDirectory;
+    myEnvParams.putAll(original.myEnvParams);
+    myParentEnvironmentType = original.myParentEnvironmentType;
+    original.myProgramParams.copyTo(myProgramParams);
+    myCharset = original.myCharset;
+    myRedirectErrorStream = original.myRedirectErrorStream;
+    myInputFile = original.myInputFile;
+    // this is intentional memory waste, to avoid warning suppression. We should not copy UserData, but can't suppress a warning for a single field
+    myUserData = ContainerUtil.newHashMap();
+  }
+
   @NotNull
   public String getExePath() {
     return myExePath;
@@ -182,6 +182,7 @@ public class GeneralCommandLine implements UserDataHolder {
   }
 
   /** @deprecated use {@link #withParentEnvironmentType(ParentEnvironmentType)} (to be removed in IDEA 2018.*) */
+  @Deprecated
   public void setPassParentEnvironment(boolean passParentEnvironment) {
     withParentEnvironmentType(passParentEnvironment ? ParentEnvironmentType.CONSOLE : ParentEnvironmentType.NONE);
   }
@@ -365,28 +366,52 @@ public class GeneralCommandLine implements UserDataHolder {
     }
 
     try {
-      checkWorkingDirectory();
+      if (myWorkDirectory != null) {
+        if (!myWorkDirectory.exists()) {
+          throw new ExecutionException(IdeBundle.message("run.configuration.error.working.directory.does.not.exist", myWorkDirectory));
+        }
+        if (!myWorkDirectory.isDirectory()) {
+          throw new ExecutionException(IdeBundle.message("run.configuration.error.working.directory.not.directory", myWorkDirectory));
+        }
+      }
 
       if (StringUtil.isEmptyOrSpaces(myExePath)) {
         throw new ExecutionException(IdeBundle.message("run.configuration.error.executable.not.specified"));
       }
     }
     catch (ExecutionException e) {
-      LOG.info(e);
+      LOG.debug(e);
       throw e;
     }
 
-    List<String> commands = prepareCommandLine(myExePath, myProgramParams.getList(), Platform.current());
+    for (Map.Entry<String, String> entry : myEnvParams.entrySet()) {
+      String name = entry.getKey(), value = entry.getValue();
+      if (!EnvironmentUtil.isValidName(name)) throw new IllegalEnvVarException(IdeBundle.message("run.configuration.invalid.env.name", name));
+      if (!EnvironmentUtil.isValidValue(value)) throw new IllegalEnvVarException(IdeBundle.message("run.configuration.invalid.env.value", name, value));
+    }
+
+    String exePath = myExePath;
+    if (SystemInfo.isMac && myParentEnvironmentType == ParentEnvironmentType.CONSOLE && exePath.indexOf(File.pathSeparatorChar) == -1) {
+      String systemPath = System.getenv("PATH"), shellPath = EnvironmentUtil.getValue("PATH");
+      if (!Objects.equals(systemPath, shellPath)) {
+        File exeFile = PathEnvironmentVariableUtil.findInPath(myExePath, shellPath, null);
+        if (exeFile != null) {
+          LOG.info(exePath + " => " + exeFile);
+          exePath = exeFile.getPath();
+        }
+      }
+    }
+
+    List<String> commands = prepareCommandLine(exePath, myProgramParams.getList(), Platform.current());
 
     try {
       return startProcess(commands);
     }
     catch (IOException e) {
-      LOG.info(e);
+      LOG.debug(e);
       throw new ProcessNotCreatedException(e.getMessage(), e, this);
     }
   }
-
 
   /**
    * @implNote for subclasses:
@@ -413,18 +438,6 @@ public class GeneralCommandLine implements UserDataHolder {
       builder.redirectInput(ProcessBuilder.Redirect.from(myInputFile));
     }
     return builder.start();
-  }
-
-  private void checkWorkingDirectory() throws ExecutionException {
-    if (myWorkDirectory == null) {
-      return;
-    }
-    if (!myWorkDirectory.exists()) {
-      throw new ExecutionException(IdeBundle.message("run.configuration.error.working.directory.does.not.exist", myWorkDirectory));
-    }
-    if (!myWorkDirectory.isDirectory()) {
-      throw new ExecutionException(IdeBundle.message("run.configuration.error.working.directory.not.directory", myWorkDirectory));
-    }
   }
 
   protected void setupEnvironment(@NotNull Map<String, String> environment) {
@@ -494,20 +507,6 @@ public class GeneralCommandLine implements UserDataHolder {
   private static class MyTHashMap extends THashMap<String, String> {
     private MyTHashMap() {
       super(SystemInfo.isWindows ? CaseInsensitiveStringHashingStrategy.INSTANCE : ContainerUtil.canonicalStrategy());
-    }
-
-    @Override
-    public String put(String key, String value) {
-      if (key == null || value == null) {
-        LOG.error(new Exception("Nulls are not allowed"));
-        return null;
-      }
-      if (key.isEmpty()) {
-        // Windows: passing an environment variable with empty name causes "CreateProcess error=87, The parameter is incorrect"
-        LOG.warn("Skipping environment variable with empty name, value: " + value);
-        return null;
-      }
-      return super.put(key, value);
     }
 
     @Override

@@ -15,6 +15,8 @@
  */
 package org.jetbrains.idea.maven.indices;
 
+import com.intellij.jarRepository.services.bintray.BintrayModel;
+import com.intellij.jarRepository.services.bintray.BintrayRepositoryService;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -44,11 +46,10 @@ import org.jetbrains.idea.maven.utils.MavenProcessCanceledException;
 import org.jetbrains.idea.maven.utils.MavenProgressIndicator;
 
 import java.io.*;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.*;
 
-import static com.intellij.openapi.util.text.StringUtil.*;
+import static com.intellij.openapi.util.text.StringUtil.join;
+import static com.intellij.openapi.util.text.StringUtil.split;
 import static com.intellij.util.containers.ContainerUtil.notNullize;
 
 public class MavenIndex {
@@ -161,25 +162,9 @@ public class MavenIndex {
 
   private static NotNexusIndexer initNotNexusIndexer(Kind kind, String repositoryPathOrUrl) {
     if (kind == Kind.REMOTE) {
-      try {
-        URL url = new URL(repositoryPathOrUrl);
-
-        String host = url.getHost();
-        if (host != null) {
-          List<String> path = split(trimStart(url.getPath(), "/"), "/");
-          if (host.equals("dl.bintray.com")) {
-            if (path.size() > 1) {
-              return new BintrayIndexer(path.get(0), path.get(1));
-            }
-          }
-          else if (host.endsWith(".bintray.com")) {
-            if (!path.isEmpty()) {
-              return new BintrayIndexer(trimEnd(host, ".bintray.com"), path.get(0));
-            }
-          }
-        }
-      }
-      catch (MalformedURLException ignored) {
+      BintrayModel.Repository info = BintrayRepositoryService.parseInfo(repositoryPathOrUrl);
+      if (info != null && info.repo != null) {
+        return new BintrayIndexer(info.subject, info.repo);
       }
     }
     return null;
@@ -532,6 +517,7 @@ public class MavenIndex {
   public synchronized void addArtifact(final File artifactFile) {
     doIndexTask(() -> {
       IndexedMavenId id = myData.addArtifact(artifactFile);
+      if (id == null) return null;
 
       myData.hasGroupCache.put(id.groupId, true);
 
@@ -681,7 +667,7 @@ public class MavenIndex {
 
     private final int indexId;
 
-    public IndexData(File dir) throws MavenIndexException {
+    IndexData(File dir) throws MavenIndexException {
       try {
         groupToArtifactMap = createPersistentMap(new File(dir, ARTIFACT_IDS_MAP_FILE));
         groupWithArtifactToVersionMap = createPersistentMap(new File(dir, VERSIONS_MAP_FILE));
@@ -743,6 +729,7 @@ public class MavenIndex {
   }
 
   private static class SetDescriptor implements DataExternalizer<Set<String>> {
+    @Override
     public void save(@NotNull DataOutput s, Set<String> set) throws IOException {
       s.writeInt(set.size());
       for (String each : set) {
@@ -750,6 +737,7 @@ public class MavenIndex {
       }
     }
 
+    @Override
     public Set<String> read(@NotNull DataInput s) throws IOException {
       int count = s.readInt();
       Set<String> result = new THashSet<>(count);
@@ -761,7 +749,7 @@ public class MavenIndex {
   }
 
   public interface IndexListener {
-    void indexIsBroken(MavenIndex index);
+    void indexIsBroken(@NotNull MavenIndex index);
   }
 
   private class MyIndexRepositoryIdsProvider implements CachedValueProvider<String> {

@@ -7,12 +7,17 @@ import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.deadCode.UnusedDeclarationInspectionBase;
 import com.intellij.codeInspection.inheritance.ImplicitSubclassProvider;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.util.ClassUtil;
+import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.VisibilityUtil;
@@ -67,7 +72,7 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
     private final ProblemsHolder myHolder;
     private final UnusedDeclarationInspectionBase myDeadCodeInspection;
 
-    public MyVisitor(@NotNull ProblemsHolder holder) {
+    MyVisitor(@NotNull ProblemsHolder holder) {
       myHolder = holder;
       myDeadCodeInspection = UnusedDeclarationInspectionBase.findUnusedDeclarationInspection(holder.getFile());
     }
@@ -173,17 +178,13 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
       final PsiFile memberFile = member.getContainingFile();
       Project project = memberFile.getProject();
 
-      int minLevel = PsiUtil.ACCESS_LEVEL_PRIVATE;
-      boolean entryPoint = myDeadCodeInspection.isEntryPoint(member);
-      if (entryPoint) {
-        int level = myVisibilityInspection.getMinVisibilityLevel(member);
-        if (level <= 0) {
-          log(member.getName() +" is entry point");
-          return currentLevel;
-        }
-        else {
-          minLevel = level;
-        }
+      int level = myVisibilityInspection.getMinVisibilityLevel(member);
+      int minLevel = Math.max(PsiUtil.ACCESS_LEVEL_PRIVATE, level);
+      boolean entryPoint = myDeadCodeInspection.isEntryPoint(member) || 
+                           member instanceof PsiField && (UnusedSymbolUtil.isImplicitWrite((PsiVariable)member) || UnusedSymbolUtil.isImplicitRead((PsiVariable)member));
+      if (entryPoint && level <= 0) {
+        log(member.getName() + " is entry point");
+        return currentLevel;
       }
 
       final PsiPackage memberPackage = getPackage(memberFile);
@@ -197,14 +198,14 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
         PsiFile psiFile = info.getFile();
         if (psiFile == null) return true;
 
-        return handleUsage(member, memberClass, memberFile, maxLevel, memberPackage, element, psiFile, foundUsage);
+        return handleUsage(member, memberClass, maxLevel, memberPackage, element, psiFile, foundUsage);
       });
 
       if (proceed && member instanceof PsiClass && LambdaUtil.isFunctionalClass((PsiClass)member)) {
         // there can be lambda implementing this interface implicitly
         FunctionalExpressionSearch.search((PsiClass)member).forEach(functionalExpression -> {
           PsiFile psiFile = functionalExpression.getContainingFile();
-          return handleUsage(member, memberClass, memberFile, maxLevel, memberPackage, functionalExpression, psiFile, foundUsage);
+          return handleUsage(member, memberClass, maxLevel, memberPackage, functionalExpression, psiFile, foundUsage);
         });
       }
       if (!foundUsage.get() && !entryPoint) {
@@ -227,7 +228,6 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
 
     private boolean handleUsage(@NotNull PsiMember member,
                                 @Nullable PsiClass memberClass,
-                                @NotNull PsiFile memberFile,
                                 @NotNull AtomicInteger maxLevel,
                                 @Nullable PsiPackage memberPackage,
                                 @NotNull PsiElement element,
@@ -240,7 +240,7 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
         return false; // referenced from XML, has to be public
       }
       @PsiUtil.AccessLevel
-      int level = getEffectiveLevel(element, psiFile, member, memberFile, memberClass, memberPackage);
+      int level = getEffectiveLevel(element, psiFile, member, memberClass, memberPackage);
       log("    ref in file " + psiFile.getName() + "; level = " + PsiUtil.getAccessModifier(level) + "; (" + element + ")");
       maxLevel.getAndAccumulate(level, Math::max);
 
@@ -251,13 +251,12 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
     private int getEffectiveLevel(@NotNull PsiElement element,
                                   @NotNull PsiFile file,
                                   @NotNull PsiMember member,
-                                  @NotNull PsiFile memberFile,
                                   PsiClass memberClass,
                                   PsiPackage memberPackage) {
       PsiClass innerClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
       boolean isAbstractMember = member.hasModifierProperty(PsiModifier.ABSTRACT);
       if (memberClass != null && PsiTreeUtil.isAncestor(innerClass, memberClass, false) ||
-          innerClass != null && PsiTreeUtil.isAncestor(memberClass, innerClass, false) && !innerClass.hasModifierProperty(PsiModifier.STATIC)) {
+          innerClass != null && PsiTreeUtil.isAncestor(memberClass, innerClass, false)) {
         // access from the same file can be via private
         // except when used in annotation:
         // @Ann(value = C.VAL) class C { public static final String VAL = "xx"; }
@@ -268,8 +267,10 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
           return suggestPackageLocal(member);
         }
 
-        return !isAbstractMember && (myVisibilityInspection.SUGGEST_PRIVATE_FOR_INNERS ||
-               !isInnerClass(memberClass)) ? PsiUtil.ACCESS_LEVEL_PRIVATE : suggestPackageLocal(member);
+        return !isAbstractMember &&
+               (myVisibilityInspection.SUGGEST_PRIVATE_FOR_INNERS || !isInnerClass(memberClass)) &&
+               !calledOnInheritor(element, memberClass)
+               ? PsiUtil.ACCESS_LEVEL_PRIVATE : suggestPackageLocal(member);
       }
 
       PsiExpression qualifier = getQualifier(element);
@@ -280,7 +281,10 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
       PsiPackage qualifierPackage = resolvedQualifier == null ? null : getPackage(resolvedQualifier);
       PsiPackage aPackage = getPackage(file);
 
-      if (samePackages(memberPackage, aPackage) && (qualifierPackage == null || samePackages(qualifierPackage, aPackage))) {
+      if (samePackage(memberPackage, aPackage)
+          && (qualifierPackage == null || samePackage(qualifierPackage, aPackage))
+          // java 9 will dislike split packages
+          && sameModule(member.getContainingFile(), file)) {
         return suggestPackageLocal(member);
       }
 
@@ -298,18 +302,42 @@ class AccessCanBeTightenedInspection extends AbstractBaseJavaLocalInspectionTool
       }
       return PsiUtil.ACCESS_LEVEL_PUBLIC;
     }
+
+    private boolean calledOnInheritor(@NotNull PsiElement element, PsiClass memberClass) {
+      PsiExpression qualifier = getQualifier(element);
+      if (qualifier == null) {
+        PsiClass enclosingInstance = InheritanceUtil.findEnclosingInstanceInScope(memberClass, element, Conditions.alwaysTrue(), true);
+        return enclosingInstance != null && enclosingInstance != memberClass;
+      }
+      PsiClass qClass = PsiUtil.resolveClassInClassTypeOnly(qualifier.getType());
+      return qClass != null && qClass.isInheritor(memberClass, true);
+    }
   }
 
   @Nullable
   private static PsiPackage getPackage(@NotNull PsiElement element) {
     PsiFile file = element.getContainingFile();
-    PsiDirectory directory = file.getContainingDirectory();
+    PsiDirectory directory = file == null ? null : file.getContainingDirectory();
     return directory == null ? null : JavaDirectoryService.getInstance().getPackage(directory);
   }
 
-  private static boolean samePackages(PsiPackage package1, PsiPackage package2) {
+  private static boolean samePackage(PsiPackage package1, PsiPackage package2) {
     return package2 == package1 ||
         package2 != null && package1 != null && Comparing.strEqual(package2.getQualifiedName(), package1.getQualifiedName());
+  }
+
+  private static boolean sameModule(PsiFile file1, PsiFile file2) {
+    if (file1 == file2) return true;
+    if (file1 == null || file2 == null) return false;
+
+    VirtualFile virtualFile1 = file1.getVirtualFile();
+    VirtualFile virtualFile2 = file2.getVirtualFile();
+    if (virtualFile1 == null || virtualFile2 == null) return virtualFile1 == virtualFile2;
+
+    Module module1 = ProjectRootManager.getInstance(file1.getProject()).getFileIndex().getModuleForFile(virtualFile1);
+    Module module2 = ProjectRootManager.getInstance(file2.getProject()).getFileIndex().getModuleForFile(virtualFile2);
+
+    return module1 == module2;
   }
 
   private static PsiExpression getQualifier(@NotNull PsiElement element) {

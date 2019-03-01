@@ -22,6 +22,7 @@ import com.intellij.codeInsight.daemon.impl.ShowAutoImportPass;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.QuestionAction;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.HintAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
@@ -31,6 +32,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiMember;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -71,21 +73,21 @@ public abstract class StaticImportMemberFix<T extends PsiMember> implements Inte
            && getElement().isValid()
            && getQualifierExpression() == null
            && resolveRef() == null
-           && file.getManager().isInProject(file)
+           && BaseIntentionAction.canModify(file)
            && !(candidates == null ? candidates = getMembersToImport(false, StaticMembersProcessor.SearchMode.MAX_2_MEMBERS) : candidates).isEmpty()
       ;
   }
 
   @NotNull protected abstract List<T> getMembersToImport(boolean applicableOnly, @NotNull StaticMembersProcessor.SearchMode mode);
 
-  protected abstract boolean showMembersFromDefaultPackage();
+  protected abstract boolean toAddStaticImports();
 
   public static boolean isExcluded(PsiMember method) {
     String name = PsiUtil.getMemberQualifiedName(method);
     return name != null && JavaProjectCodeInsightSettings.getSettings(method.getProject()).isExcluded(name);
   }
 
-  @NotNull protected abstract QuestionAction createQuestionAction(List<T> methodsToImport, @NotNull Project project, Editor editor);
+  @NotNull protected abstract QuestionAction createQuestionAction(List<? extends T> methodsToImport, @NotNull Project project, Editor editor);
 
   @Nullable protected abstract PsiElement getElement();
   @Nullable protected abstract PsiElement getQualifierExpression();
@@ -112,6 +114,12 @@ public abstract class StaticImportMemberFix<T extends PsiMember> implements Inte
 
     final PsiElement element = getElement();
     if (element == null) {
+      return ImportClassFixBase.Result.POPUP_NOT_SHOWN;
+    }
+
+    if (toAddStaticImports() &&
+        candidates.size() == 1 &&
+        PsiTreeUtil.isAncestor(element.getContainingFile(), candidates.get(0), true)) {
       return ImportClassFixBase.Result.POPUP_NOT_SHOWN;
     }
 

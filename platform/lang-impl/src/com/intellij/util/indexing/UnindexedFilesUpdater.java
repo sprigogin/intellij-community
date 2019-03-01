@@ -39,7 +39,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- * @since Jan 29, 2008
  */
 public class UnindexedFilesUpdater extends DumbModeTask {
   private static final Logger LOG = Logger.getInstance("#com.intellij.util.indexing.UnindexedFilesUpdater");
@@ -55,13 +54,14 @@ public class UnindexedFilesUpdater extends DumbModeTask {
     myPusher = PushedFilePropertiesUpdater.getInstance(myProject);
     project.getMessageBus().connect(this).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         DumbService.getInstance(project).cancelTask(UnindexedFilesUpdater.this);
       }
     });
   }
 
   private void updateUnindexedFiles(ProgressIndicator indicator) {
+    if (!IndexInfrastructure.hasIndices()) return;
     PerformanceWatcher.Snapshot snapshot = PerformanceWatcher.takeSnapshot();
     myPusher.pushAllPropertiesNow();
     boolean trackResponsiveness = !ApplicationManager.getApplication().isUnitTestMode();

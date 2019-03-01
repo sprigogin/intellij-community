@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.test
 
 import com.intellij.ide.highlighter.ProjectFileType
@@ -29,7 +15,6 @@ import com.intellij.openapi.vcs.Executor.cd
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.TestVcsNotifier
 import com.intellij.openapi.vcs.VcsNotifier
-import com.intellij.openapi.vcs.changes.ChangeListManager
 import com.intellij.openapi.vcs.changes.ChangeListManagerImpl
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager
 import com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl
@@ -42,13 +27,14 @@ import com.intellij.testFramework.TestLoggerFactory
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.ArrayUtil
 import com.intellij.util.ThrowableRunnable
+import com.intellij.vfs.AsyncVfsEventsPostProcessorImpl
 import java.io.File
+import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 abstract class VcsPlatformTest : PlatformTestCase() {
-
   protected lateinit var testRoot: File
   protected lateinit var testRootFile: VirtualFile
   protected lateinit var projectRoot: VirtualFile
@@ -63,8 +49,7 @@ abstract class VcsPlatformTest : PlatformTestCase() {
 
   @Throws(Exception::class)
   override fun setUp() {
-    testRoot = File(FileUtil.getTempDirectory(), "root-${Integer.toHexString(Random().nextInt())}")
-    PlatformTestCase.myFilesToDelete.add(testRoot)
+    testRoot = createTempDir("root-${Integer.toHexString(Random().nextInt())}", false)
     checkTestRootIsEmpty(testRoot)
 
     runInEdtAndWait { super@VcsPlatformTest.setUp() }
@@ -76,7 +61,7 @@ abstract class VcsPlatformTest : PlatformTestCase() {
     projectRoot = project.baseDir
     projectPath = projectRoot.path
 
-    changeListManager = ChangeListManager.getInstance(project) as ChangeListManagerImpl
+    changeListManager = ChangeListManagerImpl.getInstanceImpl(project)
     vcsManager = ProjectLevelVcsManager.getInstance(project) as ProjectLevelVcsManagerImpl
 
     vcsNotifier = overrideService<VcsNotifier, TestVcsNotifier>(project)
@@ -87,6 +72,8 @@ abstract class VcsPlatformTest : PlatformTestCase() {
   @Throws(Exception::class)
   override fun tearDown() {
     RunAll()
+      .append(ThrowableRunnable { AsyncVfsEventsPostProcessorImpl.waitEventsProcessed() })
+      .append(ThrowableRunnable { changeListManager.waitEverythingDoneInTestMode() })
       .append(ThrowableRunnable { if (wasInit { vcsNotifier }) vcsNotifier.cleanup() })
       .append(ThrowableRunnable { waitForPendingTasks() })
       .append(ThrowableRunnable { if (myAssertionsInTestDetected) TestLoggerFactory.dumpLogToStdout(testStartedIndicator) })
@@ -103,9 +90,10 @@ abstract class VcsPlatformTest : PlatformTestCase() {
    */
   protected open fun getDebugLogCategories(): Collection<String> = emptyList()
 
-  override fun getIprFile(): File {
+  override fun getProjectDirOrFile(): Path {
     val projectRoot = File(testRoot, "project")
-    return FileUtil.createTempFile(projectRoot, name + "_", ProjectFileType.DOT_DEFAULT_EXTENSION)
+    val file: File = FileUtil.createTempFile(projectRoot, name + "_", ProjectFileType.DOT_DEFAULT_EXTENSION)
+    return file.toPath()
   }
 
   override fun setUpModule() {
@@ -135,17 +123,17 @@ abstract class VcsPlatformTest : PlatformTestCase() {
     return true
   }
 
-  protected open fun refresh() {
-    VfsUtil.markDirtyAndRefresh(false, true, false, testRootFile)
+  @JvmOverloads
+  protected open fun refresh(dir: VirtualFile = testRootFile) {
+    VfsUtil.markDirtyAndRefresh(false, true, false, dir)
   }
 
   protected fun updateChangeListManager() {
-    val changeListManager = ChangeListManager.getInstance(project)
     VcsDirtyScopeManager.getInstance(project).markEverythingDirty()
-    changeListManager.ensureUpToDate(false)
+    changeListManager.ensureUpToDate()
   }
 
-  protected fun waitForPendingTasks() {
+  private fun waitForPendingTasks() {
     for ((name, indicator, future) in asyncTasks) {
       if (!future.isDone) {
         LOG.error("Task $name didn't finish within the test")

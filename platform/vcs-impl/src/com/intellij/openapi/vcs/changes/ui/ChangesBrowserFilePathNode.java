@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.ui;
 
@@ -44,7 +30,7 @@ public class ChangesBrowserFilePathNode extends ChangesBrowserNode<FilePath> {
   }
 
   @Override
-  public void render(final ChangesBrowserNodeRenderer renderer, final boolean selected, final boolean expanded, final boolean hasFocus) {
+  public void render(@NotNull final ChangesBrowserNodeRenderer renderer, final boolean selected, final boolean expanded, final boolean hasFocus) {
     final FilePath path = (FilePath)userObject;
     if (path.isDirectory() || !isLeaf()) {
       renderer.append(getRelativePath(path), SimpleTextAttributes.REGULAR_ATTRIBUTES);
@@ -55,8 +41,7 @@ public class ChangesBrowserFilePathNode extends ChangesBrowserNode<FilePath> {
     else {
       if (renderer.isShowFlatten()) {
         renderer.append(path.getName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
-        FilePath parentPath = path.getParentPath();
-        appendParentPath(renderer, parentPath);
+        appendParentPath(renderer, path.getParentPath());
       }
       else {
         renderer.append(getRelativePath(path), SimpleTextAttributes.REGULAR_ATTRIBUTES);
@@ -68,7 +53,7 @@ public class ChangesBrowserFilePathNode extends ChangesBrowserNode<FilePath> {
 
   @NotNull
   protected String getRelativePath(FilePath path) {
-    return getRelativePath(safeCastToFilePath((ChangesBrowserNode)getParent()), path);
+    return getRelativePath(safeCastToFilePath(getParent()), path);
   }
 
   @Override
@@ -106,11 +91,13 @@ public class ChangesBrowserFilePathNode extends ChangesBrowserNode<FilePath> {
     return isLocal ? FileUtil.toSystemDependentName(result) : result;
   }
 
+  @Override
   public int getSortWeight() {
     if (((FilePath)userObject).isDirectory()) return DIRECTORY_PATH_SORT_WEIGHT;
     return FILE_PATH_SORT_WEIGHT;
   }
 
+  @Override
   public int compareUserObjects(final FilePath o2) {
     return getUserObject().getPath().compareToIgnoreCase(o2.getPath());
   }

@@ -70,7 +70,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
       return Collections.emptyList();
     }
     
-    return Collections.singletonList(new ReferenceTransferableData(array.toArray(new ReferenceData[array.size()])));
+    return Collections.singletonList(new ReferenceTransferableData(array.toArray(new ReferenceData[0])));
   }
 
   protected abstract void addReferenceData(PsiFile file, int startOffset, PsiElement element, ArrayList<ReferenceData> to);
@@ -125,7 +125,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
   }
 
   protected static void addReferenceData(final PsiElement element,
-                                final ArrayList<ReferenceData> array,
+                                final ArrayList<? super ReferenceData> array,
                                 final int startOffset,
                                 final String qClassName, @Nullable final String staticMemberName) {
     final TextRange range = element.getTextRange();

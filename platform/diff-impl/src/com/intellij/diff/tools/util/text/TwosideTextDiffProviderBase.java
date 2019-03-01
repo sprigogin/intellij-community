@@ -30,8 +30,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-import static java.util.Collections.singletonList;
-
 abstract class TwosideTextDiffProviderBase extends TextDiffProviderBase implements TwosideTextDiffProvider {
   protected TwosideTextDiffProviderBase(@NotNull TextDiffSettings settings,
                                         @NotNull Runnable rediff,
@@ -49,8 +47,7 @@ abstract class TwosideTextDiffProviderBase extends TextDiffProviderBase implemen
     LineOffsets lineOffsets1 = LineOffsetsUtil.create(text1);
     LineOffsets lineOffsets2 = LineOffsetsUtil.create(text2);
 
-    Range linesRange = new Range(0, lineOffsets1.getLineCount(), 0, lineOffsets2.getLineCount());
-    List<List<LineFragment>> fragments = doCompare(text1, text2, lineOffsets1, lineOffsets2, singletonList(linesRange), indicator);
+    List<List<LineFragment>> fragments = doCompare(text1, text2, lineOffsets1, lineOffsets2, null, indicator);
 
     if (fragments == null) return null;
 
@@ -74,28 +71,25 @@ abstract class TwosideTextDiffProviderBase extends TextDiffProviderBase implemen
                                              @NotNull CharSequence text2,
                                              @NotNull LineOffsets lineOffsets1,
                                              @NotNull LineOffsets lineOffsets2,
-                                             @NotNull List<Range> linesRanges,
+                                             @Nullable List<Range> linesRanges,
                                              @NotNull ProgressIndicator indicator) {
     IgnorePolicy ignorePolicy = getIgnorePolicy();
     HighlightPolicy highlightPolicy = getHighlightPolicy();
 
     if (!highlightPolicy.isShouldCompare()) return null;
 
+    indicator.checkCanceled();
+    List<List<LineFragment>> fragments = doCompare(text1, text2, lineOffsets1, lineOffsets2, linesRanges,
+                                                   ignorePolicy, highlightPolicy, indicator);
+    assert fragments.size() == (linesRanges != null ? linesRanges.size() : 1);
+
     ComparisonPolicy policy = ignorePolicy.getComparisonPolicy();
-    boolean innerFragments = highlightPolicy.isFineFragments();
     boolean squashFragments = highlightPolicy.isShouldSquash();
     boolean trimFragments = ignorePolicy.isShouldTrimChunks();
 
     indicator.checkCanceled();
-    List<List<LineFragment>> fragments = doCompare(text1, text2, lineOffsets1, lineOffsets2, linesRanges,
-                                                   ignorePolicy, innerFragments, indicator);
-    assert fragments.size() == linesRanges.size();
-
-    indicator.checkCanceled();
-    return ContainerUtil.map(fragments, rangeFragments -> {
-      return ComparisonManager.getInstance().processBlocks(rangeFragments, text1, text2,
-                                                           policy, squashFragments, trimFragments);
-    });
+    return ContainerUtil.map(fragments, rangeFragments -> ComparisonManager.getInstance().processBlocks(rangeFragments, text1, text2,
+                                                                                                      policy, squashFragments, trimFragments));
   }
 
   @NotNull
@@ -103,8 +97,8 @@ abstract class TwosideTextDiffProviderBase extends TextDiffProviderBase implemen
                                                         @NotNull CharSequence text2,
                                                         @NotNull LineOffsets lineOffsets1,
                                                         @NotNull LineOffsets lineOffsets2,
-                                                        @NotNull List<Range> linesRanges,
+                                                        @Nullable List<Range> linesRanges,
                                                         @NotNull IgnorePolicy ignorePolicy,
-                                                        boolean innerFragments,
+                                                        @NotNull HighlightPolicy highlightPolicy,
                                                         @NotNull ProgressIndicator indicator);
 }

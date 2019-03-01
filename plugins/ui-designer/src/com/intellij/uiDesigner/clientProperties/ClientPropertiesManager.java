@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.clientProperties;
 
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -21,6 +7,7 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.AtomicNotNullLazyValue;
+import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.uiDesigner.LoaderFactory;
 import org.jdom.Element;
@@ -29,8 +16,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-
-import static com.intellij.util.JdomKt.loadElement;
 
 @State(name = "ClientPropertiesManager", defaultStateAsResource = true)
 public class ClientPropertiesManager implements PersistentStateComponent<Element> {
@@ -52,7 +37,7 @@ public class ClientPropertiesManager implements PersistentStateComponent<Element
     protected ClientPropertiesManager compute() {
       ClientPropertiesManager result = new ClientPropertiesManager();
       try {
-        result.loadState(loadElement(ClientPropertiesManager.class.getResourceAsStream("/" + COMPONENT_NAME + ".xml")));
+        result.loadState(JDOMUtil.load(ClientPropertiesManager.class.getResourceAsStream("/" + COMPONENT_NAME + ".xml")));
       }
       catch (Exception e) {
         LOG.error(e);
@@ -126,7 +111,7 @@ public class ClientPropertiesManager implements PersistentStateComponent<Element
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     myPropertyMap.clear();
     for (Element propertiesElement : state.getChildren(ELEMENT_PROPERTIES)) {
       String aClass = propertiesElement.getAttributeValue(ATTRIBUTE_CLASS);

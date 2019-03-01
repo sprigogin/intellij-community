@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.command.impl;
 
 import com.intellij.openapi.command.UndoConfirmationPolicy;
@@ -54,7 +54,9 @@ public class CommandMerger {
 
   public void commandFinished(String commandName, Object groupId, @NotNull CommandMerger nextCommandToMerge) {
     // we do not want to spoil redo stack in situation, when some 'transparent' actions occurred right after undo.
-    if (!nextCommandToMerge.isTransparent() && nextCommandToMerge.hasActions()) clearRedoStacks(nextCommandToMerge);
+    if (!nextCommandToMerge.isTransparent() && nextCommandToMerge.hasActions()) {
+      clearRedoStacks(nextCommandToMerge);
+    }
 
     if (!shouldMerge(groupId, nextCommandToMerge)) {
       flushCurrentCommand();
@@ -116,7 +118,7 @@ public class CommandMerger {
   void flushCurrentCommand() {
     if (hasActions()) {
       if (!myAdditionalAffectedDocuments.isEmpty()) {
-        DocumentReference[] refs = myAdditionalAffectedDocuments.toArray(new DocumentReference[myAdditionalAffectedDocuments.size()]);
+        DocumentReference[] refs = myAdditionalAffectedDocuments.toArray(DocumentReference.EMPTY_ARRAY);
         myCurrentActions.add(new BasicUndoableAction(refs) {
           @Override
           public void undo() {
@@ -208,6 +210,13 @@ public class CommandMerger {
 
     boolean isInsideStartFinishGroup = false;
     while ((undoRedo = createUndoOrRedo(editor, isUndo)) != null) {
+      if (editor != null && undoRedo.isBlockedByOtherChanges()) {
+        UndoRedo blockingChange = createUndoOrRedo(null, isUndo);
+        if (blockingChange != null && blockingChange.myUndoableGroup != undoRedo.myUndoableGroup) {
+          if (undoRedo.confirmSwitchTo(blockingChange)) blockingChange.execute(false, true);
+          break;
+        }
+      }
       if (!undoRedo.execute(false, isInsideStartFinishGroup)) return;
       isInsideStartFinishGroup = undoRedo.myUndoableGroup.isInsideStartFinishGroup(isUndo, isInsideStartFinishGroup);
       if (isInsideStartFinishGroup) continue;
@@ -238,7 +247,7 @@ public class CommandMerger {
     return true;
   }
 
-  public boolean isUndoAvailable(@NotNull Collection<DocumentReference> refs) {
+  public boolean isUndoAvailable(@NotNull Collection<? extends DocumentReference> refs) {
     if (hasNonUndoableActions()) {
       return false;
     }
@@ -282,7 +291,7 @@ public class CommandMerger {
     myStateAfter = state;
   }
 
-  void addAdditionalAffectedDocuments(@NotNull Collection<DocumentReference> refs) {
+  void addAdditionalAffectedDocuments(@NotNull Collection<? extends DocumentReference> refs) {
     myAllAffectedDocuments.addAll(refs);
     myAdditionalAffectedDocuments.addAll(refs);
   }

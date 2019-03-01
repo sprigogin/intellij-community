@@ -1,31 +1,16 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.compiler
 
 import com.intellij.compiler.server.BuildManager
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.Executor
 import com.intellij.execution.application.ApplicationConfiguration
-import com.intellij.execution.application.ApplicationConfigurationType
 import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.execution.impl.DefaultJavaProgramRunner
 import com.intellij.execution.process.*
 import com.intellij.execution.runners.ProgramRunner
+import com.intellij.module.ModuleGroupTestsKt
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.Result
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.compiler.CompilerMessage
 import com.intellij.openapi.compiler.CompilerMessageCategory
@@ -36,6 +21,8 @@ import com.intellij.openapi.module.StdModuleTypes
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.pom.java.LanguageLevel
@@ -43,6 +30,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.testFramework.*
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
+import com.intellij.util.SystemProperties
 import com.intellij.util.io.PathKt
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
@@ -66,21 +54,24 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
     return super.getProject()
   }
 
+  @NotNull
   @Override
-  Disposable disposeOnTearDown(Disposable disposable) {
+  Disposable disposeOnTearDown(@NotNull Disposable disposable) {
     return super.disposeOnTearDown(disposable)
   }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp()
+    edt { ModuleGroupTestsKt.renameModule(myModule, "mainModule") }
     myCompilerTester = new CompilerTester(myModule)
   }
 
   @Override
   protected void tuneFixture(JavaModuleFixtureBuilder moduleBuilder) throws Exception {
-    moduleBuilder.setLanguageLevel(LanguageLevel.JDK_1_6)
-    moduleBuilder.addJdk(IdeaTestUtil.getMockJdk17Path().getPath())
+    moduleBuilder.setLanguageLevel(LanguageLevel.JDK_1_8)
+    def javaHome = FileUtil.toSystemIndependentName(SystemProperties.javaHome)
+    moduleBuilder.addJdk(StringUtil.trimEnd(StringUtil.trimEnd(javaHome, '/'), '/jre'))
     super.tuneFixture(moduleBuilder)
   }
 
@@ -118,9 +109,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected void setupTestSources() {
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
+    WriteCommandAction.runWriteCommandAction(getProject(), {
         final ModuleRootManager rootManager = ModuleRootManager.getInstance(myModule)
         final ModifiableRootModel rootModel = rootManager.getModifiableModel()
         final ContentEntry entry = rootModel.getContentEntries()[0]
@@ -128,8 +117,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
         entry.addSourceFolder(myFixture.getTempDirFixture().findOrCreateDir("src"), false)
         entry.addSourceFolder(myFixture.getTempDirFixture().findOrCreateDir("tests"), true)
         rootModel.commit()
-      }
-    }.execute()
+      })
   }
 
   protected Module addDependentModule() {
@@ -139,9 +127,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected Module addModule(final String name, final boolean withSource) {
-    return new WriteCommandAction<Module>(getProject()) {
-      @Override
-      protected void run(@NotNull Result<Module> result) throws Throwable {
+    return WriteCommandAction.runWriteCommandAction(getProject(), {
         final VirtualFile depRoot = myFixture.getTempDirFixture().findOrCreateDir(name)
 
         final ModifiableModuleModel moduleModel = ModuleManager.getInstance(getProject()).getModifiableModel()
@@ -157,9 +143,8 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
         }
         IdeaTestUtil.setModuleLanguageLevel(dep, LanguageLevelModuleExtensionImpl.getInstance(myModule).getLanguageLevel())
 
-        result.setResult(dep)
-      }
-    }.execute().getResultObject()
+        return dep
+    } as ThrowableComputable<Module,RuntimeException>)
   }
 
   protected void deleteClassFile(final String className) throws IOException {
@@ -219,7 +204,13 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
       }
     }, ProgramRunner.PROGRAM_RUNNER_EP.findExtension(DefaultJavaProgramRunner.class))
     process.waitFor()
-    assertEquals(expected.trim(), StringUtil.convertLineSeparators(sb.toString().trim()))
+    def output = StringUtil.convertLineSeparators(sb.toString().trim()).readLines()
+    output = output.findAll { line ->
+      !StringUtil.containsIgnoreCase(line, "illegal") &&
+      !line.contains("consider reporting this to the maintainers of org.codehaus.groovy.reflection.CachedClass") &&
+      !line.startsWith("Picked up ")
+    }
+    assertEquals(expected.trim(), output.join("\n"))
   }
 
   protected ProcessHandler runProcess(String className,
@@ -232,8 +223,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected ApplicationConfiguration createApplicationConfiguration(String className, Module module) {
-    final ApplicationConfiguration configuration =
-      new ApplicationConfiguration("app", getProject(), ApplicationConfigurationType.getInstance())
+    final ApplicationConfiguration configuration = new ApplicationConfiguration("app", getProject())
     configuration.setModule(module)
     configuration.setMainClassName(className)
     return configuration

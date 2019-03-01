@@ -135,7 +135,7 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
       } else {
         copy = myValues;
       }
-      return copy.keySet().toArray(new String[copy.size()]);
+      return ArrayUtil.toStringArray(copy.keySet());
     } else {
       return ArrayUtil.EMPTY_STRING_ARRAY;
     }
@@ -189,8 +189,8 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
 
   @NotNull
   @Override
-  public Object[] getDependences() {
-    return myElementDescriptor.getDependences();
+  public Object[] getDependencies() {
+    return myElementDescriptor.getDependencies();
   }
 
   @Override

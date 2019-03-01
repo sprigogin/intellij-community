@@ -17,6 +17,8 @@ package com.jetbrains.python.inspections;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.StandardFileSystems;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.testFramework.LightProjectDescriptor;
@@ -29,6 +31,7 @@ import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.stubs.PyClassNameIndex;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -194,7 +197,13 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
   public void testNestedPackageNamedAsSourceRoot() {
     doMultiFileTest("a.py", Collections.singletonList("lib1"));
   }
-  
+
+
+  //PY-28383
+  public void testNamespacePackageInMultipleRoots() {
+    doMultiFileTest("a.py", Arrays.asList("root1/src", "root2/src"));
+  }
+
   // PY-18972
   public void testReferencesInFStringLiterals() {
     doTest();
@@ -202,7 +211,17 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
 
   // PY-11208
   public void testMockPatchObject() {
-    doMultiFileTest(getTestName(true) + ".py");
+    final VirtualFile libDir = StandardFileSystems.local().findFileByPath(getTestDataPath() + "/" + getTestDirectoryPath() + "/lib");
+    assertNotNull(libDir);
+
+    runWithAdditionalClassEntryInSdkRoots(
+      libDir,
+      () -> {
+        final PsiFile file = myFixture.configureByFile(getTestDirectoryPath() + "/a.py");
+        configureInspection();
+        assertSdkRootsNotParsed(file);
+      }
+    );
   }
 
   // PY-22525
@@ -212,6 +231,16 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
 
   // PY-22642
   public void testTypingGenericDunderGetItem() {
+    doTest();
+  }
+
+  // PY-27102
+  public void testTypingGenericIndirectInheritorGetItem() {
+    doTest();
+  }
+
+  // PY-28177
+  public void testTypingOpaqueNameDunderGetItem() {
     doTest();
   }
 
@@ -238,5 +267,38 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
   // PY-13273
   public void testComprehensionInDecorator() {
     doTest();
+  }
+
+  // PY-28406
+  public void testFromNamespacePackageImportInManySourceRoots() {
+    doMultiFileTest("a.py", Arrays.asList("root1", "root2"));
+  }
+
+  public void testNamespacePackageRedundantUnion() {
+    doMultiFileTest("a.py", Arrays.asList("root1", "root2"));
+  }
+
+  // PY-18629
+  public void testPreferImportedModuleOverNamespacePackage() {
+    doMultiFileTest();
+  }
+
+  // PY-27964
+  public void testUsingFunctoolsSingledispatch() {
+    doTest();
+  }
+
+  // PY-27866
+  public void testUnionOwnSlots() {
+    doTestByText("from typing import Union\n" +
+                 "\n" +
+                 "class A:\n" +
+                 "    __slots__ = ['x']\n" +
+                 "\n" +
+                 "class B:\n" +
+                 "    __slots__ = ['y']\n" +
+                 "    \n" +
+                 "def foo(ab: Union[A, B]):\n" +
+                 "    print(ab.x)");
   }
 }

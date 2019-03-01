@@ -24,7 +24,6 @@ import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
@@ -32,6 +31,7 @@ import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrLambdaBody;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrCondition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
@@ -421,7 +421,7 @@ public class ControlFlowUtils {
 
   @NotNull
   public static List<GrStatement> collectReturns(@Nullable PsiElement element) {
-    return collectReturns(element, element instanceof GrCodeBlock || element instanceof GroovyFile);
+    return collectReturns(element, element instanceof GrCodeBlock || element instanceof GroovyFile || element instanceof GrLambdaBody);
   }
 
   @NotNull
@@ -523,6 +523,14 @@ public class ControlFlowUtils {
     });
 
     return applicable.get(0);
+  }
+
+  public static boolean isImplicitReturnStatement(@NotNull GrExpression expression) {
+    GrControlFlowOwner flowOwner = findControlFlowOwner(expression);
+    return flowOwner != null &&
+           PsiUtil.isExpressionStatement(expression) &&
+           isReturnValue(expression, flowOwner) &&
+           !PsiUtil.isVoidMethodCall(expression);
   }
 
   private static class ReturnFinder extends GroovyRecursiveElementVisitor {
@@ -762,17 +770,13 @@ public class ControlFlowUtils {
     return ContainerUtil.find(controlFlow, instruction -> instruction.getElement() == place);
   }
 
-  public static List<Instruction> findAllInstructions(final PsiElement place, Instruction[] controlFlow) {
-    return ContainerUtil.findAll(controlFlow, instruction -> instruction.getElement() == place);
-  }
-
   @NotNull
   public static List<BitSet> inferWriteAccessMap(final Instruction[] flow, final GrVariable var) {
 
     final Semilattice<BitSet> sem = new Semilattice<BitSet>() {
       @NotNull
       @Override
-      public BitSet join(@NotNull List<BitSet> ins) {
+      public BitSet join(@NotNull List<? extends BitSet> ins) {
         BitSet result = new BitSet(flow.length);
         for (BitSet set : ins) {
           result.or(set);

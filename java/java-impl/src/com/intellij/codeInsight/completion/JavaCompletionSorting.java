@@ -23,6 +23,7 @@ import com.intellij.codeInsight.lookup.*;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -63,6 +64,7 @@ public class JavaCompletionSorting {
     ContainerUtil.addIfNotNull(afterProximity, PreferMostUsedWeigher.create(position));
     afterProximity.add(new PreferContainingSameWords(expectedTypes));
     afterProximity.add(new PreferShorter(expectedTypes));
+    afterProximity.add(new DispreferTechnicalOverloads(position));
 
     CompletionSorter sorter = CompletionSorter.defaultSorter(parameters, result.getPrefixMatcher());
     if (!smart && afterNew) {
@@ -92,8 +94,8 @@ public class JavaCompletionSorting {
     }
     Collections.addAll(afterStats, new PreferAccessible(position), new PreferSimple());
 
-    sorter = sorter.weighAfter("stats", afterStats.toArray(new LookupElementWeigher[afterStats.size()]));
-    sorter = sorter.weighAfter("proximity", afterProximity.toArray(new LookupElementWeigher[afterProximity.size()]));
+    sorter = sorter.weighAfter("stats", afterStats.toArray(new LookupElementWeigher[0]));
+    sorter = sorter.weighAfter("proximity", afterProximity.toArray(new LookupElementWeigher[0]));
     return result.withRelevanceSorter(sorter);
   }
 
@@ -280,7 +282,9 @@ public class JavaCompletionSorting {
     for (int i = 0; i < limit; i++) {
       String word = words.get(words.size() - i - 1);
       String expectedWord = expectedWords[expectedWords.length - i - 1];
-      if (word.equalsIgnoreCase(expectedWord)) {
+      if ( word.equalsIgnoreCase(expectedWord) || 
+           StringUtil.endsWithIgnoreCase(word, expectedWord) || 
+           StringUtil.endsWithIgnoreCase(expectedWord, word)) {
         max = Math.max(max, i + 1);
       }
       else {
@@ -424,7 +428,7 @@ public class JavaCompletionSorting {
   private static class PreferAccessible extends LookupElementWeigher {
     private final PsiElement myPosition;
 
-    public PreferAccessible(PsiElement position) {
+    PreferAccessible(PsiElement position) {
       super("accessible");
       myPosition = position;
     }
@@ -449,7 +453,7 @@ public class JavaCompletionSorting {
   }
 
   private static class PreferNonGeneric extends LookupElementWeigher {
-    public PreferNonGeneric() {
+    PreferNonGeneric() {
       super("nonGeneric");
     }
 
@@ -457,7 +461,7 @@ public class JavaCompletionSorting {
     @Override
     public Comparable weigh(@NotNull LookupElement element) {
       final Object object = element.getObject();
-      if (object instanceof PsiMethod && FunctionalExpressionCompletionProvider.FUNCTIONAL_EXPR_ITEM.get(element) == null) {
+      if (object instanceof PsiMethod && !FunctionalExpressionCompletionProvider.isFunExprItem(element)) {
         PsiType type = ((PsiMethod)object).getReturnType();
         final JavaMethodCallElement callItem = element.as(JavaMethodCallElement.CLASS_CONDITION_KEY);
         if (callItem != null) {
@@ -472,7 +476,7 @@ public class JavaCompletionSorting {
   }
 
   private static class PreferSimple extends LookupElementWeigher {
-    public PreferSimple() {
+    PreferSimple() {
       super("simple");
     }
 
@@ -493,7 +497,7 @@ public class JavaCompletionSorting {
     private final List<PsiType> myExpectedClasses = new SmartList<>();
     private final String myExpectedMemberName;
 
-    public PreferExpected(boolean constructorPossible, ExpectedTypeInfo[] expectedTypes, PsiElement position) {
+    PreferExpected(boolean constructorPossible, ExpectedTypeInfo[] expectedTypes, PsiElement position) {
       super("expectedType");
       myConstructorPossible = constructorPossible;
       myExpectedTypes = expectedTypes;
@@ -540,7 +544,7 @@ public class JavaCompletionSorting {
   private static class PreferSimilarlyEnding extends LookupElementWeigher {
     private final ExpectedTypeInfo[] myExpectedTypes;
 
-    public PreferSimilarlyEnding(ExpectedTypeInfo[] expectedTypes) {
+    PreferSimilarlyEnding(ExpectedTypeInfo[] expectedTypes) {
       super("nameEnd");
       myExpectedTypes = expectedTypes;
     }
@@ -556,7 +560,7 @@ public class JavaCompletionSorting {
   private static class PreferContainingSameWords extends LookupElementWeigher {
     private final ExpectedTypeInfo[] myExpectedTypes;
 
-    public PreferContainingSameWords(ExpectedTypeInfo[] expectedTypes) {
+    PreferContainingSameWords(ExpectedTypeInfo[] expectedTypes) {
       super("sameWords");
       myExpectedTypes = expectedTypes;
     }
@@ -587,7 +591,7 @@ public class JavaCompletionSorting {
   private static class PreferShorter extends LookupElementWeigher {
     private final ExpectedTypeInfo[] myExpectedTypes;
 
-    public PreferShorter(ExpectedTypeInfo[] expectedTypes) {
+    PreferShorter(ExpectedTypeInfo[] expectedTypes) {
       super("shorter");
       myExpectedTypes = expectedTypes;
     }
@@ -605,11 +609,47 @@ public class JavaCompletionSorting {
     }
   }
 
+  /**
+   * Sometimes there's core vararg method and a couple of overloads of fixed arity to avoid runtime invocation costs of varargs.
+   * We prefer the vararg method then.
+   */
+  private static class DispreferTechnicalOverloads extends LookupElementWeigher {
+    private final PsiElement myPlace;
+
+    DispreferTechnicalOverloads(PsiElement place) {
+      super("technicalOverloads");
+      myPlace = place;
+    }
+
+    @NotNull
+    @Override
+    public Comparable weigh(@NotNull LookupElement element) {
+      Object object = element.getObject();
+      if (object instanceof PsiMethod && element.getUserData(JavaCompletionUtil.FORCE_SHOW_SIGNATURE_ATTR) == null) {
+        PsiMethod method = (PsiMethod)object;
+        PsiClass containingClass = method.getContainingClass();
+        if (!method.isVarArgs() &&
+            containingClass != null &&
+            ContainerUtil.exists(containingClass.findMethodsByName(method.getName(), false), m -> isPurelyVarargOverload(method, m))) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    private boolean isPurelyVarargOverload(PsiMethod original, PsiMethod candidate) {
+      return candidate.hasModifierProperty(PsiModifier.STATIC) == original.hasModifierProperty(PsiModifier.STATIC) &&
+             candidate.isVarArgs() &&
+             candidate.getParameterList().getParametersCount() == 1 &&
+             PsiResolveHelper.SERVICE.getInstance(candidate.getProject()).isAccessible(candidate, myPlace, null);
+    }
+  }
+
   private static class LiftShorterClasses extends ClassifierFactory<LookupElement> {
     final ProjectFileIndex fileIndex;
     private final PsiElement myPosition;
 
-    public LiftShorterClasses(PsiElement position) {
+    LiftShorterClasses(PsiElement position) {
       super("liftShorterClasses");
       myPosition = position;
       fileIndex = ProjectRootManager.getInstance(myPosition.getProject()).getFileIndex();

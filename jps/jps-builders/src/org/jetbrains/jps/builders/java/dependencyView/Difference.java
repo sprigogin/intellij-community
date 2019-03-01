@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.openapi.util.Pair;
@@ -25,10 +11,10 @@ import java.util.*;
  */
 public abstract class Difference {
 
-  public static boolean weakerAccess(final int me, final int then) {
-    return ((me & Opcodes.ACC_PRIVATE) > 0 && (then & Opcodes.ACC_PRIVATE) == 0) ||
-           ((me & Opcodes.ACC_PROTECTED) > 0 && (then & Opcodes.ACC_PUBLIC) > 0) ||
-           (isPackageLocal(me) && (then & Opcodes.ACC_PROTECTED) > 0);
+  public static boolean weakerAccess(final int me, final int than) {
+    return ((me & Opcodes.ACC_PRIVATE) > 0 && (than & Opcodes.ACC_PRIVATE) == 0) ||
+           ((me & Opcodes.ACC_PROTECTED) > 0 && (than & Opcodes.ACC_PUBLIC) > 0) ||
+           (isPackageLocal(me) && (than & (Opcodes.ACC_PROTECTED | Opcodes.ACC_PUBLIC)) > 0);
   }
 
   private static boolean isPackageLocal(final int access) {
@@ -57,39 +43,47 @@ public abstract class Difference {
   public static <T, D extends Difference> Specifier<T, D> make(final Set<T> past, final Set<T> now) {
     if ((past == null || past.isEmpty()) && (now == null || now.isEmpty())) {
       return new Specifier<T, D>() {
+        @Override
         public Collection<T> added() {
           return Collections.emptySet();
         }
 
+        @Override
         public Collection<T> removed() {
           return Collections.emptySet();
         }
 
+        @Override
         public Collection<Pair<T, D>> changed() {
           return Collections.emptySet();
         }
 
+        @Override
         public boolean unchanged() {
           return true;
         }
       };
     }
-    
+
     if (past == null) {
       final Collection<T> _now = Collections.unmodifiableCollection(now);
       return new Specifier<T, D>() {
+        @Override
         public Collection<T> added() {
           return _now;
         }
 
+        @Override
         public Collection<T> removed() {
           return Collections.emptyList();
         }
 
+        @Override
         public Collection<Pair<T, D>> changed() {
           return Collections.emptyList();
         }
 
+        @Override
         public boolean unchanged() {
           return false;
         }
@@ -132,18 +126,22 @@ public abstract class Difference {
     }
 
     return new Specifier<T, D>() {
+      @Override
       public Collection<T> added() {
         return added;
       }
 
+      @Override
       public Collection<T> removed() {
         return removed;
       }
 
+      @Override
       public Collection<Pair<T, D>> changed() {
         return changed;
       }
 
+      @Override
       public boolean unchanged() {
         return changed.isEmpty() && added.isEmpty() && removed.isEmpty();
       }
@@ -161,7 +159,7 @@ public abstract class Difference {
 
   public abstract boolean no();
 
-  public abstract boolean weakedAccess();
+  public abstract boolean accessRestricted();
 
   public abstract int addedModifiers();
 

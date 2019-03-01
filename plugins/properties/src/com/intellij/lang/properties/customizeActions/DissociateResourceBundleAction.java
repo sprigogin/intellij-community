@@ -30,7 +30,7 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
+import java.util.HashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -48,7 +48,7 @@ public class DissociateResourceBundleAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) {
       return;
@@ -59,7 +59,7 @@ public class DissociateResourceBundleAction extends AnAction {
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     final Collection<ResourceBundle> resourceBundles = extractResourceBundles(e);
     if (!resourceBundles.isEmpty()) {
       final String actionText = resourceBundles.size() == 1 ?
@@ -72,7 +72,7 @@ public class DissociateResourceBundleAction extends AnAction {
     }
   }
 
-  public static void dissociate(final Collection<ResourceBundle> resourceBundles, final Project project) {
+  public static void dissociate(final Collection<? extends ResourceBundle> resourceBundles, final Project project) {
     final Set<PsiFileSystemItem> toUpdateInProjectView = new HashSet<>();
     for (ResourceBundle resourceBundle : resourceBundles) {
       for (final PropertiesFile propertiesFile : resourceBundle.getPropertiesFiles()) {

@@ -1,27 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.jvm.JvmClass;
 import com.intellij.lang.jvm.facade.JvmFacade;
 import com.intellij.lang.jvm.facade.JvmFacadeImpl;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.ExtensionPoint;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.extensions.SimpleSmartExtensionPoint;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -55,10 +38,10 @@ import java.util.concurrent.ConcurrentMap;
 public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   private static final Logger LOG = Logger.getInstance(JavaPsiFacadeImpl.class);
 
-  private final SimpleSmartExtensionPoint<PsiElementFinder> myElementFinders;
   private final PsiConstantEvaluationHelper myConstantEvaluationHelper;
   private final ConcurrentMap<String, PsiPackage> myPackageCache = ContainerUtil.createConcurrentSoftValueMap();
   private final ConcurrentMap<GlobalSearchScope, Map<String, PsiClass>> myClassCache = ContainerUtil.createConcurrentWeakKeySoftValueMap();
+  private final Map<GlobalSearchScope, Map<String, Collection<PsiJavaModule>>> myModuleCache = ContainerUtil.createConcurrentWeakKeySoftValueMap();
   private final Project myProject;
   private final JavaFileManager myFileManager;
   private final AtomicNotNullLazyValue<JvmFacadeImpl> myJvmFacade;
@@ -87,19 +70,13 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
           if (lastTimeSeen != now) {
             lastTimeSeen = now;
             myPackageCache.clear();
+            myModuleCache.clear();
           }
         }
       });
     }
 
     DummyHolderFactory.setFactory(new JavaDummyHolderFactory());
-    myElementFinders = new SimpleSmartExtensionPoint<PsiElementFinder>(Collections.emptyList()) {
-      @NotNull
-      @Override
-      protected ExtensionPoint<PsiElementFinder> getExtensionPoint() {
-        return Extensions.getArea(myProject).getExtensionPoint(PsiElementFinder.EP_NAME);
-      }
-    };
   }
 
   @Override
@@ -232,8 +209,9 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     return dumbService.isDumb() && dumbService.isAlternativeResolveEnabled();
   }
 
+  @NotNull
   private List<PsiElementFinder> finders() {
-    return myElementFinders.getExtensions();
+    return PsiElementFinder.EP.getPoint(myProject).getExtensionList();
   }
 
   @Override
@@ -257,6 +235,20 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     }
 
     return null;
+  }
+
+  @Override
+  public PsiJavaModule findModule(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
+    Collection<PsiJavaModule> modules = findModules(moduleName, scope);
+    return modules.size() == 1 ? modules.iterator().next() : null;
+  }
+
+  @NotNull
+  @Override
+  public Collection<PsiJavaModule> findModules(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
+    return myModuleCache
+      .computeIfAbsent(scope, k -> ContainerUtil.createConcurrentWeakValueMap())
+      .computeIfAbsent(moduleName, k -> JavaFileManager.getInstance(myProject).findModules(k, scope));
   }
 
   @NotNull
@@ -304,13 +296,13 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
       filterClassesAndAppend(finder, classesFilter, classes, result);
     }
 
-    return result == null ? PsiClass.EMPTY_ARRAY : result.toArray(new PsiClass[result.size()]);
+    return result == null ? PsiClass.EMPTY_ARRAY : result.toArray(PsiClass.EMPTY_ARRAY);
   }
 
   private static void filterClassesAndAppend(PsiElementFinder finder,
-                                             @Nullable Condition<PsiClass> classesFilter,
+                                             @Nullable Condition<? super PsiClass> classesFilter,
                                              @NotNull PsiClass[] classes,
-                                             @NotNull List<PsiClass> result) {
+                                             @NotNull List<? super PsiClass> result) {
     for (PsiClass psiClass : classes) {
       if (psiClass == null) {
         LOG.error("Finder " + finder + " returned null PsiClass");
@@ -351,7 +343,7 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
     for (PsiElementFinder finder : filteredFinders()) {
       Collections.addAll(result, finder.getPackageFiles(psiPackage, scope));
     }
-    return result.toArray(new PsiFile[result.size()]);
+    return result.toArray(PsiFile.EMPTY_ARRAY);
   }
 
   public boolean processPackageDirectories(@NotNull PsiPackage psiPackage,
@@ -375,12 +367,10 @@ public class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
       // (the Kotlin plugin can do that), the Java package takes precedence.
       PsiPackage[] packages = finder.getSubPackages(psiPackage, scope);
       for (PsiPackage aPackage : packages) {
-        if (result.get(aPackage.getName()) == null) {
-          result.put(aPackage.getName(), aPackage);
-        }
+        result.putIfAbsent(aPackage.getName(), aPackage);
       }
     }
-    return result.values().toArray(new PsiPackage[result.size()]);
+    return result.values().toArray(PsiPackage.EMPTY_ARRAY);
   }
 
   @Override

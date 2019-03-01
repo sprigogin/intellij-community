@@ -41,4 +41,11 @@ public interface PsiParameterList extends PsiElement {
    * Returns the number of parameters (excluding type annotation receiver).
    */
   int getParametersCount();
+
+  /**
+   * @return true if this parameter list has no parameters (excluding type annotation receiver).
+   */
+  default boolean isEmpty() {
+    return getParametersCount() == 0;
+  }
 }

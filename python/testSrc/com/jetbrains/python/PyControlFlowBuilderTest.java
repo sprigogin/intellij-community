@@ -171,7 +171,7 @@ public class PyControlFlowBuilderTest extends LightMarkedTestCase {
   }
   
   public void testTypeAnnotations() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   public void testQualifiedSelfReference() {
@@ -229,11 +229,21 @@ public class PyControlFlowBuilderTest extends LightMarkedTestCase {
   }
 
   // PY-20889
-  public void testAndBooleanExpression() {
+  public void testTypesInAndBooleanExpression() {
     doTest();
   }
 
   // PY-20889
+  public void testTypesInOrBooleanExpression() {
+    doTest();
+  }
+
+  // PY-25974
+  public void testAndBooleanExpression() {
+    doTest();
+  }
+
+  // PY-25974
   public void testOrBooleanExpression() {
     doTest();
   }
@@ -241,6 +251,41 @@ public class PyControlFlowBuilderTest extends LightMarkedTestCase {
   // PY-14840
   // PY-22003
   public void testPositiveIteration() {
+    doTest();
+  }
+
+  // PY-24750
+  public void testIfFalse() {
+    doTest();
+  }
+
+  // PY-24750
+  public void testIfTrue() {
+    doTest();
+  }
+
+  // PY-24750
+  public void testIfElifTrue() {
+    doTest();
+  }
+
+  // PY-24750
+  public void testIfElifFalse() {
+    doTest();
+  }
+
+  // PY-28972
+  public void testWhileTrueElse() {
+    doTest();
+  }
+
+  // PY-13919
+  public void testWithRaiseException() {
+    doTest();
+  }
+
+  // PY-29767
+  public void testContinueInPositiveIteration() {
     doTest();
   }
 

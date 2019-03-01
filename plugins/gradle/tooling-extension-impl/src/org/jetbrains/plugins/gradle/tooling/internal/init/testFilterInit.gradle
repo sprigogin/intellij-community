@@ -14,7 +14,7 @@ gradle.addBuildListener(new BuildListener() {
         "Unable to run unit tests",
         "Unable to run unit tests, since there is no 'test' task configured in the project." +
         "\n<br>You can add the following into the project gradle script: apply plugin: 'java'" +
-        "\n<br><br>See <a href='http://www.gradle.org/docs/current/dsl/org.gradle.api.tasks.testing.Test.html'>Gradle Test task</a> for details",
+        "\n<br><br>See <a href='https://www.gradle.org/docs/current/dsl/org.gradle.api.tasks.testing.Test.html'>Gradle Test task</a> for details",
         false
       )
     }
@@ -43,7 +43,7 @@ gradle.taskGraph.beforeTask { Task task ->
     try {
       try {
         def urls = task.classpath.files.findAll{
-          it.name.equals('idea_rt.jar') || it.name.startsWith('junit')
+          it.name == 'idea_rt.jar' || it.name.startsWith('junit')
         }.collect { it.toURI().toURL()}
         def classLoader = Class.forName("org.gradle.launcher.daemon.bootstrap.DaemonMain").getClassLoader()
         if(classLoader instanceof URLClassLoader) {
@@ -72,6 +72,7 @@ gradle.taskGraph.beforeTask { Task task ->
           ijTestIncludes.each(){ includeTestsMatching "${it}" }
         }
       }
+      task.testLogging.showStandardStreams = false
     }
     catch (all) {
       logger.error("", all)

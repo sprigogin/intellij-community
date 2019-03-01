@@ -15,11 +15,11 @@
  */
 package org.jetbrains.plugins.groovy.lang.completion.smartEnter;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.SmartEnterProcessorWithFixers;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
@@ -92,7 +92,7 @@ public class GroovySmartEnterProcessor extends SmartEnterProcessorWithFixers {
         new GrListFixer(),
         new GrMethodCallWithSingleClosureArgFixer()
       );
-    addFixers(ourFixers.toArray(new Fixer[ourFixers.size()]));
+    addFixers(ourFixers.toArray(new Fixer[0]));
     addEnterProcessors(new GroovyPlainEnterProcessor());
   }
 
@@ -179,8 +179,7 @@ public class GroovySmartEnterProcessor extends SmartEnterProcessorWithFixers {
     if (CharArrayUtil.regionMatches(chars, caretOffset - "{}".length(), "{}") ||
         CharArrayUtil.regionMatches(chars, caretOffset - "{\n}".length(), "{\n}")) {
       commit(editor);
-      final CommonCodeStyleSettings settings =
-        CodeStyleSettingsManager.getSettings(file.getProject()).getCommonSettings(GroovyLanguage.INSTANCE);
+      final CommonCodeStyleSettings settings = CodeStyle.getLanguageSettings(file, GroovyLanguage.INSTANCE);
       final boolean old = settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE;
       try {
         settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = false;

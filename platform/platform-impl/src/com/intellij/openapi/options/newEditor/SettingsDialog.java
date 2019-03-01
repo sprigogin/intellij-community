@@ -1,34 +1,24 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.CommonBundle;
+import com.intellij.ide.HelpTooltip;
+import com.intellij.ide.SaveAndSyncHandler;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.ShortcutSet;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurableGroup;
+import com.intellij.openapi.options.OptionsBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.IdeUICustomization;
 import com.intellij.ui.SearchTextField.FindAction;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,13 +35,13 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
 
   private final String myDimensionServiceKey;
   private final AbstractEditor myEditor;
-  private boolean myApplyButtonNeeded;
+  private final boolean myApplyButtonNeeded;
   private boolean myResetButtonNeeded;
 
   public SettingsDialog(Project project, String key, @NotNull Configurable configurable, boolean showApplyButton, boolean showResetButton) {
     super(project, true);
     myDimensionServiceKey = key;
-    myEditor = new ConfigurableEditor(myDisposable, configurable);
+    myEditor = new SingleSettingEditor(myDisposable, configurable);
     myApplyButtonNeeded = showApplyButton;
     myResetButtonNeeded = showResetButton;
     init(configurable, project);
@@ -60,7 +50,7 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
   public SettingsDialog(@NotNull Component parent, String key, @NotNull Configurable configurable, boolean showApplyButton, boolean showResetButton) {
     super(parent, true);
     myDimensionServiceKey = key;
-    myEditor = new ConfigurableEditor(myDisposable, configurable);
+    myEditor = new SingleSettingEditor(myDisposable, configurable);
     myApplyButtonNeeded = showApplyButton;
     myResetButtonNeeded = showResetButton;
     init(configurable, null);
@@ -83,11 +73,13 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
     TransactionGuard.getInstance().submitTransactionAndWait(() -> super.show());
   }
 
-
   private void init(Configurable configurable, @Nullable Project project) {
     String name = configurable == null ? null : configurable.getDisplayName();
     String title = CommonBundle.settingsTitle();
-    if (project != null && project.isDefault()) title = "Default " + title;
+    if (project != null && project.isDefault()) {
+      title = OptionsBundle.message("title.for.new.projects",
+                                    title, StringUtil.capitalize(IdeUICustomization.getInstance().getProjectConceptName()));
+    }
     setTitle(name == null ? title : name.replace('\n', ' '));
     ShortcutSet set = getFindActionShortcutSet();
     if (set != null) new FindAction().registerCustomShortcutSet(set, getRootPane(), myDisposable);
@@ -95,7 +87,18 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  protected void setHelpTooltip(JButton helpButton) {
+    //noinspection SpellCheckingInspection
+    if (Registry.is("ide.helptooltip.enabled")) {
+      new HelpTooltip().setDescription(ActionsBundle.actionDescription("HelpTopics")).installOn(helpButton);
+    }
+    else {
+      super.setHelpTooltip(helpButton);
+    }
+  }
+
+  @Override
+  public Object getData(@NotNull String dataId) {
     if (myEditor instanceof DataProvider) {
       DataProvider provider = (DataProvider)myEditor;
       return provider.getData(dataId);
@@ -129,6 +132,7 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
     return myEditor;
   }
 
+  @SuppressWarnings("unused") // used in Rider
   protected void tryAddOptionsListener(OptionsEditorColleague colleague) {
     if (myEditor instanceof SettingsEditor) {
       ((SettingsEditor) myEditor).addOptionsListener(colleague);
@@ -149,29 +153,22 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
     if (reset != null && myResetButtonNeeded) {
       actions.add(reset);
     }
-    String topic = getHelpTopic();
-    if (topic != null) {
+    if (getHelpId() != null) {
       actions.add(getHelpAction());
     }
-    return actions.toArray(new Action[actions.size()]);
+    return actions.toArray(new Action[0]);
   }
 
-  protected String getHelpTopic() {
-    return myEditor.getHelpTopic();
-  }
-
+  @Nullable
   @Override
-  protected void doHelpAction() {
-    String topic = getHelpTopic();
-    if (topic != null) {
-      HelpManager.getInstance().invokeHelp(topic);
-    }
+  protected String getHelpId() {
+    return myEditor.getHelpTopic();
   }
 
   @Override
   public void doOKAction() {
     if (myEditor.apply()) {
-      ApplicationManager.getApplication().saveAll();
+      SaveAndSyncHandler.getInstance().scheduleSaveDocumentsAndProjectsAndApp(null);
       super.doOKAction();
     }
   }

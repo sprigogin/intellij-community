@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.dialogs;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.text.StringUtil;
@@ -28,14 +13,14 @@ import org.jetbrains.idea.svn.SvnBundle;
 import org.jetbrains.idea.svn.SvnPropertyKeys;
 import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
+import org.jetbrains.idea.svn.api.Target;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.properties.PropertyClient;
 import org.jetbrains.idea.svn.properties.PropertyConsumer;
 import org.jetbrains.idea.svn.properties.PropertyData;
 import org.jetbrains.idea.svn.properties.PropertyValue;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -45,9 +30,6 @@ import java.io.File;
 import java.util.Collection;
 import java.util.TreeSet;
 
-/**
- * @author alex
- */
 public class SetPropertyDialog extends DialogWrapper {
 
   private static final Logger LOG = Logger.getInstance("org.jetbrains.idea.svn.dialogs.SetPropertyDialog");
@@ -78,16 +60,12 @@ public class SetPropertyDialog extends DialogWrapper {
     init();
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HELP_ID);
+  @Override
+  protected String getHelpId() {
+    return HELP_ID;
   }
 
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-  }
-
-
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myPropertyNameBox;
   }
@@ -107,14 +85,17 @@ public class SetPropertyDialog extends DialogWrapper {
     return myRecursiveButton.isSelected();
   }
 
+  @Override
   public boolean shouldCloseOnCross() {
     return true;
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "svn.propertyDialog";
   }
 
+  @Override
   protected void init() {
     super.init();
     if (myPropertyName != null) {
@@ -134,7 +115,8 @@ public class SetPropertyDialog extends DialogWrapper {
     if (editor instanceof JTextField) {
       JTextField jTextField = (JTextField)editor;
       jTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-        protected void textChanged(DocumentEvent e) {
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
           String name = getPropertyName();
           updatePropertyValue(name);
           getOKAction().setEnabled(name != null && !"".equals(name.trim()));
@@ -167,7 +149,7 @@ public class SetPropertyDialog extends DialogWrapper {
 
     try {
       PropertyClient client = myVCS.getFactory(file).createPropertyClient();
-      result = client.getProperty(SvnTarget.fromFile(file, SVNRevision.WORKING), name, false, SVNRevision.WORKING);
+      result = client.getProperty(Target.on(file, Revision.WORKING), name, false, Revision.WORKING);
     }
     catch (SvnBindException e) {
       LOG.info(e);
@@ -177,6 +159,7 @@ public class SetPropertyDialog extends DialogWrapper {
     return result;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     fillPropertyNames(myFiles);
     if (myPropertyName != null) {
@@ -201,6 +184,7 @@ public class SetPropertyDialog extends DialogWrapper {
       File file = files[0];
       try {
         PropertyConsumer handler = new PropertyConsumer() {
+          @Override
           public void handleProperty(File path, PropertyData property) {
             String name = property.getName();
             if (name != null) {
@@ -208,15 +192,17 @@ public class SetPropertyDialog extends DialogWrapper {
             }
           }
 
-          public void handleProperty(SVNURL url, PropertyData property) {
+          @Override
+          public void handleProperty(Url url, PropertyData property) {
           }
 
+          @Override
           public void handleProperty(long revision, PropertyData property) {
           }
         };
 
         PropertyClient client = myVCS.getFactory(file).createPropertyClient();
-        client.list(SvnTarget.fromFile(file, SVNRevision.WORKING), SVNRevision.WORKING, Depth.EMPTY, handler);
+        client.list(Target.on(file, Revision.WORKING), Revision.WORKING, Depth.EMPTY, handler);
       }
       catch (SvnBindException e) {
         LOG.info(e);
@@ -230,7 +216,6 @@ public class SetPropertyDialog extends DialogWrapper {
     }
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
   private static void fillProperties(final Collection<String> names) {
     names.add(SvnPropertyKeys.SVN_EOL_STYLE);
     names.add(SvnPropertyKeys.SVN_KEYWORDS);

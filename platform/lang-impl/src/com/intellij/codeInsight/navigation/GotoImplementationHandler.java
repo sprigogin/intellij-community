@@ -25,11 +25,13 @@ import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.ElementDescriptionUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.PsiElementProcessor;
+import com.intellij.usageView.UsageViewShortNameLocation;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -71,8 +73,8 @@ public class GotoImplementationHandler extends GotoTargetHandler {
     GotoData gotoData = new GotoData(source, targets, Collections.emptyList());
     gotoData.listUpdaterTask = new ImplementationsUpdaterTask(gotoData, editor, offset, reference) {
       @Override
-      public void onFinished() {
-        super.onFinished();
+      public void onSuccess() {
+        super.onSuccess();
         PsiElement oneElement = getTheOnlyOneElement();
         if (oneElement != null && navigateToElement(oneElement)) {
           myPopup.cancel();
@@ -83,7 +85,7 @@ public class GotoImplementationHandler extends GotoTargetHandler {
   }
 
   @Override
-  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<GotoData> successCallback) {
+  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<? super GotoData> successCallback) {
     int offset = editor.getCaretModel().getOffset();
     PsiElementProcessor<PsiElement> navigateProcessor = element -> {
       GotoData data = createDataForSource(editor, offset, element);
@@ -118,13 +120,13 @@ public class GotoImplementationHandler extends GotoTargetHandler {
       String containerText = containerPresentation == null ? null : containerPresentation.getPresentableText();
       fullName = (containerText == null ? "" : containerText+".") + presentation.getPresentableText();
     }
-    return CodeInsightBundle.message("goto.implementation.chooserTitle", fullName, length, finished ? "" : " so far");
+    return CodeInsightBundle.message("goto.implementation.chooserTitle", StringUtil.escapeXmlEntities(fullName), length, finished ? "" : " so far");
   }
 
   @NotNull
   @Override
   protected String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
-    return CodeInsightBundle.message("goto.implementation.findUsages.title", name, length);
+    return CodeInsightBundle.message("goto.implementation.findUsages.title", StringUtil.escapeXmlEntities(name), length);
   }
 
   @NotNull
@@ -133,12 +135,14 @@ public class GotoImplementationHandler extends GotoTargetHandler {
     return CodeInsightBundle.message("goto.implementation.notFound");
   }
 
-  private class ImplementationsUpdaterTask extends ListBackgroundUpdaterTask {
+  private class ImplementationsUpdaterTask extends BackgroundUpdaterTask {
     private final Editor myEditor;
     private final int myOffset;
     private final GotoData myGotoData;
     private final PsiReference myReference;
 
+    // due to javac bug: java.lang.ClassFormatError: Illegal field name "com.intellij.codeInsight.navigation.GotoImplementationHandler$this" in class com/intellij/codeInsight/navigation/GotoImplementationHandler$ImplementationsUpdaterTask
+    @SuppressWarnings("Convert2Lambda")
     ImplementationsUpdaterTask(@NotNull GotoData gotoData, @NotNull Editor editor, int offset, final PsiReference reference) {
       super(gotoData.source.getProject(), ImplementationSearcher.SEARCHING_FOR_IMPLEMENTATIONS,
             createComparatorWrapper(Comparator.comparing(new Function<PsiElement, Comparable>() {
@@ -177,7 +181,8 @@ public class GotoImplementationHandler extends GotoTargetHandler {
 
     @Override
     public String getCaption(int size) {
-      return getChooserTitle(myGotoData.source, ((PsiNamedElement)myGotoData.source).getName(), size, isFinished());
+      String name = ElementDescriptionUtil.getElementDescription(myGotoData.source, UsageViewShortNameLocation.INSTANCE);
+      return getChooserTitle(myGotoData.source, name, size, isFinished());
     }
   }
 }

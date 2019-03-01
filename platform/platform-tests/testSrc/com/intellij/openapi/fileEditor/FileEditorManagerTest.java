@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor;
 
 import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.ui.UISettingsState;
 import com.intellij.mock.Mock;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
@@ -54,10 +41,14 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   @Override
   protected void tearDown() throws Exception {
     try {
-      UISettings template = new UISettings();
-      UISettings.getInstance().setEditorTabLimit(template.getEditorTabLimit());
-      UISettings.getInstance().setReuseNotModifiedTabs(template.getReuseNotModifiedTabs());
-      UISettings.getInstance().setEditorTabPlacement(template.getEditorTabPlacement());
+      UISettingsState template = new UISettingsState();
+      UISettingsState uiSettings = UISettings.getInstance().getState();
+      uiSettings.setEditorTabLimit(template.getEditorTabLimit());
+      uiSettings.setReuseNotModifiedTabs(template.getReuseNotModifiedTabs());
+      uiSettings.setEditorTabPlacement(template.getEditorTabPlacement());
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
@@ -65,14 +56,14 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   }
 
   public void testTabLimit() throws Exception {
-    UISettings.getInstance().setEditorTabLimit(2);
+    UISettings.getInstance().getState().setEditorTabLimit(2);
     openFiles(STRING);
     // note that foo.xml is pinned
     assertOpenFiles("foo.xml", "3.txt");
   }
 
   public void testSingleTabLimit() throws Exception {
-    UISettings.getInstance().setEditorTabLimit(1);
+    UISettings.getInstance().getState().setEditorTabLimit(1);
     openFiles(STRING.replace("pinned=\"true\"", "pinned=\"false\""));
     assertOpenFiles("3.txt");
 
@@ -94,20 +85,21 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   }
 
   public void testReuseNotModifiedTabs() {
-    UISettings.getInstance().setEditorTabLimit(2);
-    UISettings.getInstance().setReuseNotModifiedTabs(false);
+    UISettingsState uiSettings = UISettings.getInstance().getState();
+    uiSettings.setEditorTabLimit(2);
+    uiSettings.setReuseNotModifiedTabs(false);
 
     myManager.openFile(getFile("/src/3.txt"), true);
     myManager.openFile(getFile("/src/foo.xml"), true);
     assertOpenFiles("3.txt", "foo.xml");
-    UISettings.getInstance().setEditorTabLimit(1);
+    uiSettings.setEditorTabLimit(1);
     callTrimToSize();
     assertOpenFiles("foo.xml");
-    UISettings.getInstance().setEditorTabLimit(2);
+    uiSettings.setEditorTabLimit(2);
 
     myManager.closeAllFiles();
 
-    UISettings.getInstance().setReuseNotModifiedTabs(true);
+    uiSettings.setReuseNotModifiedTabs(true);
     myManager.openFile(getFile("/src/3.txt"), true);
     assertOpenFiles("3.txt");
     myManager.openFile(getFile("/src/foo.xml"), true);
@@ -115,18 +107,19 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   }
 
   private void callTrimToSize() {
+    UISettingsState uiSettings = UISettings.getInstance().getState();
     for (EditorsSplitters each : myManager.getAllSplitters()) {
-      each.trimToSize(UISettings.getInstance().getEditorTabLimit());
+      each.trimToSize(uiSettings.getEditorTabLimit());
     }
   }
 
   public void testOpenRecentEditorTab() throws Exception {
-    PlatformTestUtil
-      .registerExtension(FileEditorProvider.EP_FILE_EDITOR_PROVIDER, new MyFileEditorProvider(), myFixture.getTestRootDisposable());
+    FileEditorProvider.EP_FILE_EDITOR_PROVIDER
+      .getPoint(null).registerExtension(new MyFileEditorProvider(), myFixture.getTestRootDisposable());
 
     openFiles("  <component name=\"FileEditorManager\">\n" +
               "    <leaf>\n" +
-              "      <file leaf-file-name=\"foo.xsd\" pinned=\"false\" current=\"true\" current-in-tab=\"true\">\n" +
+              "      <file pinned=\"false\" current=\"true\" current-in-tab=\"true\">\n" +
               "        <entry selected=\"true\" file=\"file://$PROJECT_DIR$/src/1.txt\">\n" +
               "          <provider editor-type-id=\"mock\" selected=\"true\">\n" +
               "            <state />\n" +
@@ -144,8 +137,8 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   }
 
   public void testTrackSelectedEditor() {
-    PlatformTestUtil
-      .registerExtension(FileEditorProvider.EP_FILE_EDITOR_PROVIDER, new MyFileEditorProvider(), myFixture.getTestRootDisposable());
+    FileEditorProvider.EP_FILE_EDITOR_PROVIDER
+      .getPoint(null).registerExtension(new MyFileEditorProvider(), myFixture.getTestRootDisposable());
     VirtualFile file = getFile("/src/1.txt");
     assertNotNull(file);
     FileEditor[] editors = myManager.openFile(file, true);
@@ -207,10 +200,9 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
   }
 
   public void testOpenInDumbMode() {
-    PlatformTestUtil
-      .registerExtension(FileEditorProvider.EP_FILE_EDITOR_PROVIDER, new MyFileEditorProvider(), myFixture.getTestRootDisposable());
-    PlatformTestUtil
-      .registerExtension(FileEditorProvider.EP_FILE_EDITOR_PROVIDER, new DumbAwareProvider(), myFixture.getTestRootDisposable());
+    FileEditorProvider.EP_FILE_EDITOR_PROVIDER
+      .getPoint(null).registerExtension(new MyFileEditorProvider(), myFixture.getTestRootDisposable());
+    FileEditorProvider.EP_FILE_EDITOR_PROVIDER.getPoint(null).registerExtension(new DumbAwareProvider(), myFixture.getTestRootDisposable());
     try {
       DumbServiceImpl.getInstance(getProject()).setDumb(true);
       VirtualFile file = getFile("/src/foo.bar");
@@ -227,7 +219,7 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
 
   private static final String STRING = "<component name=\"FileEditorManager\">\n" +
                                        "    <leaf>\n" +
-                                       "      <file leaf-file-name=\"1.txt\" pinned=\"false\" current=\"false\" current-in-tab=\"false\">\n" +
+                                       "      <file pinned=\"false\" current=\"false\" current-in-tab=\"false\">\n" +
                                        "        <entry file=\"file://$PROJECT_DIR$/src/1.txt\">\n" +
                                        "          <provider selected=\"true\" editor-type-id=\"text-editor\">\n" +
                                        "            <state line=\"0\" column=\"0\" selection-start=\"0\" selection-end=\"0\" vertical-scroll-proportion=\"0.0\">\n" +
@@ -235,7 +227,7 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
                                        "          </provider>\n" +
                                        "        </entry>\n" +
                                        "      </file>\n" +
-                                       "      <file leaf-file-name=\"foo.xml\" pinned=\"true\" current=\"false\" current-in-tab=\"false\">\n" +
+                                       "      <file pinned=\"true\" current=\"false\" current-in-tab=\"false\">\n" +
                                        "        <entry file=\"file://$PROJECT_DIR$/src/foo.xml\">\n" +
                                        "          <provider selected=\"true\" editor-type-id=\"text-editor\">\n" +
                                        "            <state line=\"0\" column=\"0\" selection-start=\"0\" selection-end=\"0\" vertical-scroll-proportion=\"0.0\">\n" +
@@ -243,7 +235,7 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
                                        "          </provider>\n" +
                                        "        </entry>\n" +
                                        "      </file>\n" +
-                                       "      <file leaf-file-name=\"2.txt\" pinned=\"false\" current=\"true\" current-in-tab=\"true\">\n" +
+                                       "      <file pinned=\"false\" current=\"true\" current-in-tab=\"true\">\n" +
                                        "        <entry file=\"file://$PROJECT_DIR$/src/2.txt\">\n" +
                                        "          <provider selected=\"true\" editor-type-id=\"text-editor\">\n" +
                                        "            <state line=\"0\" column=\"0\" selection-start=\"0\" selection-end=\"0\" vertical-scroll-proportion=\"0.0\">\n" +
@@ -251,7 +243,7 @@ public class FileEditorManagerTest extends FileEditorManagerTestCase {
                                        "          </provider>\n" +
                                        "        </entry>\n" +
                                        "      </file>\n" +
-                                       "      <file leaf-file-name=\"3.txt\" pinned=\"false\" current=\"false\" current-in-tab=\"false\">\n" +
+                                       "      <file pinned=\"false\" current=\"false\" current-in-tab=\"false\">\n" +
                                        "        <entry file=\"file://$PROJECT_DIR$/src/3.txt\">\n" +
                                        "          <provider selected=\"true\" editor-type-id=\"text-editor\">\n" +
                                        "            <state line=\"0\" column=\"0\" selection-start=\"0\" selection-end=\"0\" vertical-scroll-proportion=\"0.0\">\n" +

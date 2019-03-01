@@ -15,14 +15,13 @@ public class ScratchesNamedScope extends NamedScope {
   public ScratchesNamedScope() {
     super(NAME, new AbstractPackageSet(NAME) {
       @Override
-      public boolean contains(VirtualFile file, NamedScopesHolder holder) {
+      public boolean contains(@NotNull VirtualFile file, NamedScopesHolder holder) {
         return contains(file, holder.getProject(), holder);
       }
 
       @Override
-      public boolean contains(VirtualFile file, @NotNull Project project, @Nullable NamedScopesHolder holder) {
-        RootType rootType = RootType.forFile(file);
-        return rootType != null && !rootType.isHidden();
+      public boolean contains(@NotNull VirtualFile file, @NotNull Project project, @Nullable NamedScopesHolder holder) {
+        return ScratchUtil.isScratch(file);
       }
     });
   }

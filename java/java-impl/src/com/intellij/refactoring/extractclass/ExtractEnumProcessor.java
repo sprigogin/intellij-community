@@ -69,7 +69,7 @@ public class ExtractEnumProcessor {
           }
         }
         resolvableConflicts.addAll(0, usageInfos);
-        refUsages.set(resolvableConflicts.toArray(new UsageInfo[resolvableConflicts.size()]));
+        refUsages.set(resolvableConflicts.toArray(UsageInfo.EMPTY_ARRAY));
       }
     }
   }
@@ -78,7 +78,7 @@ public class ExtractEnumProcessor {
     return myTypeMigrationProcessor != null;
   }
 
-  public List<FixableUsageInfo> findEnumConstantUsages(List<FixableUsageInfo> fieldUsages) {
+  public List<FixableUsageInfo> findEnumConstantUsages(List<? extends FixableUsageInfo> fieldUsages) {
     final List<FixableUsageInfo> result = new ArrayList<>();
     if (!myEnumConstants.isEmpty()) {
       final Set<PsiSwitchStatement> switchStatements = new HashSet<>();
@@ -162,14 +162,14 @@ public class ExtractEnumProcessor {
           migrationInfos.add(((EnumTypeMigrationUsageInfo)usageInfo).getUsageInfo());
         }
       }
-      myTypeMigrationProcessor.performRefactoring(migrationInfos.toArray(new UsageInfo[migrationInfos.size()]));
+      myTypeMigrationProcessor.performRefactoring(migrationInfos.toArray(UsageInfo.EMPTY_ARRAY));
     }
   }
 
   private static class EnumTypeMigrationUsageInfo extends FixableUsageInfo {
     private final UsageInfo myUsageInfo;
 
-    public EnumTypeMigrationUsageInfo(UsageInfo usageInfo) {
+    EnumTypeMigrationUsageInfo(UsageInfo usageInfo) {
       super(usageInfo.getElement());
       myUsageInfo = usageInfo;
     }
@@ -186,7 +186,7 @@ public class ExtractEnumProcessor {
   private static class ConflictUsageInfo extends FixableUsageInfo {
     private final String myDescription;
 
-    public ConflictUsageInfo(PsiElement expression, String description) {
+    ConflictUsageInfo(PsiElement expression, String description) {
       super(expression);
       myDescription = description;
     }

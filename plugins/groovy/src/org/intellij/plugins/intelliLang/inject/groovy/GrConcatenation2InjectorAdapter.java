@@ -6,7 +6,7 @@ package org.intellij.plugins.intelliLang.inject.groovy;
 import com.intellij.lang.injection.MultiHostInjector;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.impl.source.tree.injected.JavaConcatenationInjectorManager;
+import com.intellij.psi.impl.source.tree.injected.ConcatenationInjectorManager;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
@@ -23,8 +23,8 @@ import java.util.List;
 /**
  * @author Max Medvedev
  */
-public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorManager.BaseConcatenation2InjectorAdapter implements MultiHostInjector {
-  public GrConcatenation2InjectorAdapter(JavaConcatenationInjectorManager manager) {
+public class GrConcatenation2InjectorAdapter extends ConcatenationInjectorManager.BaseConcatenation2InjectorAdapter implements MultiHostInjector {
+  public GrConcatenation2InjectorAdapter(ConcatenationInjectorManager manager) {
     super(manager);
   }
 
@@ -78,7 +78,7 @@ public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorMa
   private static PsiElement[] collectGStringOperands(GrString grString) {
     final ArrayList<PsiElement> operands = ContainerUtil.newArrayList();
     processGString(grString, operands);
-    return operands.toArray(new PsiElement[operands.size()]);
+    return operands.toArray(PsiElement.EMPTY_ARRAY);
   }
 
   private static void processGString(GrString string, ArrayList<PsiElement> operands) {
@@ -88,7 +88,7 @@ public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorMa
   private static PsiElement[] collectBinaryOperands(GrBinaryExpression expression) {
     final ArrayList<PsiElement> operands = ContainerUtil.newArrayList();
     processBinary(expression, operands);
-    return operands.toArray(new PsiElement[operands.size()]);
+    return operands.toArray(PsiElement.EMPTY_ARRAY);
   }
 
   private static void processBinary(GrBinaryExpression expression, ArrayList<PsiElement> operands) {

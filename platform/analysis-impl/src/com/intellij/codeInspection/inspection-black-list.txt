@@ -35,7 +35,6 @@ com.jetbrains.python.inspections.PyCompatibilityInspection
 com.jetbrains.python.inspections.PyRedundantParenthesesInspection
 com.jetbrains.python.inspections.PyPackageRequirementsInspection
 com.jetbrains.python.inspections.PyUnusedLocalInspection
-com.jetbrains.quirksmode.QuirksModeInspectionTool
 com.jetbrains.rest.inspections.RestRoleInspection
 com.sixrr.inspectjs.bitwise.PointlessBitwiseExpressionJSInspection
 com.sixrr.inspectjs.confusing.EmptyStatementBodyJSInspection
@@ -137,7 +136,6 @@ com.siyeh.ig.javabeans.ClassWithoutNoArgConstructorInspection
 com.siyeh.ig.javadoc.UnnecessaryJavaDocLinkInspection
 com.siyeh.ig.jdk.AutoBoxingInspection
 com.siyeh.ig.junit.TestCaseWithNoTestMethodsInspection
-com.siyeh.ig.junit.TestMethodWithoutAssertionInspection
 com.siyeh.ig.logging.ClassWithMultipleLoggersInspection
 com.siyeh.ig.logging.ClassWithoutLoggerInspection
 com.siyeh.ig.logging.LoggerInitializedWithForeignClassInspection
@@ -180,7 +178,6 @@ com.siyeh.ig.performance.CallToSimpleSetterInClassInspection
 com.siyeh.ig.performance.MethodMayBeStaticInspection
 com.siyeh.ig.performance.SizeReplaceableByIsEmptyInspection
 com.siyeh.ig.performance.StringConcatenationInLoopsInspection
-com.siyeh.ig.performance.StringConstructorInspection
 com.siyeh.ig.performance.StringReplaceableByStringBufferInspection
 com.siyeh.ig.portability.HardcodedFileSeparatorsInspection
 com.siyeh.ig.resources.ChannelResourceInspection

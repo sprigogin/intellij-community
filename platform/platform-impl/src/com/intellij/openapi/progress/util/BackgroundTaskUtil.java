@@ -30,10 +30,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
-import com.intellij.util.Consumer;
-import com.intellij.util.Function;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.PairConsumer;
+import com.intellij.util.*;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.Topic;
@@ -47,6 +44,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class BackgroundTaskUtil {
   private static final Logger LOG = Logger.getInstance(BackgroundTaskUtil.class);
+
+  @NotNull
+  @CalledInAwt
+  public static ProgressIndicator executeAndTryWait(@NotNull Function<? super ProgressIndicator, /*@NotNull*/ ? extends Runnable> backgroundTask,
+                                                    @Nullable Runnable onSlowAction) {
+    return executeAndTryWait(backgroundTask, onSlowAction, ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS, false);
+  }
 
   /**
     * Executor to perform <i>possibly</i> long operation on pooled thread.
@@ -71,7 +75,7 @@ public class BackgroundTaskUtil {
     */
   @NotNull
   @CalledInAwt
-  public static ProgressIndicator executeAndTryWait(@NotNull Function<ProgressIndicator, /*@NotNull*/ Runnable> backgroundTask,
+  public static ProgressIndicator executeAndTryWait(@NotNull Function<? super ProgressIndicator, /*@NotNull*/ ? extends Runnable> backgroundTask,
                                                     @Nullable Runnable onSlowAction,
                                                     long waitMillis,
                                                     boolean forceEDT) {
@@ -125,7 +129,7 @@ public class BackgroundTaskUtil {
    */
   @Nullable
   @CalledInAwt
-  public static <T> T tryComputeFast(@NotNull Function<ProgressIndicator, T> backgroundTask,
+  public static <T> T tryComputeFast(@NotNull Function<? super ProgressIndicator, ? extends T> backgroundTask,
                                      long waitMillis) {
     Pair<T, ProgressIndicator> pair = computeInBackgroundAndTryWait(
       backgroundTask,
@@ -143,8 +147,8 @@ public class BackgroundTaskUtil {
 
   @Nullable
   @CalledInAny
-  public static <T> T computeInBackgroundAndTryWait(@NotNull Computable<T> computable,
-                                                    @NotNull Consumer<T> asyncCallback,
+  public static <T> T computeInBackgroundAndTryWait(@NotNull Computable<? extends T> computable,
+                                                    @NotNull Consumer<? super T> asyncCallback,
                                                     long waitMillis) {
     Pair<T, ProgressIndicator> pair = computeInBackgroundAndTryWait(
       indicator -> computable.compute(),
@@ -165,24 +169,19 @@ public class BackgroundTaskUtil {
    */
   @NotNull
   @CalledInAny
-  private static <T> Pair<T, ProgressIndicator> computeInBackgroundAndTryWait(@NotNull Function<ProgressIndicator, T> task,
-                                                                              @NotNull PairConsumer<T, ProgressIndicator> asyncCallback,
+  private static <T> Pair<T, ProgressIndicator> computeInBackgroundAndTryWait(@NotNull Function<? super ProgressIndicator, ? extends T> task,
+                                                                              @NotNull PairConsumer<? super T, ? super ProgressIndicator> asyncCallback,
                                                                               @NotNull ModalityState modality,
                                                                               long waitMillis) {
     ProgressIndicator indicator = new EmptyProgressIndicator(modality);
+    indicator.start();
 
     Helper<T> helper = new Helper<>();
 
-    indicator.start();
-    ApplicationManager.getApplication().executeOnPooledThread(() -> ProgressManager.getInstance().executeProcessUnderProgress(() -> {
-      try {
-        T result = task.fun(indicator);
-        if (!helper.setResult(result)) {
-          asyncCallback.consume(result, indicator);
-        }
-      }
-      finally {
-        indicator.stop();
+    ApplicationManager.getApplication().executeOnPooledThread(() -> ProgressManager.getInstance().runProcess(() -> {
+      T result = task.fun(indicator);
+      if (!helper.setResult(result)) {
+        asyncCallback.consume(result, indicator);
       }
     }, indicator));
 
@@ -208,9 +207,7 @@ public class BackgroundTaskUtil {
     ProgressIndicator indicator = new EmptyProgressIndicator();
     indicator.start();
 
-    CompletableFuture<?> future = CompletableFuture.runAsync(() -> {
-      ProgressManager.getInstance().runProcess(runnable, indicator);
-    }, AppExecutorUtil.getAppExecutorService());
+    CompletableFuture<?> future = CompletableFuture.runAsync(() -> ProgressManager.getInstance().runProcess(runnable, indicator), AppExecutorUtil.getAppExecutorService());
 
     Disposable disposable = () -> {
       if (indicator.isRunning()) indicator.cancel();
@@ -226,7 +223,7 @@ public class BackgroundTaskUtil {
         }
       }
       catch (InterruptedException | TimeoutException e) {
-        LOG.error(e);
+        LOG.debug("Couldn't await background process on disposal: " + runnable);
       }
     };
 
@@ -318,8 +315,8 @@ public class BackgroundTaskUtil {
 
 
   private static class Helper<T> {
-    private static final Object INITIAL_STATE = new Object();
-    private static final Object SLOW_OPERATION_STATE = new Object();
+    private static final Object INITIAL_STATE = ObjectUtils.sentinel("INITIAL_STATE");
+    private static final Object SLOW_OPERATION_STATE = ObjectUtils.sentinel("SLOW_OPERATION_STATE");
 
     private final Semaphore mySemaphore = new Semaphore(0);
     private final AtomicReference<Object> myResultRef = new AtomicReference<>(INITIAL_STATE);

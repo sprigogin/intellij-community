@@ -109,7 +109,7 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
       findElementUsages(result, element);
     }
 
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   private void findElementUsages(ArrayList<UsageInfo> result, PsiElement element) {
@@ -194,14 +194,15 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
 
       retargetUsages(usages, oldToNewMap);
 
-      if (MoveFilesOrDirectoriesDialog.isOpenInEditor()) {
-        EditorHelper.openFilesInEditor(movedFiles.toArray(new PsiFile[movedFiles.size()]));
-      }
-
       // Perform CVS "add", "remove" commands on moved files.
 
       if (myMoveCallback != null) {
         myMoveCallback.refactoringCompleted();
+      }
+      if (MoveFilesOrDirectoriesDialog.isOpenInEditor()) {
+        ApplicationManager.getApplication().invokeLater(() ->
+          EditorHelper.openFilesInEditor(movedFiles.stream().filter(PsiElement::isValid).toArray(PsiFile[]::new))
+        );
       }
 
     }
@@ -251,7 +252,7 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
     }
   }
 
-  private static void processDirectoryFiles(List<PsiFile> movedFiles, Map<PsiElement, PsiElement> oldToNewMap, PsiElement psiElement) {
+  private static void processDirectoryFiles(List<? super PsiFile> movedFiles, Map<PsiElement, PsiElement> oldToNewMap, PsiElement psiElement) {
     if (psiElement instanceof PsiFile) {
       final PsiFile movedFile = (PsiFile)psiElement;
       MoveFileHandler.forElement(movedFile).prepareMovedFile(movedFile, movedFile.getParent(), oldToNewMap);
@@ -294,19 +295,26 @@ public class MoveFilesOrDirectoriesProcessor extends BaseRefactoringProcessor {
       MoveFileHandler.forElement(movedFile).retargetUsages(myFoundUsages.get(movedFile), oldToNewMap);
     }
 
-    myNonCodeUsages = nonCodeUsages.toArray(new NonCodeUsageInfo[nonCodeUsages.size()]);
+    myNonCodeUsages = nonCodeUsages.toArray(new NonCodeUsageInfo[0]);
   }
 
+  @NotNull
   @Override
   protected String getCommandName() {
     return RefactoringBundle.message("move.title");
+  }
+
+  @Override
+  protected boolean shouldDisableAccessChecks() {
+    // No need to check access for files before move
+    return true;
   }
 
   static class MyUsageInfo extends UsageInfo {
     int myIndex;
     PsiReference myReference;
 
-    public MyUsageInfo(PsiElement element, final int index, PsiReference reference) {
+    MyUsageInfo(PsiElement element, final int index, PsiReference reference) {
       super(element);
       myIndex = index;
       myReference = reference;

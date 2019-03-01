@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.GutterMark;
@@ -35,6 +21,7 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.*;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
@@ -52,7 +39,9 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class HighlightInfo implements Segment {
@@ -83,7 +72,9 @@ public class HighlightInfo implements Segment {
 
   volatile RangeHighlighterEx highlighter;// modified in EDT only
 
+  @Nullable
   public List<Pair<IntentionActionDescriptor, TextRange>> quickFixActionRanges;
+  @Nullable
   public List<Pair<IntentionActionDescriptor, RangeMarker>> quickFixActionMarkers;
 
   private final GutterMark gutterIconRenderer;
@@ -97,6 +88,18 @@ public class HighlightInfo implements Segment {
   private static final byte FILE_LEVEL_ANNOTATION_MASK = 16;
   private static final byte NEEDS_UPDATE_ON_TYPING_MASK = 32;
   PsiElement psiElement;
+
+  /**
+   * Returns the HighlightInfo instance from which the given range highlighter was created, or null if there isn't any.
+   */
+  @Nullable
+  public static HighlightInfo fromRangeHighlighter(@NotNull RangeHighlighter highlighter) {
+    Object errorStripeTooltip = highlighter.getErrorStripeTooltip();
+    if (errorStripeTooltip instanceof HighlightInfo) {
+      return (HighlightInfo) errorStripeTooltip;
+    }
+    return null;
+  }
 
   @NotNull
   ProperTextRange getFixTextRange() {
@@ -116,17 +119,28 @@ public class HighlightInfo implements Segment {
     return XmlStringUtil.wrapInHtml(decoded);
   }
 
-  private static String encodeTooltip(String toolTip, String description) {
-    if (toolTip == null || description == null) return toolTip;
-    String unescaped = StringUtil.unescapeXml(XmlStringUtil.stripHtml(toolTip));
+  /**
+   * Encodes \p tooltip so that substrings equal to a \p description
+   * are replaced with the special placeholder to reduce size of the
+   * tooltip. If encoding takes place, <html></html> tags are
+   * stripped of the tooltip.
+   *
+   * @param tooltip - html text
+   * @param description - plain text (not escaped)
+   *
+   * @return encoded tooltip (stripped html text with one or more placeholder characters)
+   *         or tooltip without changes.
+   */
+  private static String encodeTooltip(String tooltip, String description) {
+    if (tooltip == null || description == null || description.isEmpty()) return tooltip;
 
-    String encoded = description.isEmpty() ? unescaped : StringUtil.replace(unescaped, description, DESCRIPTION_PLACEHOLDER);
+    String encoded = StringUtil.replace(tooltip, XmlStringUtil.escapeString(description), DESCRIPTION_PLACEHOLDER);
     //noinspection StringEquality
-    if (encoded == unescaped) {
-      return toolTip;
+    if (encoded == tooltip) {
+      return tooltip;
     }
     if (encoded.equals(DESCRIPTION_PLACEHOLDER)) encoded = DESCRIPTION_PLACEHOLDER;
-    return encoded;
+    return XmlStringUtil.stripHtml(encoded);
   }
 
   public String getDescription() {
@@ -644,7 +658,7 @@ public class HighlightInfo implements Segment {
 
   private static final String ANNOTATOR_INSPECTION_SHORT_NAME = "Annotator";
 
-  private static void appendFixes(@Nullable TextRange fixedRange, @NotNull HighlightInfo info, @Nullable List<Annotation.QuickFixInfo> fixes) {
+  private static void appendFixes(@Nullable TextRange fixedRange, @NotNull HighlightInfo info, @Nullable List<? extends Annotation.QuickFixInfo> fixes) {
     if (fixes != null) {
       for (final Annotation.QuickFixInfo quickFixInfo : fixes) {
         TextRange range = fixedRange != null ? fixedRange : quickFixInfo.textRange;
@@ -679,7 +693,7 @@ public class HighlightInfo implements Segment {
   @NotNull
   public static ProblemHighlightType convertType(HighlightInfoType infoType) {
     if (infoType == HighlightInfoType.ERROR || infoType == HighlightInfoType.WRONG_REF) return ProblemHighlightType.ERROR;
-    if (infoType == HighlightInfoType.WARNING) return ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
+    if (infoType == HighlightInfoType.WARNING) return ProblemHighlightType.WARNING;
     if (infoType == HighlightInfoType.INFORMATION) return ProblemHighlightType.INFORMATION;
     return ProblemHighlightType.WEAK_WARNING;
   }
@@ -687,7 +701,7 @@ public class HighlightInfo implements Segment {
   @NotNull
   public static ProblemHighlightType convertSeverityToProblemHighlight(HighlightSeverity severity) {
     return severity == HighlightSeverity.ERROR ? ProblemHighlightType.ERROR :
-           severity == HighlightSeverity.WARNING ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING :
+           severity == HighlightSeverity.WARNING ? ProblemHighlightType.WARNING :
            severity == HighlightSeverity.INFO ? ProblemHighlightType.INFO :
            severity == HighlightSeverity.WEAK_WARNING ? ProblemHighlightType.WEAK_WARNING : ProblemHighlightType.INFORMATION;
   }
@@ -758,6 +772,10 @@ public class HighlightInfo implements Segment {
 
     boolean isError() {
       return mySeverity == null || mySeverity.compareTo(HighlightSeverity.ERROR) >= 0;
+    }
+    
+    boolean isInformation() {
+      return HighlightSeverity.INFORMATION.equals(mySeverity);
     }
 
     boolean canCleanup(@NotNull PsiElement element) {

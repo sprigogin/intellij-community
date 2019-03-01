@@ -20,7 +20,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.ColorKey;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.util.Couple;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import com.intellij.openapi.vcs.annotate.TextAnnotationPresentation;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
@@ -39,14 +38,24 @@ import java.util.Map;
 public abstract class AnnotationFieldGutter implements ActiveAnnotationGutter {
   @NotNull protected final FileAnnotation myAnnotation;
   @NotNull private final TextAnnotationPresentation myPresentation;
-  @Nullable private Couple<Map<VcsRevisionNumber, Color>> myColorScheme;
+  @Nullable private final Couple<? extends Map<VcsRevisionNumber, Color>> myColorScheme;
 
   AnnotationFieldGutter(@NotNull FileAnnotation annotation,
                         @NotNull TextAnnotationPresentation presentation,
-                        @Nullable Couple<Map<VcsRevisionNumber, Color>> colorScheme) {
+                        @Nullable Couple<? extends Map<VcsRevisionNumber, Color>> colorScheme) {
     myAnnotation = annotation;
     myPresentation = presentation;
     myColorScheme = colorScheme;
+  }
+
+  @NotNull
+  public FileAnnotation getFileAnnotation() {
+    return myAnnotation;
+  }
+
+  @NotNull
+  public TextAnnotationPresentation getPresentation() {
+    return myPresentation;
   }
 
   public boolean isGutterAction() {

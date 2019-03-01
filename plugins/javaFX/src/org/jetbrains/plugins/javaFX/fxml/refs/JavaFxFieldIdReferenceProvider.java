@@ -42,7 +42,7 @@ public class JavaFxFieldIdReferenceProvider extends JavaFxControllerBasedReferen
     if (fieldOrGetterMethod == null) {
       final PsiMethod[] methods = aClass.findMethodsByName(name, true);
       for (PsiMethod method : methods) {
-        if (method.getParameterList().getParameters().length == 0) {
+        if (method.getParameterList().isEmpty()) {
           fieldOrGetterMethod = method;
           break;
         }
@@ -120,7 +120,7 @@ public class JavaFxFieldIdReferenceProvider extends JavaFxControllerBasedReferen
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       final String newPropertyName = JavaFxPsiUtil.getPropertyName(newElementName, myFieldOrMethod instanceof PsiMethod);
       return super.handleElementRename(newPropertyName);
     }

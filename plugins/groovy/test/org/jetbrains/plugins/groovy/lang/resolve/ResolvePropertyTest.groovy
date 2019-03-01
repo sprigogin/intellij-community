@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.psi.*
@@ -10,7 +10,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrClassDefinition
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrAccessorMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstant
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrGdkMethod
@@ -20,6 +19,8 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrTraitMethod
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil
 import org.jetbrains.plugins.groovy.util.TestUtils
 
+import static org.jetbrains.plugins.groovy.util.ThrowingTransformation.disableTransformations
+
 /**
  * @author ven
  */
@@ -27,11 +28,13 @@ class ResolvePropertyTest extends GroovyResolveTestCase {
   final String basePath = TestUtils.testDataPath + "resolve/property/"
 
   void testParameter1() throws Exception {
-    doTest("parameter1/A.groovy")
+    disableTransformations testRootDisposable
+    resolve "A.groovy", GrParameter
   }
 
   void testClosureParameter1() throws Exception {
-    doTest("closureParameter1/A.groovy")
+    disableTransformations testRootDisposable
+    resolve "A.groovy", GrParameter
   }
 
   void testClosureOwner() throws Exception {
@@ -41,19 +44,17 @@ class ResolvePropertyTest extends GroovyResolveTestCase {
   }
 
   void testLocal1() throws Exception {
+    disableTransformations testRootDisposable
     doTest("local1/A.groovy")
   }
 
   void testField1() throws Exception {
+    disableTransformations testRootDisposable
     doTest("field1/A.groovy")
   }
 
   void testField2() throws Exception {
     doTest("field2/A.groovy")
-  }
-
-  void testForVariable1() throws Exception {
-    doTest("forVariable1/ForVariable.groovy")
   }
 
   void testArrayLength() throws Exception {
@@ -80,19 +81,18 @@ class ResolvePropertyTest extends GroovyResolveTestCase {
     assertTrue(ref.resolve() instanceof GrAccessorMethod)
   }
 
-  void _testForVariable2() throws Exception {
-    doTest("forVariable2/ForVariable.groovy")
-  }
-
   void testCatchParameter() throws Exception {
-    doTest("catchParameter/CatchParameter.groovy")
+    disableTransformations testRootDisposable
+    resolve "CatchParameter.groovy", GrParameter
   }
 
   void testCaseClause() throws Exception {
+    disableTransformations testRootDisposable
     doTest("caseClause/CaseClause.groovy")
   }
 
   void testGrvy104() throws Exception {
+    disableTransformations testRootDisposable
     doTest("grvy104/Test.groovy")
   }
 
@@ -102,8 +102,8 @@ class ResolvePropertyTest extends GroovyResolveTestCase {
   }
 
   void testGrvy1483() throws Exception {
-    PsiReference ref = configureByFile("grvy1483/Test.groovy")
-    assertNotNull(ref.resolve())
+    disableTransformations testRootDisposable
+    resolve "Test.groovy", GrVariable
   }
 
   void testField3() throws Exception {
@@ -158,7 +158,8 @@ c = a<caret>a
   }
 
   void testDefinedVar1() throws Exception {
-    doTest("definedVar1/A.groovy")
+    disableTransformations testRootDisposable
+    resolve "A.groovy", GrVariable
   }
 
   void testOperatorOverload() throws Exception {
@@ -190,6 +191,7 @@ c = a<caret>a
   }
 
   void testGrvy575() throws Exception {
+    disableTransformations testRootDisposable
     doTest("grvy575/A.groovy")
   }
 
@@ -199,6 +201,7 @@ c = a<caret>a
   }
 
   void testClosureCall() throws Exception {
+    disableTransformations testRootDisposable
     PsiReference ref = configureByFile("closureCall/ClosureCall.groovy")
     assertTrue(ref.resolve() instanceof GrVariable)
   }
@@ -499,6 +502,17 @@ new Foo().fo<caret>o(2)"""
     assertInstanceOf resolved, GrAccessorMethod
   }
 
+  void 'test property vs field in call from outside'() {
+    def method = resolveByText '''\
+class C {
+  def foo = { 42 }
+  def getFoo() { return { 43 } }
+}
+new C().<caret>foo(2)
+''', GrMethod
+    assert !(method instanceof GrAccessorMethod)
+  }
+
   void testPropertyImportedOnDemand() {
     myFixture.addFileToProject("foo/A.groovy", 'package foo; class Foo {static def foo}')
     myFixture.configureByText("B.groovy", """package foo
@@ -508,22 +522,6 @@ print fo<caret>o""")
     def ref = findReference()
     def resolved = ref.resolve()
     assertInstanceOf(resolved, GrAccessorMethod)
-  }
-
-  void testFieldAccessOutsideClass() {
-    myFixture.configureByText("A.groovy", """
-class X {
-  public def foo = 3
-  def getFoo() {2}
-  def setFoo(def foo) {}
-}
-
-print new X().@f<caret>oo
-""")
-
-    def ref = findReference()
-    def resolved = ref.resolve()
-    assertInstanceOf(resolved, GrField)
   }
 
   void testSetterToAliasedImportedProperty() {
@@ -580,7 +578,7 @@ set<caret>Foo(2)
   }
 
   void testUpperCaseFieldWithoutGetter() {
-    assertInstanceOf(resolve("A.groovy"), GrAccessorMethod)
+    assertInstanceOf(resolve("A.groovy"), GrField)
   }
 
   void testGetterWithUpperCaseFieldReference() {
@@ -588,15 +586,7 @@ set<caret>Foo(2)
   }
 
   void testCommandExpressions() {
-    assertInstanceOf resolve("A.groovy"), GrField
-  }
-
-  void testMetaClassIsNotResolvedWithMapQualifier() {
-    assertNull resolve("A.groovy")
-  }
-
-  void testMetaClassIsResolvesWithMapQualifier() {
-    assertInstanceOf resolve("A.groovy"), PsiMethod
+    assertInstanceOf resolve("A.groovy"), GrAccessorMethod
   }
 
   void testStaticFieldOfInterface() {
@@ -624,6 +614,7 @@ set<caret>Foo(2)
   }
 
   void testAnonymousClassFieldAndLocalVar() {
+    disableTransformations testRootDisposable
     final PsiElement resolved = resolve("A.groovy")
     assertInstanceOf resolved, PsiVariable
     assertTrue PsiUtil.isLocalVariable(resolved)
@@ -698,69 +689,18 @@ print config.config<caret>File''')
     assert ref.resolve()
   }
 
-  void testDontResolvePropertyInMap() {
-    def ref = configureByText('''
-def map = new HashMap()
-print map.cla<caret>ss''')
-
-    assert !ref.resolve()
-  }
-
-  void 'test custom map properties'() {
-    myFixture.addFileToProject 'classes.groovy', '''\
-class Pojo {
-    def pojoProperty
-    def anotherPojoProperty
-}
-
-class SomeMapClass extends HashMap<String, Pojo> {
-
-    public static final CONSTANT = 1
-
-    static class Inner {
-        public static final INNER_CONSTANT = 4
-    }
-}
-'''
-    (configureByText('SomeMapClass.CONST<caret>ANT').element as GrReferenceExpression).with { ref ->
-      assert ref.resolve() instanceof GrField
-      assert ref.type.equalsToText('java.lang.Integer')
-    }
-    (configureByText('SomeMapClass.Inn<caret>er').element as GrReferenceExpression).with { ref ->
-      assert ref.resolve() instanceof GrClassDefinition
-      assert ref.type.equalsToText('java.lang.Class<SomeMapClass.Inner>')
-    }
-    assert configureByText('SomeMapClass.Inner.INNER_<caret>CONSTANT').resolve() instanceof GrField
-
-    assert !configureByText('def m = new SomeMapClass(); m.CONS<caret>TANT').resolve()
-    assert !configureByText('def m = new SomeMapClass(); m.In<caret>ner').resolve()
-
-    configureByText('def m = new SomeMapClass(); m.CONSTANT.pojo<caret>Property').resolve().with { resolved ->
-      assert resolved instanceof GrAccessorMethod
-      assert resolved.containingClass.name == 'Pojo'
-    }
-    configureByText('def m = new SomeMapClass(); m.Inner.anotherPojo<caret>Property').resolve().with { resolved ->
-      assert resolved instanceof GrAccessorMethod
-      assert resolved.containingClass.name == 'Pojo'
-    }
-    configureByText('def <T extends SomeMapClass> void foo(T a) { a.CONS<caret>TANT }').with { ref ->
-      assert !ref.resolve()
-      assert (ref as GrReferenceExpression).type.equalsToText('Pojo')
-    }
-  }
-
   void testResolveInsideWith0() {
     def resolved = resolve('a.groovy', GrAccessorMethod)
     assertEquals(resolved.containingClass.name, 'A')
   }
 
   void testResolveInsideWith1() {
-    def resolved = resolve('a.groovy', GrField)
+    def resolved = resolve('a.groovy', GrAccessorMethod)
     assertEquals(resolved.containingClass.name, 'B')
   }
 
-
   void testLocalVarVsFieldInWithClosure() {
+// TODO disableTransformations testRootDisposable
     def ref = configureByText('''\
 class Test {
   def var
@@ -988,14 +928,11 @@ class Const {
   static final int Field1 = 2
 }
 ''')
-
-    final ref = configureByText('''\
+    resolveByText '''\
 import static pack.Const.getField1
 
 print Fie<caret>ld1
-''')
-
-    assertNotNull(ref.resolve())
+''', null
   }
 
   void testImportedProperty2() {
@@ -1007,13 +944,11 @@ class Const {
 }
 ''')
 
-    final ref = configureByText('''\
+    resolveByText '''\
 import static pack.Const.getField1
 
 print fie<caret>ld1
-''')
-
-    assertNotNull(ref.resolve())
+''', GrAccessorMethod
   }
 
   void testImportedProperty3() {
@@ -1025,13 +960,11 @@ class Const {
 }
 ''')
 
-    final ref = configureByText('''\
+    resolveByText '''\
 import static pack.Const.getField1 as getBar
 
 print Ba<caret>r
-''')
-
-    assertNotNull(ref.resolve())
+''', null
   }
 
   void testImportedProperty4() {
@@ -1043,13 +976,11 @@ class Const {
 }
 ''')
 
-    final ref = configureByText('''\
+    resolveByText '''\
 import static pack.Const.getField1 as getBar
 
 print ba<caret>r
-''')
-
-    assertNotNull(ref.resolve())
+''', GrAccessorMethod
   }
 
   void testImportedProperty5() {
@@ -1061,17 +992,16 @@ class Const {
 }
 ''')
 
-    final ref = configureByText('''\
+    resolveByText '''\
 import static pack.Const.getField1
 
 print Fie<caret>ld1
-''')
-
-    assertNotNull(ref.resolve())
+''', null
   }
 
   void testLocalVarVsClassFieldInAnonymous() {
-    final ref = configureByText('a.groovy', '''\
+    disableTransformations testRootDisposable
+    def resolved = resolveByText '''\
       class A {
         public foo
       }
@@ -1083,10 +1013,8 @@ print Fie<caret>ld1
           print fo<caret>o
         }
       }
-''')
-
-    assertFalse(ref.resolve() instanceof PsiField)
-    assertTrue(ref.resolve() instanceof GrVariable)
+''', GrVariable
+    assert !(resolved instanceof PsiField)
   }
 
   void testInterfaceDoesNotResolveWithExpressionQualifier() {
@@ -1269,22 +1197,24 @@ aaa = 1
 
   void testVarVsPackage2() {
     myFixture.addClass('''package p; public class A {}''')
+    disableTransformations testRootDisposable
 
-    resolveByText('''\
+    resolveByText '''\
       def p = [A:5]
 
       print <caret>p
-''', PsiVariable)
+''', GrVariable
   }
 
   void testVarVsPackage3() {
     myFixture.addClass('''package p; public class A {}''')
+    disableTransformations testRootDisposable
 
-    resolveByText('''\
+    resolveByText '''\
       def p = [A:{2}]
 
       print <caret>p.A()
-''', PsiVariable)
+''', GrVariable
   }
 
   void testVarVsPackage4() {
@@ -1299,86 +1229,28 @@ aaa = 1
 
   void testVarVsClass1() {
     myFixture.addClass('package p; public class A {public static int foo() {return 1;}}')
+    disableTransformations testRootDisposable
 
-    resolveByText('''\
+    resolveByText '''\
 import p.A
 
 def A = [a:{-1}]
 
 print <caret>A
-''', PsiVariable)
+''', GrVariable
   }
 
   void testVarVsClass2() {
     myFixture.addClass('package p; public class A {public static int foo() {return 1;}}')
+    disableTransformations testRootDisposable
 
-    resolveByText('''\
+    resolveByText '''\
 import p.A
 
 def A = [a:{-1}]
 
 print <caret>A.a()
-''', PsiVariable)
-  }
-
-  void testPropertyVsAccessor() {
-    resolveByText('''\
-class ProductServiceImplTest  {
-    BackendClient backendClient
-
-    def setup() {
-        new ProductServiceImpl() {
-            protected BackendClient getBackendClient() {
-                return backend<caret>Client // <--- this expression is highlighted as member variable
-            }
-        }
-    }
-}
-
-class BackendClient{}
-class ProductServiceImpl{}
-''', GrMethod)
-  }
-
-  void testPropertyVsAccessor2() {
-    resolveByText('''\
-class ProductServiceImplTest  {
-    def setup() {
-        new ProductServiceImpl() {
-            BackendClient backendClient
-
-            protected BackendClient getBackendClient() {
-                return backendC<caret>lient
-            }
-        }
-    }
-}
-
-class BackendClient{}
-class ProductServiceImpl{}
-''', GrField)
-  }
-
-  void testPropertyVsAccessor3() {
-    resolveByText('''\
-class ProductServiceImplTest  {
-    BackendClient backendClient
-
-    protected BackendClient getBackendClient() {
-        return backendClient
-    }
-    def setup() {
-        new ProductServiceImpl() {
-           def foo() {
-             return backendClie<caret>nt
-           }
-        }
-    }
-}
-
-class BackendClient{}
-class ProductServiceImpl{}
-''', GrMethod)
+''', GrVariable
   }
 
   void testTraitPublicField1() {
@@ -1556,6 +1428,36 @@ class Foo {
   }
 
   void 'test prefer local over map key'() {
+    disableTransformations testRootDisposable
     resolveByText 'def abc = 42; [:].with { <caret>abc }', GrVariable
+  }
+
+  void 'test Class property vs instance property'() {
+    def property = resolveByText '''\
+class A {
+  int getName() { 42 }
+}
+
+println A.<caret>name
+''', PsiMethod
+    assert property.containingClass.qualifiedName == 'java.lang.Class'
+  }
+
+  void "test don't resolve to field in method call"() {
+    resolveByText '''\
+class Fff {
+  List<String> testThis = [""]
+  def usage() { <caret>testThis(1) }
+  def testThis(a) {}
+}
+''', GrMethod
+  }
+
+  void 'test static field via class instance'() {
+    resolveByText '''\
+class A { public static someStaticField = 42 }
+def a = A // class instance
+a.<caret>someStaticField
+''', GrField
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -58,7 +59,7 @@ public class StringBufferToStringInConcatenationInspection extends BaseInspectio
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message("string.buffer.to.string.in.concatenation.remove.quickfix");
+      return CommonQuickFixBundle.message("fix.remove", "toString()");
     }
 
     @Override
@@ -72,7 +73,7 @@ public class StringBufferToStringInConcatenationInspection extends BaseInspectio
       final PsiExpression qualifier = expression.getQualifierExpression();
       assert qualifier != null;
       CommentTracker commentTracker = new CommentTracker();
-      final String newExpression = commentTracker.markUnchanged(qualifier).getText();
+      final String newExpression = commentTracker.text(qualifier);
       PsiReplacementUtil.replaceExpression(methodCall, newExpression, commentTracker);
     }
   }
@@ -95,7 +96,7 @@ public class StringBufferToStringInConcatenationInspection extends BaseInspectio
         return;
       }
       final PsiParameterList parameterList = method.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      if (!parameterList.isEmpty()) {
         return;
       }
       final PsiClass aClass = method.getContainingClass();

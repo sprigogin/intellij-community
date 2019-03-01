@@ -37,24 +37,12 @@ public class UnusedImportInspection extends GlobalSimpleInspectionTool {
                         @NotNull ProblemDescriptionsProcessor problemDescriptionsProcessor) {
     if (!(file instanceof PsiJavaFile) || FileTypeUtils.isInServerPageFile(file)) return;
     PsiJavaFile javaFile = (PsiJavaFile)file;
-    final PsiPackageStatement packageStatement = javaFile.getPackageStatement();
-    final PsiModifierList annotationList;
-    if (packageStatement != null) {
-      annotationList = packageStatement.getAnnotationList();
-    }
-    else {
-      annotationList = null;
-    }
-
     final ImportsAreUsedVisitor visitor = new ImportsAreUsedVisitor(javaFile);
-    for (PsiClass aClass : javaFile.getClasses()) {
-      aClass.accept(visitor);
-    }
-    if (annotationList != null) {
-      annotationList.accept(visitor);
-    }
+    javaFile.accept(visitor);
     for (PsiImportStatementBase unusedImportStatement : visitor.getUnusedImportStatements()) {
-      if (unusedImportStatement.getImportReference() != null &&
+      PsiJavaCodeReferenceElement reference = unusedImportStatement.getImportReference();
+      if (reference != null &&
+          reference.multiResolve(false).length > 0 &&
           !(PsiTreeUtil.skipWhitespacesForward(unusedImportStatement) instanceof PsiErrorElement)) {
         problemsHolder.registerProblem(unusedImportStatement,
                                        InspectionGadgetsBundle.message("unused.import.problem.descriptor"),

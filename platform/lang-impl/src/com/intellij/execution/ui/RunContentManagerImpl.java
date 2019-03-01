@@ -1,9 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.ui;
 
-import com.intellij.execution.*;
+import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.Executor;
+import com.intellij.execution.ExecutorRegistry;
+import com.intellij.execution.KillableProcess;
+import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.dashboard.RunDashboardManager;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
@@ -12,30 +14,23 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.execution.ui.layout.impl.DockableGridContainerFactory;
 import com.intellij.ide.DataManager;
-import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.impl.ContentManagerWatcher;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.VetoableProjectManagerListener;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowManagerAdapter;
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.content.*;
 import com.intellij.ui.docking.DockManager;
 import com.intellij.util.SmartList;
-import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashMap;
@@ -45,6 +40,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 public class RunContentManagerImpl implements RunContentManager, Disposable {
   public static final Key<Boolean> ALWAYS_USE_DEFAULT_STOPPING_BEHAVIOUR_KEY = Key.create("ALWAYS_USE_DEFAULT_STOPPING_BEHAVIOUR_KEY");
@@ -54,7 +50,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
   private final Project myProject;
   private final Map<String, ContentManager> myToolwindowIdToContentManagerMap = new THashMap<>();
   private final Map<String, Icon> myToolwindowIdToBaseIconMap = new THashMap<>();
-  private final LinkedList<String> myToolwindowIdZBuffer = new LinkedList<>();
+  private final ConcurrentLinkedDeque<String> myToolwindowIdZBuffer = new ConcurrentLinkedDeque<>();
 
   public RunContentManagerImpl(@NotNull Project project, @NotNull DockManager dockManager) {
     myProject = project;
@@ -81,7 +77,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
     initToolWindow(null, dashboardManager.getToolWindowId(), dashboardManager.getToolWindowIcon(),
                    dashboardManager.getDashboardContentManager());
 
-    toolWindowManager.addToolWindowManagerListener(new ToolWindowManagerAdapter() {
+    myProject.getMessageBus().connect().subscribe(ToolWindowManagerListener.TOPIC, new ToolWindowManagerListener() {
       @Override
       public void stateChanged() {
         if (myProject.isDisposed()) {
@@ -119,7 +115,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
       private int myInsideGetData = 0;
 
       @Override
-      public Object getData(String dataId) {
+      public Object getData(@NotNull String dataId) {
         myInsideGetData++;
         try {
           if (PlatformDataKeys.HELP_ID.is(dataId)) {
@@ -144,7 +140,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
     myToolwindowIdToBaseIconMap.put(toolWindowId, toolWindowIcon);
     contentManager.addContentManagerListener(new ContentManagerAdapter() {
       @Override
-      public void selectionChanged(final ContentManagerEvent event) {
+      public void selectionChanged(@NotNull final ContentManagerEvent event) {
         if (event.getOperation() == ContentManagerEvent.ContentOperation.add) {
           Content content = event.getContent();
           Executor contentExecutor = executor;
@@ -177,7 +173,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
   }
 
   @Override
-  public void toFrontRunContent(final Executor requestor, final ProcessHandler handler) {
+  public void toFrontRunContent(@NotNull final Executor requestor, @NotNull final ProcessHandler handler) {
     final RunContentDescriptor descriptor = getDescriptorBy(handler, requestor);
     if (descriptor == null) {
       return;
@@ -186,7 +182,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
   }
 
   @Override
-  public void toFrontRunContent(final Executor requestor, final RunContentDescriptor descriptor) {
+  public void toFrontRunContent(@NotNull final Executor requestor, @NotNull final RunContentDescriptor descriptor) {
     ApplicationManager.getApplication().invokeLater(() -> {
       ContentManager contentManager = getContentManagerForRunner(requestor, descriptor);
       Content content = getRunContentByDescriptor(contentManager, descriptor);
@@ -242,7 +238,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
   }
 
   @Override
-  public boolean removeRunContent(@NotNull final Executor executor, final RunContentDescriptor descriptor) {
+  public boolean removeRunContent(@NotNull final Executor executor, @NotNull final RunContentDescriptor descriptor) {
     final ContentManager contentManager = getContentManagerForRunner(executor, descriptor);
     final Content content = getRunContentByDescriptor(contentManager, descriptor);
     return content != null && contentManager.removeContent(content, true);
@@ -336,7 +332,12 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
       contentManager.addContent(content);
       new CloseListener(content, executor);
     }
-    content.getManager().setSelectedContent(content);
+
+    if (descriptor.isSelectContentWhenAdded()
+        /* also update selection when reused content is already selected  */
+        || oldDescriptor != null && contentManager.isSelected(content)) {
+      content.getManager().setSelectedContent(content);
+    }
 
     if (!descriptor.isActivateToolWindowWhenAdded()) {
       return;
@@ -363,7 +364,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
       return contentToReuse;
     }
 
-    String toolWindowId = getContentDescriptorToolWindowId(executionEnvironment.getRunnerAndConfigurationSettings());
+    String toolWindowId = getContentDescriptorToolWindowId(executionEnvironment);
     final ContentManager contentManager = toolWindowId == null ?
                                           getContentManagerForRunner(executionEnvironment.getExecutor(), null) :
                                           myToolwindowIdToContentManagerMap.get(toolWindowId);
@@ -395,6 +396,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
         descriptor.setActivateToolWindowWhenAdded(contentToReuse.isActivateToolWindowWhenAdded());
       }
       descriptor.setContentToolWindowId(contentToReuse.getContentToolWindowId());
+      descriptor.setSelectContentWhenAdded(contentToReuse.isSelectContentWhenAdded());
     }
   }
 
@@ -403,7 +405,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
                                                                       @Nullable RunContentDescriptor descriptor,
                                                                       long executionId,
                                                                       @Nullable String preferredName,
-                                                                      @Nullable Condition<Content> reuseCondition) {
+                                                                      @Nullable Condition<? super Content> reuseCondition) {
     Content content = null;
     if (descriptor != null) {
       //Stage one: some specific descriptors (like AnalyzeStacktrace) cannot be reused at all
@@ -428,9 +430,13 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
       return null;
     }
     final RunContentDescriptor oldDescriptor = getRunContentDescriptorByContent(content);
-    if (oldDescriptor != null && !oldDescriptor.isContentReuseProhibited() ) {
-      //content.setExecutionId(executionId);
-      return oldDescriptor;
+    if (oldDescriptor != null) {
+      if (oldDescriptor.isContentReuseProhibited()) {
+        return null;
+      }
+      if (descriptor == null || oldDescriptor.getReusePolicy().canBeReusedBy(descriptor)) {
+        return oldDescriptor;
+      }
     }
 
     return null;
@@ -440,7 +446,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
   private static Content getContentFromManager(ContentManager contentManager,
                                                @Nullable String preferredName,
                                                long executionId,
-                                               @Nullable Condition<Content> reuseCondition) {
+                                               @Nullable Condition<? super Content> reuseCondition) {
     ArrayList<Content> contents = new ArrayList<>(Arrays.asList(contentManager.getContents()));
     Content first = contentManager.getSelectedContent();
     if (first != null && contents.remove(first)) {//selected content should be checked first
@@ -479,7 +485,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
     if (descriptor != null && descriptor.getContentToolWindowId() != null) {
       return descriptor.getContentToolWindowId();
     }
-    return  executor.getToolWindowId();
+    return executor.getToolWindowId();
   }
 
   private static Content createNewContent(final RunContentDescriptor descriptor, Executor executor) {
@@ -559,10 +565,10 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
 
   @Override
   @Nullable
-  public String getContentDescriptorToolWindowId(@Nullable RunnerAndConfigurationSettings settings) {
-    if (settings != null) {
+  public String getContentDescriptorToolWindowId(@Nullable RunConfiguration configuration) {
+    if (configuration != null) {
       RunDashboardManager runDashboardManager = RunDashboardManager.getInstance(myProject);
-      if (runDashboardManager.isShowInDashboard(settings.getConfiguration())) {
+      if (runDashboardManager.isShowInDashboard(configuration)) {
         return runDashboardManager.getToolWindowId();
       }
     }
@@ -576,7 +582,7 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
     // Also there are some places where ToolWindowId.RUN or ToolWindowId.DEBUG are used directly.
     // For example, HotSwapProgressImpl.NOTIFICATION_GROUP. All notifications for this group is shown in Debug tool window,
     // however such notifications should be shown in Run Dashboard tool window, if run content is redirected to Run Dashboard tool window.
-    String toolWindowId = getContentDescriptorToolWindowId(executionEnvironment.getRunnerAndConfigurationSettings());
+    String toolWindowId = getContentDescriptorToolWindowId(executionEnvironment);
     return toolWindowId != null ? toolWindowId : executionEnvironment.getExecutor().getToolWindowId();
   }
 
@@ -596,30 +602,16 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
     return null;
   }
 
-  private class CloseListener extends ContentManagerAdapter implements VetoableProjectManagerListener, Disposable {
-    private Content myContent;
+  private class CloseListener extends BaseContentCloseListener {
     private final Executor myExecutor;
 
-    private CloseListener(@NotNull final Content content, @NotNull Executor executor) {
-      myContent = content;
-      content.getManager().addContentManagerListener(this);
-      ProjectManager.getInstance().addProjectManagerListener(myProject, this);
+    private CloseListener(@NotNull final Content content, @NotNull final Executor executor) {
+      super(content, myProject);
       myExecutor = executor;
     }
 
     @Override
-    public void contentRemoved(final ContentManagerEvent event) {
-      final Content content = event.getContent();
-      if (content == myContent) {
-        Disposer.dispose(this);
-      }
-    }
-
-    @Override
-    public void dispose() {
-      if (myContent == null) return;
-
-      final Content content = myContent;
+    protected void disposeContent(@NotNull Content content) {
       try {
         RunContentDescriptor descriptor = getRunContentDescriptorByContent(content);
         getSyncPublisher().contentRemoved(descriptor, myExecutor);
@@ -628,48 +620,13 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
         }
       }
       finally {
-        content.getManager().removeContentManagerListener(this);
-        ProjectManager.getInstance().removeProjectManagerListener(myProject, this);
-        content.release(); // don't invoke myContent.release() because myContent becomes null after destroyProcess()
-        myContent = null;
+        content.release();
       }
     }
 
     @Override
-    public void contentRemoveQuery(final ContentManagerEvent event) {
-      if (event.getContent() == myContent) {
-        final boolean canClose = closeQuery(false);
-        if (!canClose) {
-          event.consume();
-        }
-      }
-    }
-
-    @Override
-    public void projectClosed(final Project project) {
-      if (myContent != null && project == myProject) {
-        myContent.getManager().removeContent(myContent, true);
-        Disposer.dispose(this); // Dispose content even if content manager refused to.
-      }
-    }
-
-    @Override
-    public boolean canClose(@NotNull Project project) {
-      if (project != myProject) return true;
-
-      if (myContent == null) return true;
-
-      final boolean canClose = closeQuery(true);
-      // Content could be removed during close query
-      if (canClose && myContent != null) {
-        myContent.getManager().removeContent(myContent, true);
-        myContent = null;
-      }
-      return canClose;
-    }
-
-    private boolean closeQuery(boolean modal) {
-      final RunContentDescriptor descriptor = getRunContentDescriptorByContent(myContent);
+    protected boolean closeQuery(@NotNull Content content, boolean modal) {
+      final RunContentDescriptor descriptor = getRunContentDescriptorByContent(content);
       if (descriptor == null) {
         return true;
       }
@@ -678,96 +635,27 @@ public class RunContentManagerImpl implements RunContentManager, Disposable {
       if (processHandler == null || processHandler.isProcessTerminated() || processHandler.isProcessTerminating()) {
         return true;
       }
-      GeneralSettings.ProcessCloseConfirmation rc = TerminateRemoteProcessDialog.show(
-        myProject, descriptor.getDisplayName(), processHandler);
-      if (rc == null) { // cancel
-        return false;
-      }
-      boolean destroyProcess = rc == GeneralSettings.ProcessCloseConfirmation.TERMINATE;
-      if (destroyProcess) {
-        processHandler.destroyProcess();
-      }
-      else {
-        processHandler.detachProcess();
-      }
-      waitForProcess(descriptor, modal);
-      return true;
+      final String sessionName = descriptor.getDisplayName();
+      final WaitForProcessTask task = new WaitForProcessTask(processHandler, sessionName, modal, myProject) {
+        final boolean killable =
+          !modal && (processHandler instanceof KillableProcess) && ((KillableProcess)processHandler).canKillProcess();
+
+        {
+          if (killable) {
+            String cancelText = ExecutionBundle.message("terminating.process.progress.kill");
+            setCancelText(cancelText);
+            setCancelTooltipText(cancelText);
+          }
+        }
+
+        @Override
+        public void onCancel() {
+          if (killable && !processHandler.isProcessTerminated()) {
+            ((KillableProcess)processHandler).killProcess();
+          }
+        }
+      };
+      return askUserAndWait(processHandler, sessionName, task);
     }
-  }
-
-  private void waitForProcess(final RunContentDescriptor descriptor, final boolean modal) {
-    final ProcessHandler processHandler = descriptor.getProcessHandler();
-    final boolean killable = !modal && (processHandler instanceof KillableProcess) && ((KillableProcess)processHandler).canKillProcess();
-
-    String title = ExecutionBundle.message("terminating.process.progress.title", descriptor.getDisplayName());
-    ProgressManager.getInstance().run(new Task.Backgroundable(myProject, title, true) {
-
-      {
-        if (killable) {
-          String cancelText= ExecutionBundle.message("terminating.process.progress.kill");
-          setCancelText(cancelText);
-          setCancelTooltipText(cancelText);
-        }
-      }
-
-      @Override
-      public boolean isConditionalModal() {
-        return modal;
-      }
-
-      @Override
-      public boolean shouldStartInBackground() {
-        return !modal;
-      }
-
-      @Override
-      public void run(@NotNull final ProgressIndicator progressIndicator) {
-        final Semaphore semaphore = new Semaphore();
-        semaphore.down();
-
-        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-          final ProcessHandler processHandler1 = descriptor.getProcessHandler();
-          try {
-            if (processHandler1 != null) {
-              processHandler1.waitFor();
-            }
-          }
-          finally {
-            semaphore.up();
-          }
-        });
-
-        progressIndicator.setText(ExecutionBundle.message("waiting.for.vm.detach.progress.text"));
-        ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-          @Override
-          public void run() {
-            while (true) {
-              if (progressIndicator.isCanceled() || !progressIndicator.isRunning()) {
-                semaphore.up();
-                break;
-              }
-              try {
-                //noinspection SynchronizeOnThis
-                synchronized (this) {
-                  //noinspection SynchronizeOnThis
-                  wait(2000L);
-                }
-              }
-              catch (InterruptedException ignore) {
-              }
-            }
-          }
-        });
-
-        semaphore.waitFor();
-      }
-
-      @Override
-      public void onCancel() {
-        if (killable && !processHandler.isProcessTerminated()) {
-          ((KillableProcess)processHandler).killProcess();
-        }
-      }
-    });
   }
 }

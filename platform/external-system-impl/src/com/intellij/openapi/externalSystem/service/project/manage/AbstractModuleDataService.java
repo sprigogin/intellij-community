@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.manage;
 
 import com.intellij.compiler.CompilerConfiguration;
+import com.intellij.configurationStore.StateStorageManagerKt;
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
 import com.intellij.ide.util.projectWizard.ModuleBuilder;
@@ -23,7 +10,6 @@ import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceKt;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager;
 import com.intellij.openapi.externalSystem.model.DataNode;
@@ -71,14 +57,12 @@ import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * @author Vladislav.Soroka
- * @since 8/5/2015
  */
 public abstract class AbstractModuleDataService<E extends ModuleData> extends AbstractProjectDataService<E, Module> {
 
@@ -119,7 +103,11 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
         setModuleOptions(module, node);
         ModifiableRootModel modifiableRootModel = modelsProvider.getModifiableRootModel(module);
         syncPaths(module, modifiableRootModel, node.getData());
-        setLanguageLevel(modifiableRootModel, node.getData());
+
+        if(ModuleTypeId.JAVA_MODULE.equals(module.getModuleTypeName()) && ExternalSystemApiUtil.isJavaCompatibleIde()) {
+          // todo [Vlad, IDEA-187832]: extract to `external-system-java` module
+          setLanguageLevel(modifiableRootModel, node.getData());
+        }
         setSdk(modifiableRootModel, node.getData());
       }
     }
@@ -188,8 +176,7 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
   private static void syncPaths(@NotNull Module module, @NotNull ModifiableRootModel modifiableModel, @NotNull ModuleData data) {
     CompilerModuleExtension extension = modifiableModel.getModuleExtension(CompilerModuleExtension.class);
     if (extension == null) {
-      //modifiableModel.dispose();
-      LOG.warn(String.format("Can't sync paths for module '%s'. Reason: no compiler extension is found for it", module.getName()));
+      LOG.debug(String.format("No compiler extension is found for '%s', compiler output path will not be synced.", module.getName()));
       return;
     }
     String compileOutputPath = data.getCompileOutputPath(ExternalSystemSourceType.SOURCE);
@@ -250,7 +237,7 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
           return;
         }
 
-        AbstractExternalSystemLocalSettings localSettings = ExternalSystemApiUtil.getLocalSettings(project, projectData.getOwner());
+        AbstractExternalSystemLocalSettings<?> localSettings = ExternalSystemApiUtil.getLocalSettings(project, projectData.getOwner());
         SyncType syncType = localSettings.getProjectSyncType().get(projectData.getLinkedExternalProjectPath());
         for (Module module : modules) {
           if (module.isDisposed()) continue;
@@ -258,7 +245,7 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
           if (!ApplicationManager.getApplication().isHeadlessEnvironment() && syncType == SyncType.RE_IMPORT) {
             try {
               // we need to save module configuration before dispose, to get the up-to-date content of the unlinked module iml
-              ServiceKt.getStateStore(module).save(new ArrayList<>());
+              StateStorageManagerKt.saveComponentManager(module);
               VirtualFile moduleFile = module.getModuleFile();
               if (moduleFile != null) {
                 Path orphanModulePath = unlinkedModulesDir.resolve(String.valueOf(path.hashCode()));
@@ -314,20 +301,19 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
 
       String buildSystem = projectData != null ? projectData.getOwner().getReadableName() : "build system";
       String content = ExternalSystemBundle.message("orphan.modules.text", buildSystem,
-                                                    StringUtil.shortenTextWithEllipsis(modulesToRestoreText.toString(), 100, 0));
+                                                    StringUtil.shortenTextWithEllipsis(modulesToRestoreText.toString(), 50, 0));
       Notification cleanUpNotification = ORPHAN_MODULE_NOTIFICATION_GROUP.createNotification(content, NotificationType.INFORMATION)
         .setListener((notification, event) -> {
           if (event.getEventType() != HyperlinkEvent.EventType.ACTIVATED) return;
-          if (showRemovedOrphanModules(modulesToRestore, project, buildSystem)) {
+          if (showRemovedOrphanModules(modulesToRestore, project)) {
             notification.expire();
           }
         })
         .whenExpired(() -> {
-          List<File> filesToRemove = orphanModules.stream().map(Path::toFile).collect(Collectors.toList());
-          filesToRemove.addAll(orphanModules.stream()
-                                 .map(path -> path.resolveSibling(path.getFileName() + ".path").toFile())
-                                 .collect(Collectors.toList()));
-          FileUtil.asyncDelete(filesToRemove);
+          List<File> filesToRemove = ContainerUtil.map(orphanModules, Path::toFile);
+          List<File> toRemove2 = ContainerUtil.map(orphanModules, path -> path.resolveSibling(path.getFileName() + ".path").toFile());
+
+          FileUtil.asyncDelete(ContainerUtil.concat(filesToRemove, toRemove2));
         });
 
       Disposer.register(project, cleanUpNotification::expire);
@@ -335,14 +321,14 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
     }
   }
 
+  @Override
   public void onFailureImport(Project project) {
     project.putUserData(ORPHAN_MODULE_FILES, null);
     project.putUserData(ORPHAN_MODULE_HANDLERS_COUNTER, null);
   }
 
   private static boolean showRemovedOrphanModules(@NotNull final List<Pair<String, Path>> orphanModules,
-                                                  @NotNull final Project project,
-                                                  @NotNull final String buildSystem) {
+                                                  @NotNull final Project project) {
     final CheckBoxList<Pair<String, Path>> orphanModulesList = new CheckBoxList<>();
     DialogWrapper dialog = new DialogWrapper(project) {
       {
@@ -373,7 +359,7 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
         GridBagConstraints gbConstraints = new GridBagConstraints();
         JPanel panel = new JPanel(new GridBagLayout());
         gbConstraints.insets = JBUI.insets(4, 0, 10, 8);
-        panel.add(new JLabel(ExternalSystemBundle.message("orphan.modules.dialog.text", buildSystem)), gbConstraints);
+        panel.add(new JLabel(ExternalSystemBundle.message("orphan.modules.dialog.text")), gbConstraints);
         return panel;
       }
     };

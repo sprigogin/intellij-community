@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.psiutils;
 
+import com.intellij.codeInspection.util.OptionalUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -55,7 +56,7 @@ public class TypeUtils {
 
   public static PsiClassType getType(@NotNull String fqName, @NotNull PsiElement context) {
     final Project project = context.getProject();
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     final GlobalSearchScope scope = context.getResolveScope();
     return factory.createTypeByFQClassName(fqName, scope);
   }
@@ -91,6 +92,7 @@ public class TypeUtils {
     return typeEquals(CommonClassNames.JAVA_LANG_STRING, targetType);
   }
 
+  @Contract("null -> false")
   public static boolean isOptional(@Nullable PsiType type) {
     return isOptional(PsiUtil.resolveClassInClassTypeOnly(type));
   }
@@ -102,10 +104,10 @@ public class TypeUtils {
     }
     final String qualifiedName = aClass.getQualifiedName();
     return CommonClassNames.JAVA_UTIL_OPTIONAL.equals(qualifiedName)
-           || "java.util.OptionalDouble".equals(qualifiedName)
-           || "java.util.OptionalInt".equals(qualifiedName)
-           || "java.util.OptionalLong".equals(qualifiedName)
-           || "com.google.common.base.Optional".equals(qualifiedName);
+           || OptionalUtil.OPTIONAL_DOUBLE.equals(qualifiedName)
+           || OptionalUtil.OPTIONAL_INT.equals(qualifiedName)
+           || OptionalUtil.OPTIONAL_LONG.equals(qualifiedName)
+           || OptionalUtil.GUAVA_OPTIONAL.equals(qualifiedName);
   }
 
   public static boolean isExpressionTypeAssignableWith(@NotNull PsiExpression expression, @NotNull Iterable<String> rhsTypeTexts) {
@@ -133,9 +135,7 @@ public class TypeUtils {
     if (expression == null) {
       return null;
     }
-    final PsiType type = expression instanceof PsiFunctionalExpression
-                         ? ((PsiFunctionalExpression)expression).getFunctionalInterfaceType()
-                         : expression.getType();
+    final PsiType type = FunctionalExpressionUtils.getFunctionalExpressionType(expression);
     if (type == null) {
       return null;
     }
@@ -274,5 +274,58 @@ public class TypeUtils {
     PsiClass superClass = JavaPsiFacade.getInstance(class1.getProject()).findClass(className, class1.getResolveScope());
     if (superClass == null) return false;
     return InheritanceUtil.isInheritorOrSelf(class1, superClass, true) && InheritanceUtil.isInheritorOrSelf(class2, superClass, true);
+  }
+
+  /**
+   * Returns true if instances of two given types cannot be equal according to equals method contract
+   * (e.g. {@code java.util.Set} and {@code java.util.List}).
+   *
+   * @param type1 first type
+   * @param type2 second type
+   * @return true if instances of given types cannot be equal
+   */
+  public static boolean cannotBeEqualByContract(PsiType type1, PsiType type2) {
+    // java.util.Set and java.util.List cannot be equal by contract
+    if (InheritanceUtil.isInheritor(type1, CommonClassNames.JAVA_UTIL_SET) && InheritanceUtil.isInheritor(type2, CommonClassNames.JAVA_UTIL_LIST)) {
+      return true;
+    }
+    if (InheritanceUtil.isInheritor(type1, CommonClassNames.JAVA_UTIL_LIST) && InheritanceUtil.isInheritor(type2, CommonClassNames.JAVA_UTIL_SET)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns a textual representation of default value representable by given type
+   * @param type type to get the default value for
+   * @return the textual representation of default value
+   */
+  @NonNls
+  public static String getDefaultValue(PsiType type) {
+    if (PsiType.INT.equals(type)) {
+      return "0";
+    }
+    else if (PsiType.LONG.equals(type)) {
+      return "0L";
+    }
+    else if (PsiType.DOUBLE.equals(type)) {
+      return "0.0";
+    }
+    else if (PsiType.FLOAT.equals(type)) {
+      return "0.0F";
+    }
+    else if (PsiType.SHORT.equals(type)) {
+      return "(short)0";
+    }
+    else if (PsiType.BYTE.equals(type)) {
+      return "(byte)0";
+    }
+    else if (PsiType.BOOLEAN.equals(type)) {
+      return PsiKeyword.FALSE;
+    }
+    else if (PsiType.CHAR.equals(type)) {
+      return "'\0'";
+    }
+    return PsiKeyword.NULL;
   }
 }

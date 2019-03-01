@@ -28,13 +28,14 @@ import java.util.*;
 public class PropertyResolver extends PropertyProviderFinder {
   private final String myPropertyName;
   private PropertiesProvider myResult;
-  private Set<String> myVariants = new HashSet<>();
+  private final Set<String> myVariants = new HashSet<>();
 
   private PropertyResolver(@NotNull String propertyName, DomElement contextElement) {
     super(contextElement);
     myPropertyName = propertyName;
   }
 
+  @Override
   public void visitAntDomAntCallParam(AntDomAntCallParam antCallParam) {
     // deliberately skip ancall params, they will be processed as a special case
   }

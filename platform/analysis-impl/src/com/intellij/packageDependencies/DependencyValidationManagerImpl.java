@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packageDependencies;
 
 import com.intellij.icons.AllIcons;
@@ -22,11 +8,12 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.NotNullLazyValue;
+import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.scope.packageSet.*;
 import com.intellij.ui.LayeredIcon;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashMap;
@@ -46,8 +33,7 @@ import java.util.Map;
   storages = @Storage(value = "scopes", stateSplitter = DependencyValidationManagerImpl.ScopesStateSplitter.class)
 )
 public class DependencyValidationManagerImpl extends DependencyValidationManager {
-  private static final NotNullLazyValue<Icon> ourSharedScopeIcon = new NotNullLazyValue<Icon>() {
-    @NotNull
+  private static final Icon ourSharedScopeIcon = new IconLoader.LazyIcon() {
     @Override
     protected Icon compute() {
       return new LayeredIcon(AllIcons.Ide.LocalScope, AllIcons.Nodes.Shared);
@@ -72,15 +58,11 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
   @NonNls private static final String UNNAMED_SCOPE = "unnamed_scope";
   @NonNls private static final String VALUE = "value";
 
-  public DependencyValidationManagerImpl(final Project project, NamedScopeManager namedScopeManager) {
+  public DependencyValidationManagerImpl(@NotNull Project project, @NotNull NamedScopeManager namedScopeManager) {
     super(project);
+
     myNamedScopeManager = namedScopeManager;
-    namedScopeManager.addScopeListener(new ScopeListener() {
-      @Override
-      public void scopesChanged() {
-        reloadScopes();
-      }
-    });
+    namedScopeManager.addScopeListener(() -> reloadScopes(), project);
   }
 
   @Override
@@ -89,15 +71,19 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
     final List<NamedScope> predefinedScopes = new ArrayList<>();
     final CustomScopesProvider[] scopesProviders = CustomScopesProvider.CUSTOM_SCOPES_PROVIDER.getExtensions(myProject);
     for (CustomScopesProvider scopesProvider : scopesProviders) {
-      predefinedScopes.addAll(scopesProvider.getFilteredScopes());
+      List<NamedScope> customScopes = scopesProvider.getFilteredScopes();
+      if (ArrayUtil.contains(null, customScopes)) {
+        throw new IllegalStateException("Provider.getFilteredScopes() must not return null scopes, got: " + customScopes+"; provider: "+scopesProvider + " ("+scopesProvider.getClass()+")");
+      }
+
+      predefinedScopes.addAll(customScopes);
     }
     return predefinedScopes;
   }
 
   @Override
   public NamedScope getPredefinedScope(@NotNull String name) {
-    final CustomScopesProvider[] scopesProviders = CustomScopesProvider.CUSTOM_SCOPES_PROVIDER.getExtensions(myProject);
-    for (CustomScopesProvider scopesProvider : scopesProviders) {
+    for (CustomScopesProvider scopesProvider : CustomScopesProvider.CUSTOM_SCOPES_PROVIDER.getExtensions(myProject)) {
       final NamedScope scope = scopesProvider instanceof CustomScopesProviderEx
                                ? ((CustomScopesProviderEx)scopesProvider).getCustomScope(name)
                                : CustomScopesProviderEx.findPredefinedScope(name, scopesProvider.getFilteredScopes());
@@ -132,7 +118,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
         result.add(dependencyRule);
       }
     }
-    return result.toArray(new DependencyRule[result.size()]);
+    return result.toArray(new DependencyRule[0]);
   }
 
   @NotNull
@@ -144,7 +130,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
         result.add(dependencyRule);
       }
     }
-    return result.toArray(new DependencyRule[result.size()]);
+    return result.toArray(new DependencyRule[0]);
   }
 
   @Override
@@ -167,7 +153,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
   @Override
   public DependencyRule[] getAllRules() {
     List<DependencyRule> rules = myState.rules;
-    return rules.toArray(new DependencyRule[rules.size()]);
+    return rules.toArray(new DependencyRule[0]);
   }
 
   @Override
@@ -195,6 +181,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
     }
   }
 
+  @NotNull
   @Override
   public String getDisplayName() {
     return IdeBundle.message("shared.scopes.node.text");
@@ -202,11 +189,11 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
 
   @Override
   public Icon getIcon() {
-    return ourSharedScopeIcon.getValue();
+    return ourSharedScopeIcon;
   }
 
   @Override
-  public void loadState(Element element) {
+  public void loadState(@NotNull Element element) {
     Element option = element.getChild("option");
     if (option != null && "SKIP_IMPORT_STATEMENTS".equals(option.getAttributeValue("name"))) {
       mySkipImportStatementsWasSpecified = !myProject.isDefault();
@@ -254,17 +241,17 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
     }
   }
 
+  @NotNull
   @Override
   public Element getState() {
     Element element = super.getState();
-    assert element != null;
     if (mySkipImportStatements || mySkipImportStatementsWasSpecified) {
       element.addContent(new Element("option").setAttribute("name", "SKIP_IMPORT_STATEMENTS").setAttribute("value", Boolean.toString(mySkipImportStatements)));
     }
 
     State state = myState;
     if (!state.unnamedScopes.isEmpty()) {
-      String[] unnamedScopes = state.unnamedScopes.keySet().toArray(new String[state.unnamedScopes.size()]);
+      String[] unnamedScopes = ArrayUtil.toStringArray(state.unnamedScopes.keySet());
       Arrays.sort(unnamedScopes);
       for (String unnamedScope : unnamedScopes) {
         element.addContent(new Element(UNNAMED_SCOPE).setAttribute(VALUE, unnamedScope));
@@ -371,7 +358,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
     });
   }
 
-  private static void addScopesToList(@NotNull final List<Pair<NamedScope, NamedScopesHolder>> scopeList,
+  private static void addScopesToList(@NotNull final List<? super Pair<NamedScope, NamedScopesHolder>> scopeList,
                                       @NotNull final NamedScopesHolder holder) {
     for (NamedScope scope : holder.getScopes()) {
       scopeList.add(Pair.create(scope, holder));
@@ -390,7 +377,7 @@ public class DependencyValidationManagerImpl extends DependencyValidationManager
   }
 
   @Override
-  public void setScopes(NamedScope[] scopes) {
+  public void setScopes(@NotNull NamedScope[] scopes) {
     super.setScopes(scopes);
     final List<String> order = myNamedScopeManager.myOrderState.myOrder;
     order.clear();

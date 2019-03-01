@@ -15,24 +15,26 @@
  */
 package com.intellij.vcs.log.ui.actions;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcs.log.VcsLogDataKeys;
+import com.intellij.vcs.log.VcsLogUi;
 import com.intellij.vcs.log.data.index.VcsLogIndex;
 import com.intellij.vcs.log.history.FileHistoryUiProperties;
 import com.intellij.vcs.log.impl.VcsLogManager;
 import com.intellij.vcs.log.impl.VcsLogUiProperties;
 import com.intellij.vcs.log.ui.VcsLogInternalDataKeys;
-import com.intellij.vcsUtil.VcsUtil;
-import icons.VcsLogIcons;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class ShowOtherBranchesAction extends BooleanPropertyToggleAction {
 
   public ShowOtherBranchesAction() {
-    super("Show All Branches", "Switch between showing only current branch and all branches", VcsLogIcons.ShowOtherBranches);
+    super("Show All Branches", "Switch between showing only current branch and all branches", AllIcons.Vcs.Branch);
   }
 
   @Override
@@ -47,9 +49,10 @@ public class ShowOtherBranchesAction extends BooleanPropertyToggleAction {
     Project project = e.getProject();
     FilePath filePath = e.getData(VcsDataKeys.FILE_PATH);
     VcsLogManager logManager = e.getData(VcsLogInternalDataKeys.LOG_MANAGER);
-    if (project != null && logManager != null && filePath != null) {
+    VcsLogUi logUi = e.getData(VcsLogDataKeys.VCS_LOG_UI);
+    if (project != null && logManager != null && filePath != null && logUi != null) {
       VcsLogIndex index = logManager.getDataManager().getIndex();
-      VirtualFile root = VcsUtil.getVcsRootFor(project, filePath);
+      VirtualFile root = VcsLogUtil.getActualRoot(project, filePath);
       if (root != null && !index.isIndexed(root)) {
         e.getPresentation().setEnabled(false);
       }
